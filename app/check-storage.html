@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>检查本地存储数据</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background-color: #f0f0f0;
+    }
+    .container {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #333;
+    }
+    h2 {
+      color: #555;
+      margin-top: 30px;
+    }
+    .key-value {
+      background-color: #f9f9f9;
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+      border-left: 4px solid #60a5fa;
+    }
+    .key {
+      font-weight: bold;
+      color: #333;
+    }
+    .value {
+      margin-top: 5px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    button {
+      background-color: #60a5fa;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+    }
+    button:hover {
+      background-color: #3b82f6;
+    }
+    .danger {
+      background-color: #ef4444;
+    }
+    .danger:hover {
+      background-color: #dc2626;
+    }
+    .success {
+      background-color: #10b981;
+    }
+    .success:hover {
+      background-color: #059669;
+    }
+    .info {
+      background-color: #f59e0b;
+    }
+    .info:hover {
+      background-color: #d97706;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>检查本地存储数据</h1>
+    
+    <div>
+      <button onclick="checkStorage()">检查存储数据</button>
+      <button onclick="clearAllStorage()" class="danger">清除所有存储</button>
+      <button onclick="clearExampleData()" class="info">只清除示例数据</button>
+      <button onclick="refreshPage()" class="success">刷新页面</button>
+    </div>
+
+    <h2>存储键值对：</h2>
+    <div id="storageContent"></div>
+  </div>
+
+  <script>
+    function checkStorage() {
+      const storageContent = document.getElementById('storageContent');
+      storageContent.innerHTML = '';
+      
+      if (localStorage.length === 0) {
+        storageContent.innerHTML = '<p>本地存储为空</p>';
+        return;
+      }
+      
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const value = localStorage.getItem(key);
+        
+        const keyValueDiv = document.createElement('div');
+        keyValueDiv.className = 'key-value';
+        
+        keyValueDiv.innerHTML = `
+          <div class="key">${key}</div>
+          <div class="value">${value}</div>
+        `;
+        
+        storageContent.appendChild(keyValueDiv);
+      }
+    }
+
+    function clearAllStorage() {
+      if (confirm('确定要清除所有本地存储数据吗？')) {
+        localStorage.clear();
+        alert('所有存储数据已清除');
+        checkStorage();
+      }
+    }
+
+    function clearExampleData() {
+      const exampleKeys = ['projects', 'tasks', 'notifications', 'members'];
+      exampleKeys.forEach(key => {
+        localStorage.removeItem(key);
+      });
+      alert('示例数据已清除');
+      checkStorage();
+    }
+
+    function refreshPage() {
+      location.reload();
+    }
+
+    // 页面加载时自动检查
+    window.onload = checkStorage;
+  </script>
+</body>
+</html>
