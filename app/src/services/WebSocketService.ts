@@ -65,6 +65,21 @@ class WebSocketService {
         return;
       }
 
+      // 🔧 修复内存泄漏：清理旧的 WebSocket 连接
+      if (this.ws) {
+        console.log('[WebSocketService] 清理旧的 WebSocket 连接');
+        // 移除所有事件监听器
+        this.ws.onopen = null;
+        this.ws.onmessage = null;
+        this.ws.onclose = null;
+        this.ws.onerror = null;
+        // 关闭连接
+        if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+          this.ws.close(1000, 'Reconnecting');
+        }
+        this.ws = null;
+      }
+
       this.sessionId = sessionId;
       this.username = username;
       this.isConnecting = true;
@@ -136,18 +151,27 @@ class WebSocketService {
   }
 
   disconnect(): void {
+    // 停止所有定时器
     this.stopHeartbeat();
-    this.stopHeartbeatMonitor();  // 新增：停止心跳监控
+    this.stopHeartbeatMonitor();
     this.clearReconnectTimeout();
-    
+
+    // 清理所有监听器（防止内存泄漏）
+    this.messageHandlers.clear();
+    this.connectionHandlers.clear();
+    this.disconnectHandlers.clear();
+    this.errorHandlers.clear();
+
     if (this.ws) {
       this.ws.close(1000, '用户主动断开');
       this.ws = null;
     }
-    
+
     this.sessionId = null;
     this.username = null;
     this.pendingMessages = [];
+    this.isConnecting = false;
+    this.isReconnecting = false;
   }
 
   send(message: any): boolean {

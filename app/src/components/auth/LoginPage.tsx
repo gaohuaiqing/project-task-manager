@@ -1,39 +1,37 @@
+/**
+ * 苹果风格登录页面
+ * Apple Style Login Page
+ *
+ * 基于 Apple Human Interface Guidelines 设计
+ * 简洁、优雅、注重细节
+ */
+
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { 
-  Shield, 
-  Lock, 
-  AlertCircle,
-  Users,
-  Briefcase,
-  Code,
-  ShieldCheck,
-  Settings,
-  IdCard,
-  ArrowLeft,
-  Eye,
-  EyeOff
-} from 'lucide-react';
-import { ROLE_CONFIG } from '@/types/auth';
+import {
+  AppleButton,
+  AppleCard,
+  AppleInput,
+} from '@/components/apple-design';
+import { Shield, Eye, EyeOff, Lock } from 'lucide-react';
 
-type LoginMode = 'user' | 'admin';
-
+/**
+ * 苹果风格登录页面
+ *
+ * 设计特点：
+ * - 简洁的背景，使用柔和的渐变
+ * - 玻璃态效果的登录卡片
+ * - 系统蓝色作为主色调
+ * - 流畅的动画过渡
+ * - 清晰的视觉层次
+ */
 export function LoginPage() {
-  const { login, adminLogin } = useAuth();
-  const [loginMode, setLoginMode] = useState<LoginMode>('user');
-  
-  // 登录表单状态
+  const { login } = useAuth();
+
+  // 表单状态
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-
-  // 密码可见性状态
   const [showPassword, setShowPassword] = useState(false);
-  const [showAdminPassword, setShowAdminPassword] = useState(false);
 
   // 消息状态
   const [error, setError] = useState('');
@@ -41,256 +39,228 @@ export function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('[LoginPage] 开始登录流程, username:', username);
     setError('');
     setIsLoading(true);
 
     try {
-      console.log('[LoginPage] 调用 login 函数...');
       const success = await login(username, password);
-      console.log('[LoginPage] login 返回结果:', success);
       if (!success) {
-        setError('工号或密码错误');
+        setError('账号或密码错误');
       }
     } catch (err) {
-      console.error('[LoginPage] 登录异常:', err);
       setError('登录失败，请重试');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleAdminLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setIsLoading(true);
-
-    try {
-      const success = await adminLogin(username, password);
-      if (!success) {
-        setError('管理员账号或密码错误');
-      }
-    } catch {
-      setError('登录失败，请重试');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const resetForm = () => {
-    setUsername('');
-    setPassword('');
-    setError('');
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div
+      className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden"
+      style={{
+        // 苹果风格的柔和渐变背景
+        background: `
+          linear-gradient(135deg,
+            hsl(var(--system-blue) / 0.05) 0%,
+            hsl(var(--background)) 50%,
+            hsl(var(--system-purple) / 0.05) 100%
+          )
+        `,
+      }}
+    >
+      {/* 背景装饰圆 */}
+      <div
+        className="absolute top-0 left-0 w-96 h-96 rounded-full"
+        style={{
+          background: 'radial-gradient(circle, hsl(var(--system-blue) / 0.1) 0%, transparent 70%)',
+          filter: 'blur(60px)',
+          animation: 'float 8s ease-in-out infinite',
+        }}
+      />
+      <div
+        className="absolute bottom-0 right-0 w-96 h-96 rounded-full"
+        style={{
+          background: 'radial-gradient(circle, hsl(var(--system-purple) / 0.08) 0%, transparent 70%)',
+          filter: 'blur(60px)',
+          animation: 'float 10s ease-in-out infinite reverse',
+        }}
+      />
+
+      {/* 主内容区 */}
+      <div className="w-full max-w-md relative z-10 animate-scale-fade-in">
         {/* Logo和标题 */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 mb-4">
-            {loginMode === 'admin' ? (
-              <ShieldCheck className="w-8 h-8 text-white" />
-            ) : (
-              <Shield className="w-8 h-8 text-white" />
-            )}
+          {/* 系统图标 */}
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-apple-card mb-6 shadow-apple-floating animate-spring-scale">
+            <Shield
+              className="w-10 h-10"
+              style={{ color: 'hsl(var(--system-blue))' }}
+            />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">
-            技术团队管理智能平台
-          </h1>
 
+          {/* 标题 */}
+          <h1
+            className="text-3xl font-bold tracking-tight mb-2"
+            style={{ color: 'hsl(var(--foreground))' }}
+          >
+            技术团队智能管理平台
+          </h1>
         </div>
 
         {/* 登录卡片 */}
-        <Card className="bg-slate-800/50 border-slate-700 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-xl text-white text-center">
-              {loginMode === 'admin' 
-                ? '管理员登录' 
-                : '用户登录'}
-            </CardTitle>
-            <CardDescription className="text-slate-400 text-center">
-              {loginMode === 'admin'
-                ? '请输入管理员账号和密码'
-                : '输入您的工号和密码'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <AppleCard elevated className="animate-slide-up-fade-in" style={{ animationDelay: '100ms' }}>
+          <div className="space-y-6">
+            {/* 卡片标题 */}
+            <div className="text-center">
+              <h2
+                className="text-xl font-semibold mb-1"
+                style={{ color: 'hsl(var(--foreground))' }}
+              >
+                欢迎回来
+              </h2>
+              <p
+                className="text-sm"
+                style={{ color: 'hsl(var(--muted-foreground))' }}
+              >
+                请使用您的账号和密码登录
+              </p>
+            </div>
+
+            {/* 错误提示 */}
             {error && (
-              <Alert variant="destructive" className="bg-red-900/50 border-red-700">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
+              <div
+                className="p-3 rounded-apple-alert flex items-start gap-3 animate-shake"
+                style={{
+                  backgroundColor: 'hsl(var(--system-red) / 0.1)',
+                  border: `1px solid hsl(var(--system-red) / 0.2)`,
+                }}
+              >
+                <div
+                  className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                  style={{ backgroundColor: 'hsl(var(--system-red))' }}
+                >
+                  <span className="text-white text-xs font-bold">!</span>
+                </div>
+                <div>
+                  <p
+                    className="text-sm font-medium mb-0.5"
+                    style={{ color: 'hsl(var(--system-red))' }}
+                  >
+                    登录失败
+                  </p>
+                  <p
+                    className="text-xs"
+                    style={{ color: 'hsl(var(--system-red) / 0.8)' }}
+                  >
+                    {error}
+                  </p>
+                </div>
+              </div>
             )}
 
-            {loginMode === 'admin' ? (
-              // 管理员登录表单
-              <form onSubmit={handleAdminLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="adminUsername" className="text-slate-300">
-                    <ShieldCheck className="w-4 h-4 inline mr-1" />
-                    管理员账号
-                  </Label>
-                  <Input
-                    id="adminUsername"
-                    type="text"
-                    placeholder="请输入管理员账号"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500"
-                    required
-                  />
-                </div>
+            {/* 登录表单 */}
+            <form onSubmit={handleLogin} className="space-y-5">
+              {/* 工号输入 */}
+              <AppleInput
+                label="工号 / 账号"
+                placeholder="请输入工号或管理员账号"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                autoFocus
+                prefixIcon={
+                  <div
+                    className="w-4 h-4 rounded flex items-center justify-center"
+                    style={{ backgroundColor: 'hsl(var(--system-blue) / 0.1)' }}
+                  >
+                    <span
+                      className="text-xs font-bold"
+                      style={{ color: 'hsl(var(--system-blue))' }}
+                    >
+                      #
+                    </span>
+                  </div>
+                }
+                helperText="您的系统登录账号"
+              />
 
-                <div className="space-y-2">
-                  <Label htmlFor="adminPassword" className="text-slate-300">
-                    <Lock className="w-4 h-4 inline mr-1" />
-                    密码
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="adminPassword"
-                      type={showAdminPassword ? 'text' : 'password'}
-                      placeholder="请输入密码"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500 pr-10"
-                      required
-                      aria-label="管理员密码"
-                      aria-describedby="adminPasswordToggle"
-                    />
+              {/* 密码输入 */}
+              <div>
+                <AppleInput
+                  label="密码"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="请输入密码"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  prefixIcon={
+                    <Lock className="w-4 h-4" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                  }
+                  suffixIcon={
                     <button
                       type="button"
-                      id="adminPasswordToggle"
-                      onClick={() => setShowAdminPassword(!showAdminPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded p-1 transition-colors"
-                      aria-label={showAdminPassword ? '隐藏密码' : '显示密码'}
-                      aria-pressed={showAdminPassword}
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="p-1 rounded hover:bg-muted transition-colors duration-fast"
+                      style={{ color: 'hsl(var(--muted-foreground))' }}
+                      aria-label={showPassword ? '隐藏密码' : '显示密码'}
                     >
-                      {showAdminPassword ? (
-                        <EyeOff className="w-4 h-4" aria-hidden="true" />
-                      ) : (
-                        <Eye className="w-4 h-4" aria-hidden="true" />
-                      )}
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
-                  </div>
-                </div>
-
-                <Button
-                  type="submit"
-                  className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white"
-                  disabled={isLoading}
+                  }
+                />
+                <p
+                  className="text-xs mt-2"
+                  style={{ color: 'hsl(var(--muted-foreground))' }}
                 >
-                  {isLoading ? '登录中...' : '管理员登录'}
-                </Button>
+                  密码长度至少8个字符
+                </p>
+              </div>
 
-                <div className="pt-2 border-t border-slate-700">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="w-full text-slate-400 hover:text-white"
-                    onClick={() => {
-                      setLoginMode('user');
-                      resetForm();
-                    }}
-                  >
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    返回用户登录
-                  </Button>
-                </div>
+              {/* 登录按钮 */}
+              <AppleButton
+                type="submit"
+                variant="primary"
+                size="large"
+                className="w-full"
+                disabled={isLoading}
+                loading={isLoading}
+              >
+                {isLoading ? '登录中...' : '登录'}
+              </AppleButton>
+            </form>
 
-                <Alert className="bg-blue-900/20 border-blue-700/50">
-                  <Settings className="h-4 w-4 text-blue-400" />
-                  <AlertDescription className="text-blue-200 text-sm">
-                    管理员登录后可以管理所有用户的权限和账户信息
-                  </AlertDescription>
-                </Alert>
-              </form>
-            ) : (
-              // 普通用户登录表单
-              <>
-                <form onSubmit={handleLogin} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="username" className="text-slate-300">
-                      <IdCard className="w-4 h-4 inline mr-1" />
-                      工号
-                    </Label>
-                    <Input
-                      id="username"
-                      type="text"
-                      placeholder="请输入工号"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="password" className="text-slate-300">
-                      <Lock className="w-4 h-4 inline mr-1" />
-                      密码
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        id="password"
-                        type={showPassword ? 'text' : 'password'}
-                        placeholder="请输入密码"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500 pr-10"
-                        required
-                        aria-label="密码"
-                        aria-describedby="passwordToggle"
-                      />
-                      <button
-                        type="button"
-                        id="passwordToggle"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded p-1 transition-colors"
-                        aria-label={showPassword ? '隐藏密码' : '显示密码'}
-                        aria-pressed={showPassword}
-                      >
-                        {showPassword ? (
-                          <EyeOff className="w-4 h-4" aria-hidden="true" />
-                        ) : (
-                          <Eye className="w-4 h-4" aria-hidden="true" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  <Button
-                    type="submit"
-                    className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white"
-                    disabled={isLoading}
-                  >
-                    {isLoading ? '登录中...' : '登录'}
-                  </Button>
-                </form>
-
-                {/* 管理员登录按钮 */}
-                <div className="pt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full border-amber-600/50 text-amber-400 hover:text-amber-300 hover:bg-amber-900/30"
-                    onClick={() => {
-                      setLoginMode('admin');
-                      resetForm();
-                    }}
-                  >
-                    <ShieldCheck className="w-4 h-4 mr-2" />
-                    管理员登录
-                  </Button>
-                </div>
-
-              </>
-            )}
-          </CardContent>
-        </Card>
+            {/* 底部信息 */}
+            <div className="pt-4 border-t border-border text-center">
+              <p
+                className="text-xs"
+                style={{ color: 'hsl(var(--muted-foreground))' }}
+              >
+                忘记密码？
+                <button
+                  type="button"
+                  className="ml-1 font-medium hover:underline"
+                  style={{ color: 'hsl(var(--system-blue))' }}
+                >
+                  联系管理员重置
+                </button>
+              </p>
+            </div>
+          </div>
+        </AppleCard>
 
       </div>
+
+      {/* 浮动动画关键帧 */}
+      <style>{`
+        @keyframes float {
+          0%, 100% {
+            transform: translate(0, 0) scale(1);
+          }
+          50% {
+            transform: translate(20px, -20px) scale(1.05);
+          }
+        }
+      `}</style>
     </div>
   );
 }

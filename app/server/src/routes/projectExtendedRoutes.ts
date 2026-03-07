@@ -25,6 +25,12 @@ export function setSessionManager(sm: any) {
   sessionManager = sm;
 }
 
+/**
+ * 会话验证中间件
+ *
+ * 性能优化：
+ * - 直接从会话对象获取 userId，避免每次请求都查询数据库
+ */
 async function validateSession(req: any, res: any, next: any) {
   const sessionId = req.headers['x-session-id'] || req.body.sessionId;
 
@@ -38,7 +44,15 @@ async function validateSession(req: any, res: any, next: any) {
       return res.status(401).json({ success: false, message: '会话无效或已过期' });
     }
     req.session = session;
-    req.userId = await getUserIdByUsername(session.username);
+
+    // 性能优化：直接从会话对象获取 userId
+    if (session.userId) {
+      req.userId = session.userId;
+    } else {
+      console.warn('[validateSession] 会话缺少 userId，降级查询数据库');
+      req.userId = await getUserIdByUsername(session.username);
+    }
+
     next();
   } catch (error) {
     console.error('[API] 会话验证失败:', error);

@@ -38,16 +38,27 @@ class FrontendLogger {
   };
 
   constructor() {
-    // 延迟初始化，确保页面完全加载后再启动
+    // 优化：使用 requestIdleCallback 或微任务初始化
     if (typeof window !== 'undefined') {
-      // 使用 setTimeout 延迟初始化，避免阻塞页面加载
-      setTimeout(() => {
+      const initLogger = () => {
         try {
           this.init();
         } catch (error) {
           console.error('[FrontendLogger] 初始化失败:', error);
         }
-      }, 1000);
+      };
+
+      // 优先使用 requestIdleCallback
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(initLogger, { timeout: 2000 });
+      } else {
+        // 降级方案：使用 queueMicrotask 或较短的 setTimeout
+        if ('queueMicrotask' in window) {
+          queueMicrotask(initLogger);
+        } else {
+          setTimeout(initLogger, 100);
+        }
+      }
     }
   }
 

@@ -16,8 +16,11 @@
  * 项目类型
  * - product_development: 产品开发类项目
  * - functional_management: 职能管理类项目
+ * - material_substitution: 物料改代类项目
+ * - troubleshooting: 故障排查类项目
+ * - other: 其他项目
  */
-export type ProjectType = 'product_development' | 'functional_management';
+export type ProjectType = 'product_development' | 'functional_management' | 'material_substitution' | 'troubleshooting' | 'other';
 
 /**
  * 项目状态
@@ -47,6 +50,9 @@ export type MilestoneStatus = 'pending' | 'in_progress' | 'completed' | 'delayed
 export const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
   product_development: '产品开发类',
   functional_management: '职能管理类',
+  material_substitution: '物料改代类',
+  troubleshooting: '故障排查类',
+  other: '其他',
 };
 
 /**
@@ -223,6 +229,8 @@ export interface ProjectFormData {
   memberIds?: number[];
   /** 里程碑列表 */
   milestones?: Omit<ProjectMilestone, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>[];
+  /** WBS任务列表（甘特图数据） */
+  wbsTasks?: import('./wbs').WbsTask[];
 }
 
 /**

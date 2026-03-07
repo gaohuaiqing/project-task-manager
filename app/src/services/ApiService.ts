@@ -17,6 +17,29 @@ interface SyncResponse {
 }
 
 class ApiService {
+  // 优化：请求去重机制，避免相同请求重复发送
+  private pendingRequests = new Map<string, Promise<any>>();
+
+  // 分级超时配置
+  private readonly TIMEOUT_CONFIG = {
+    FAST: parseInt(import.meta.env?.VITE_API_TIMEOUT_FAST || '5000'),
+    NORMAL: parseInt(import.meta.env?.VITE_API_TIMEOUT_NORMAL || '10000'),
+    SLOW: parseInt(import.meta.env?.VITE_API_TIMEOUT_SLOW || '30000'),
+    DEFAULT: 10000
+  };
+
+  private getTimeoutForOperation(endpoint: string, method: string = 'GET'): number {
+    // 快速操作
+    if (endpoint.includes('/login') || endpoint.includes('/health')) {
+      return this.TIMEOUT_CONFIG.FAST;
+    }
+    // 慢操作
+    if (endpoint.includes('/batch/') || endpoint.includes('/export') || method === 'POST') {
+      return this.TIMEOUT_CONFIG.SLOW;
+    }
+    return this.TIMEOUT_CONFIG.DEFAULT;
+  }
+
   private getSessionId(): string | null {
     // 尝试从 localStorage 获取当前用户的 sessionId
     const activeUserKey = Object.keys(localStorage).find(key => key.startsWith('active_session_'));
@@ -34,6 +57,15 @@ class ApiService {
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`;
+
+    // 优化：生成请求缓存键，用于请求去重
+    const cacheKey = `${endpoint}:${JSON.stringify(options)}`;
+
+    // 优化：检查是否有相同请求正在进行
+    if (this.pendingRequests.has(cacheKey)) {
+      console.log(`[ApiService] 请求去重: 复用现有请求 - ${endpoint}`);
+      return this.pendingRequests.get(cacheKey) as Promise<T>;
+    }
 
     const defaultHeaders: HeadersInit = {
       'Content-Type': 'application/json',
@@ -63,19 +95,43 @@ class ApiService {
       },
     };
 
-    try {
-      const response = await fetch(url, config);
-      const data = await response.json();
+    // 优化：创建请求超时控制器（使用分级超时策略）
+    const timeout = this.getTimeoutForOperation(endpoint, options.method);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    config.signal = controller.signal;
 
-      if (!response.ok) {
-        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+    // 创建请求Promise
+    const requestPromise = (async () => {
+      try {
+        const response = await fetch(url, config);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || `HTTP error! status: ${response.status}`);
+        }
+
+        return data;
+      } catch (error: any) {
+        // 优化：处理超时错误
+        if (error.name === 'AbortError') {
+          const timeout = this.getTimeoutForOperation(endpoint, options.method);
+          console.error(`[ApiService] 请求超时: ${endpoint} (${timeout}ms)`);
+          throw new Error(`请求超时: ${endpoint}`);
+        }
+        console.error(`[ApiService] 请求失败: ${endpoint}`, error);
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+        // 请求完成后清理pending请求
+        this.pendingRequests.delete(cacheKey);
       }
+    })();
 
-      return data;
-    } catch (error) {
-      console.error(`[ApiService] 请求失败: ${endpoint}`, error);
-      throw error;
-    }
+    // 将请求加入pending队列
+    this.pendingRequests.set(cacheKey, requestPromise);
+
+    return requestPromise;
   }
 
   private getCurrentUserId(): number | null {
@@ -109,8 +165,10 @@ class ApiService {
   }
 
   async login(username: string, password: string): Promise<LoginResponse> {
-    const ip = await this.getClientIP();
-    
+    // 性能优化：移除外部IP获取，直接使用 'local'
+    // 后端已支持 'local' IP 作为特殊情况，避免 0-10 秒的外部请求延迟
+    const ip = 'local';
+
     return this.request<LoginResponse>('/login', {
       method: 'POST',
       body: JSON.stringify({ username, password, ip }),
@@ -312,6 +370,117 @@ class ApiService {
    */
   async getTechGroups(): Promise<{ success: boolean; data: any[] }> {
     return this.request('/organization/tech-groups');
+  }
+
+  // ================================================================
+  // 批量查询 API（性能优化）
+  // ================================================================
+
+  /**
+   * 批量查询接口（减少网络往返）
+   * 使用示例：
+   * ```typescript
+   * const result = await apiService.batchQuery({
+   *   queries: [
+   *     { type: 'projects', ids: [1, 2, 3] },
+   *     { type: 'members', ids: [1, 2, 3] },
+   *     { type: 'wbs_tasks', ids: [1, 2, 3] }
+   *   ]
+   * });
+   * ```
+   */
+  async batchQuery(request: {
+    queries: Array<{
+      type: 'projects' | 'members' | 'wbs_tasks';
+      ids: number[];
+      fields?: string[];
+    }>;
+  }): Promise<{
+    success: boolean;
+    data: {
+      projects?: any[];
+      members?: any[];
+      wbs_tasks?: any[];
+    };
+    meta?: {
+      queries: number;
+      queryTime: number;
+    };
+  }> {
+    return this.request('/batch/mixed', {
+      method: 'POST',
+      body: JSON.stringify(request)
+    });
+  }
+
+  /**
+   * 批量获取项目详情
+   */
+  async batchGetProjects(ids: number[], fields?: string[]): Promise<{
+    success: boolean;
+    data: any[];
+    meta?: {
+      count: number;
+      requested: number;
+      queryTime: number;
+    };
+  }> {
+    return this.request('/batch/projects', {
+      method: 'POST',
+      body: JSON.stringify({ ids, fields })
+    });
+  }
+
+  /**
+   * 批量获取成员详情
+   */
+  async batchGetMembers(ids: number[], fields?: string[]): Promise<{
+    success: boolean;
+    data: any[];
+    meta?: {
+      count: number;
+      requested: number;
+      queryTime: number;
+    };
+  }> {
+    return this.request('/batch/members', {
+      method: 'POST',
+      body: JSON.stringify({ ids, fields })
+    });
+  }
+
+  /**
+   * 批量获取任务详情
+   */
+  async batchGetWbsTasks(ids: number[], fields?: string[]): Promise<{
+    success: boolean;
+    data: any[];
+    meta?: {
+      count: number;
+      requested: number;
+      queryTime: number;
+    };
+  }> {
+    return this.request('/batch/wbs-tasks', {
+      method: 'POST',
+      body: JSON.stringify({ ids, fields })
+    });
+  }
+
+  /**
+   * 获取批量统计信息
+   */
+  async batchGetStats(types: Array<'projects' | 'members' | 'wbs_tasks' | 'cache'>): Promise<{
+    success: boolean;
+    data: any;
+    meta?: {
+      queryTime: number;
+    };
+  }> {
+    return this.request('/batch/stats', {
+      method: 'POST',
+      body: JSON.stringify({ types })
+    });
   }
 }
 

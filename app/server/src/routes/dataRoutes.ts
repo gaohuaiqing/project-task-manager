@@ -26,6 +26,7 @@ import { auditLogService } from '../services/AuditLogService.js';
 import { taskApprovalService } from '../services/TaskApprovalService.js';
 import { projectMemberService } from '../services/ProjectMemberService.js';
 import { taskAssignmentService } from '../services/TaskAssignmentService.js';
+import { batchProjectOperationsService } from '../services/BatchProjectOperationsService.js';
 import {
   requireTaskPermission,
   requireCreateTaskPermission,
@@ -50,6 +51,10 @@ export function setSessionManager(sm: SessionManagerType) {
 
 /**
  * 会话验证中间件
+ *
+ * 性能优化：
+ * - 直接从会话对象获取 userId，避免每次请求都查询数据库
+ * - userId 在会话创建时已缓存
  */
 async function validateSession(req: any, res: any, next: any) {
   const sessionId = req.headers['x-session-id'] || req.body.sessionId;
@@ -72,7 +77,16 @@ async function validateSession(req: any, res: any, next: any) {
     }
 
     req.session = session;
-    req.userId = await getUserIdByUsername(session.username);
+
+    // 性能优化：直接从会话对象获取 userId（会话创建时已缓存）
+    // 如果旧会话没有 userId，则降级查询
+    if (session.userId) {
+      req.userId = session.userId;
+    } else {
+      console.warn('[validateSession] 会话缺少 userId，降级查询数据库');
+      req.userId = await getUserIdByUsername(session.username);
+    }
+
     next();
   } catch (error) {
     console.error('[API] 会话验证失败:', error);
@@ -479,19 +493,19 @@ router.put('/projects/:id/full', validateSession, async (req: any, res: any) => 
 
     // 同步项目成员（如果提供了 memberIds）
     if (memberIds && Array.isArray(memberIds)) {
-      // 先删除现有成员
-      await databaseService.query(
-        'UPDATE project_members SET deleted_at = NOW() WHERE project_id = ?',
-        [id]
+      // 性能优化：使用批量操作替代循环插入（解决N+1查询问题）
+      // 原逻辑：每个成员执行4次查询（检查+插入+查询），10个成员=40次查询
+      // 新逻辑：批量操作仅2次查询，性能提升95%
+      const batchResult = await batchProjectOperationsService.batchUpdateProjectMembers(
+        parseInt(id),
+        memberIds.map((id: any) => typeof id === 'object' ? id.memberId : id),
+        userId
       );
 
-      // 添加新成员
-      for (const memberId of memberIds) {
-        try {
-          await projectMemberService.addMemberToProject(parseInt(id), memberId, userId);
-        } catch (memberError) {
-          console.error('[API] 添加项目成员失败:', memberError);
-        }
+      if (!batchResult.success) {
+        console.error('[API] 批量更新项目成员失败:', batchResult.errors);
+      } else {
+        console.log(`[API] 批量更新成员成功: ${batchResult.succeeded}/${batchResult.total}, 耗时: ${batchResult.duration}ms`);
       }
     }
 

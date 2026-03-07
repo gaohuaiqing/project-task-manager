@@ -1,0 +1,31 @@
+# 后端 Dockerfile
+FROM node:18-alpine
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装 Python 和构建工具（用于编译 node-sass 等原生模块）
+RUN apk add --no-cache python3 make g++
+
+# 复制后端 package.json
+COPY app/server/package*.json ./
+COPY app/server/tsconfig.json ./
+
+# 安装依赖
+RUN npm ci --only=production && npm cache clean --force
+
+# 复制后端源代码
+COPY app/server/src ./src
+
+# 构建 TypeScript
+RUN npm run build
+
+# 暴露端口
+EXPOSE 3001
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+
+# 启动应用
+CMD ["node", "dist/index.js"]

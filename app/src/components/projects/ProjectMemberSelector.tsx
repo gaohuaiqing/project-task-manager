@@ -135,7 +135,7 @@ export function ProjectMemberSelector({
         {/* 节点行 */}
         <div
           className={cn(
-            "flex items-center gap-2 py-1.5 px-2 hover:bg-muted/30 transition-colors rounded",
+            "flex items-center gap-2 py-1.5 px-2 hover:bg-muted/30 transition-colors rounded min-w-0",
             isSelected && "bg-primary/20",
             readonly && "cursor-not-allowed opacity-60"
           )}
@@ -193,7 +193,7 @@ export function ProjectMemberSelector({
 
           {/* 节点名称 */}
           <span className={cn(
-            "text-sm truncate flex-1",
+            "text-sm truncate flex-1 min-w-0",
             isMember ? "text-white" : "text-muted-foreground"
           )}>
             {node.name}
@@ -236,18 +236,18 @@ export function ProjectMemberSelector({
   const departments = organization.departments || [];
 
   return (
-    <div className={cn("py-2", className)}>
+    <div className={cn("py-2 overflow-x-auto", className)}>
       {/* 工具栏 */}
       {!readonly && departments.length > 0 && (
-        <div className="flex items-center gap-2 px-2 pb-2 mb-2 border-b border-border">
+        <div className="flex items-center gap-2 px-2 pb-2 mb-2 border-b border-border min-w-0">
           <span className="text-xs text-muted-foreground">
             已选择 {selectedMembers.length} 人
           </span>
-          <div className="flex-1" />
+          <div className="flex-1 min-w-0" />
           <button
             type="button"
             onClick={expandAll}
-            className="text-xs text-primary hover:underline"
+            className="text-xs text-primary hover:underline whitespace-nowrap"
           >
             全部展开
           </button>
@@ -255,7 +255,7 @@ export function ProjectMemberSelector({
           <button
             type="button"
             onClick={collapseAll}
-            className="text-xs text-primary hover:underline"
+            className="text-xs text-primary hover:underline whitespace-nowrap"
           >
             全部收起
           </button>
@@ -263,7 +263,9 @@ export function ProjectMemberSelector({
       )}
 
       {/* 树形结构 */}
-      {departments.map(dept => renderNode(dept, 0))}
+      <div className="min-w-0">
+        {departments.map(dept => renderNode(dept, 0))}
+      </div>
     </div>
   );
 }

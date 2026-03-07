@@ -19,6 +19,9 @@ import type {
   ProjectMilestone,
   ProjectMemberRole
 } from '../types/project';
+import type { WbsTask } from '../types/wbs';
+import { generateWbsCode } from '@/utils/wbsCalculator';
+import { TaskDependencyService } from '@/services/TaskDependencyService';
 
 // ==================== 表单验证规则 ====================
 
@@ -65,6 +68,13 @@ interface UseProjectFormReturn {
   removeMilestone: (index: number) => void;
   clearMilestones: () => void;
 
+  // WBS 任务操作
+  addWbsTask: (task: Omit<WbsTask, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateWbsTask: (taskId: string, data: Partial<WbsTask>) => void;
+  deleteWbsTask: (taskId: string) => void;
+  moveWbsTask: (taskId: string, newParentId: string | null, newIndex?: number) => void;
+  batchUpdateWbsTasks: (tasks: WbsTask[]) => void;
+
   // 工具方法
   getFormDataForSubmit: () => ProjectFormData;
   hasChanges: (project: Project) => boolean;
@@ -81,6 +91,7 @@ const createInitialFormData = (): ProjectFormData => ({
   plannedEndDate: '',
   memberIds: [],
   milestones: [],
+  wbsTasks: [],
 });
 
 // ==================== 主 Hook ====================
@@ -257,6 +268,7 @@ export function useProjectForm(): UseProjectFormReturn {
       plannedEndDate: project.plannedEndDate || '',
       memberIds: project.memberIds || [],
       milestones: project.milestones || [],
+      wbsTasks: project.wbsTasks || [],
     };
 
     setFormDataState(data);
@@ -318,6 +330,165 @@ export function useProjectForm(): UseProjectFormReturn {
     setFieldValue('milestones', []);
   }, [setFieldValue]);
 
+  // ==================== WBS 任务操作 ====================
+
+  const addWbsTask = useCallback((task: Omit<WbsTask, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const currentTasks = formData.wbsTasks || [];
+
+    // 生成WBS编码
+    const siblingTasks = task.parentId
+      ? currentTasks.filter(t => t.parentId === task.parentId)
+      : currentTasks.filter(t => !t.parentId);
+    const wbsCode = generateWbsCode(
+      task.parentId ? currentTasks.find(t => t.id === task.parentId)?.wbsCode : undefined,
+      siblingTasks.length
+    );
+
+    const newTask: WbsTask = {
+      ...task,
+      id: `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      wbsCode,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // 更新父任务的子任务列表
+    const updatedTasks = [...currentTasks];
+    if (task.parentId) {
+      const parentIndex = updatedTasks.findIndex(t => t.id === task.parentId);
+      if (parentIndex !== -1) {
+        updatedTasks[parentIndex] = {
+          ...updatedTasks[parentIndex],
+          subtasks: [...(updatedTasks[parentIndex].subtasks || []), newTask.id],
+        };
+      }
+    }
+
+    updatedTasks.push(newTask);
+    setFieldValue('wbsTasks', updatedTasks);
+  }, [formData.wbsTasks, setFieldValue]);
+
+  const updateWbsTask = useCallback((taskId: string, data: Partial<WbsTask>) => {
+    const currentTasks = formData.wbsTasks || [];
+    const updatedTasks = currentTasks.map(task =>
+      task.id === taskId
+        ? { ...task, ...data, updatedAt: new Date().toISOString() }
+        : task
+    );
+    setFieldValue('wbsTasks', updatedTasks);
+  }, [formData.wbsTasks, setFieldValue]);
+
+  const deleteWbsTask = useCallback((taskId: string) => {
+    const currentTasks = formData.wbsTasks || [];
+    const taskToDelete = currentTasks.find(t => t.id === taskId);
+
+    if (!taskToDelete) return;
+
+    // 收集要删除的任务ID（包括所有子任务）
+    const toDelete = new Set<string>([taskId]);
+    const collectChildren = (parentId: string) => {
+      currentTasks.forEach(task => {
+        if (task.parentId === parentId) {
+          toDelete.add(task.id);
+          collectChildren(task.id);
+        }
+      });
+    };
+    collectChildren(taskId);
+
+    // 删除任务并更新父任务的子任务列表
+    const updatedTasks = currentTasks
+      .filter(task => !toDelete.has(task.id))
+      .map(task => {
+        if (task.subtasks?.includes(taskId)) {
+          return {
+            ...task,
+            subtasks: task.subtasks.filter(id => id !== taskId),
+          };
+        }
+        return task;
+      });
+
+    setFieldValue('wbsTasks', updatedTasks);
+  }, [formData.wbsTasks, setFieldValue]);
+
+  const moveWbsTask = useCallback((taskId: string, newParentId: string | null, newIndex?: number) => {
+    const currentTasks = formData.wbsTasks || [];
+    const taskToMove = currentTasks.find(t => t.id === taskId);
+
+    if (!taskToMove) return;
+
+    // 验证移动是否会导致循环依赖
+    if (newParentId) {
+      let currentId = newParentId;
+      while (currentId) {
+        if (currentId === taskId) {
+          console.error('无法移动：会导致循环依赖');
+          return;
+        }
+        const parent = currentTasks.find(t => t.id === currentId);
+        currentId = parent?.parentId || null;
+      }
+    }
+
+    // 更新原父任务的子任务列表
+    const updatedTasks = currentTasks.map(task => {
+      if (task.id === taskToMove.parentId) {
+        return {
+          ...task,
+          subtasks: task.subtasks?.filter(id => id !== taskId) || [],
+        };
+      }
+      return task;
+    });
+
+    // 更新目标任务
+    const taskIndex = updatedTasks.findIndex(t => t.id === taskId);
+    if (taskIndex !== -1) {
+      // 计算新的WBS编码
+      const siblings = newParentId
+        ? updatedTasks.filter(t => t.parentId === newParentId)
+        : updatedTasks.filter(t => !t.parentId);
+      const insertIndex = newIndex !== undefined ? newIndex : siblings.length;
+      const wbsCode = generateWbsCode(
+        newParentId ? updatedTasks.find(t => t.id === newParentId)?.wbsCode : undefined,
+        insertIndex
+      );
+
+      updatedTasks[taskIndex] = {
+        ...updatedTasks[taskIndex],
+        parentId: newParentId || undefined,
+        wbsCode,
+        level: newParentId
+          ? (updatedTasks.find(t => t.id === newParentId)?.level || 0) + 1
+          : 0,
+      };
+
+      // 更新新父任务的子任务列表
+      if (newParentId) {
+        const newParentIndex = updatedTasks.findIndex(t => t.id === newParentId);
+        if (newParentIndex !== -1) {
+          const subtasks = [...(updatedTasks[newParentIndex].subtasks || [])];
+          if (newIndex !== undefined) {
+            subtasks.splice(newIndex, 0, taskId);
+          } else {
+            subtasks.push(taskId);
+          }
+          updatedTasks[newParentIndex] = {
+            ...updatedTasks[newParentIndex],
+            subtasks,
+          };
+        }
+      }
+    }
+
+    setFieldValue('wbsTasks', updatedTasks);
+  }, [formData.wbsTasks, setFieldValue]);
+
+  const batchUpdateWbsTasks = useCallback((tasks: WbsTask[]) => {
+    setFieldValue('wbsTasks', tasks);
+  }, [setFieldValue]);
+
   // ==================== 工具方法 ====================
 
   const getFormDataForSubmit = useCallback((): ProjectFormData => {
@@ -367,6 +538,13 @@ export function useProjectForm(): UseProjectFormReturn {
     removeMilestone,
     clearMilestones,
 
+    // WBS 任务操作
+    addWbsTask,
+    updateWbsTask,
+    deleteWbsTask,
+    moveWbsTask,
+    batchUpdateWbsTasks,
+
     // 工具方法
     getFormDataForSubmit,
     hasChanges,
@@ -378,26 +556,27 @@ export function useProjectForm(): UseProjectFormReturn {
 /**
  * 项目表单验证规则 Hook
  * 根据项目类型返回不同的验证规则
+ *
+ * 注意：根据 UI 设计文档更新，计划日期字段改为可选，不再强制要求
  */
 export function useProjectFormValidationRules(projectType: ProjectType): FormValidationOptions {
   return {
-    requireDates: projectType === 'product_development',
+    requireDates: false, // 日期字段改为可选
     requireMilestones: projectType === 'product_development',
   };
 }
 
 /**
  * 监听项目类型变化，自动调整表单验证规则
+ *
+ * 注意：根据 UI 设计文档更新，计划日期字段改为可选，不再强制要求
  */
 export function useProjectTypeValidation(formData: ProjectFormData) {
   const validationRules = useProjectFormValidationRules(formData.projectType || 'product_development');
 
   useEffect(() => {
     // 当项目类型切换时，清除不需要的字段的验证错误
-    if (formData.projectType === 'functional_management') {
-      // 职能管理类项目不需要日期和里程碑
-      // 可以在这里清除相关验证错误
-    }
+    // 日期字段已改为可选，不需要清除验证错误
   }, [formData.projectType]);
 
   return validationRules;

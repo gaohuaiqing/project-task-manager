@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import type { User, UserRole } from '@/types/auth';
 import bcrypt from 'bcryptjs';
 import {
@@ -11,19 +11,17 @@ import { validateEmployeeId } from '@/utils/employeeValidation';
 import { validatePasswordStrength, validateStrongPassword } from '@/utils/passwordValidation';
 import { dataSyncService } from '@/services/DataSyncService';
 import { getDeviceId } from '@/utils/deviceId';
-// 认证相关的跨标签页同步（注意：仅限同一浏览器的不同标签页之间）
-// 真正的跨浏览器/跨设备同步由后端WebSocket实现
-import { initAuthTabSync, syncLoginState, syncLogoutState, onAuthTabSync } from '@/utils/crossTabSync';
+import { useNotification } from '@/hooks/useNotification';
+import { frontendLogger } from '@/services/FrontendLogger';
 import {
   createSession,
   setCurrentSession,
   terminateSession,
   getActiveSession
 } from '@/utils/sessionManager';
-import { wsService } from '@/services/WebSocketService';
+import { initAuthTabSync, syncLoginState, syncLogoutState, onAuthTabSync } from '@/utils/crossTabSync';
 import { apiService } from '@/services/ApiService';
-import { useNotification } from '@/hooks/useNotification';
-import { frontendLogger } from '@/services/FrontendLogger';
+import { wsService } from '@/services/WebSocketService';
 
 const SESSION_STORAGE_KEY = 'auth_session';
 const SESSION_TIMEOUT = 28800000; // 8小时会话超时
@@ -40,9 +38,11 @@ interface AuthSession {
 
 interface AuthContextType {
   user: User | null;
+  // ✅ isAdmin 改为计算值（基于 user.role === 'admin'）
+  get isAdmin(): boolean;
   isAuthenticated: boolean;
-  isAdmin: boolean;
   login: (username: string, password: string) => Promise<boolean>;
+  /** @deprecated 请使用 login() 代替，本函数将在未来版本中移除 */
   adminLogin: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   updateUserRole: (role: UserRole) => void;
@@ -109,12 +109,12 @@ const DEFAULT_PASSWORDS = {
   engineer: '123456'
 };
 
-// 存储bcrypt哈希后的密码
+// 存储bcrypt哈希后的密码（与后端数据库保持一致）
 const DEFAULT_PASSWORD_HASHES: Record<string, string> = {
-  admin: '$2b$10$w2x2kLPai7bc.HLqX7EtqeSBVEWWr2crpObcDAuYHpD.6tiRLzkwi', // admin123
-  tech_manager: '$2b$10$TZNd9iEddcDHN2CumzCRKeAwy7.FnbPo7fd1d//of5nWan/37c0mW', // 123456
-  dept_manager: '$2b$10$//YWkdwdmUgWL.yl7VTReOHpRkiw3/Po01UMW0N8lu9S6sd2ubZ6W', // 123456
-  engineer: '$2b$10$FALWqb/e475k9ukXpvXN6Oj8McJXgWNDB8DhvyZ5HuwCgSJVKFw8q' // 123456
+  admin: '$2b$10$UlqvBIzHlnAJpb5wT1Aa9.fgLC.SKKjyCPiIMpIRNXDc0Bjx65RTS', // admin123
+  tech_manager: '$2b$10$2zeE2Hvm.EcN4bqPMCp5mOWzpXj9.1ePC4TLbKVAXWY/73T2dqD76', // 123456
+  dept_manager: '$2b$10$3cHjTFjWuCnf/B6meAj4AO1P5NnG0AeLTyEsxAhKTi7DwdEMOQ7lm', // 123456
+  engineer: '$2b$10$MnqujUKF6iTtt2WxOD0ujOQVWF0jRxHii2bhuuCDlXdWMVv7aMeCu' // 123456
 };
 
 interface UserData {
@@ -166,12 +166,12 @@ const getInitialAuthState = () => {
   const savedUser = localStorage.getItem(CURRENT_USER_KEY);
   const savedIsAdmin = localStorage.getItem(ADMIN_KEY);
   const savedSession = localStorage.getItem(SESSION_STORAGE_KEY);
-  
+
   if (savedUser && savedSession) {
     try {
       const sessionData = JSON.parse(savedSession);
       const currentTime = Date.now();
-      
+
       if (currentTime - sessionData.lastAccessed < SESSION_TIMEOUT) {
         return {
           user: JSON.parse(savedUser),
@@ -204,7 +204,7 @@ const getInitialAuthState = () => {
       };
     }
   }
-  
+
   if (savedIsAdmin === 'true') {
     return {
       user: null,
@@ -212,7 +212,7 @@ const getInitialAuthState = () => {
       session: null
     };
   }
-  
+
   return {
     user: null,
     isAdmin: false,
@@ -229,7 +229,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const initialState = getInitialAuthState();
   console.log('[AuthProvider] 初始状态:', initialState);
   const [user, setUser] = useState<User | null>(initialState.user);
-  const [isAdmin, setIsAdmin] = useState(initialState.isAdmin);
+  // ✅ 关键修改：isAdmin 改为计算值（基于 user.role === 'admin'）
+  const isAdmin = useMemo(() => user?.role === 'admin', [user]);
   const [session, setSession] = useState<AuthSession | null>(initialState.session);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
   const { warning, error, success } = useNotification();
@@ -245,41 +246,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(`cross_browser_session_${session.username}`);
     }
     localStorage.removeItem(SESSION_STORAGE_KEY);
+    localStorage.removeItem(ADMIN_KEY);
 
     setUser(null);
     setSession(null);
-    setIsAdmin(false);
-    localStorage.removeItem(CURRENT_USER_KEY);
-    localStorage.removeItem(ADMIN_KEY);
-
-    syncLogoutState();
-
-    dataSyncService.stopSync();
-
-    if (USE_BACKEND) {
-      wsService.disconnect();
-      if (session?.sessionId) {
-        apiService.logout(session.sessionId).catch(console.error);
-      }
-    }
-  }, [session, user]);
+    // 不再需要独立的 isAdmin 状态
+  }, [user, session]);
 
   useEffect(() => {
-    if (session) {
-      const currentTime = Date.now();
-      const updatedSession = {
-        ...session,
-        lastAccessed: currentTime
-      };
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(updatedSession));
-      localStorage.setItem(`active_session_${session.username}`, JSON.stringify(updatedSession));
-      localStorage.setItem(`cross_browser_session_${session.username}`, JSON.stringify(updatedSession));
-    }
-  }, [session]);
-
-  useEffect(() => {
-    const cleanup1 = initCrossTabSync();  // 来自 syncEvents.ts - 用户数据变更
-    const cleanup2 = initAuthTabSync();   // 来自 crossTabSync.ts - 会话状态
+    const cleanup1 = initCrossTabSync();
+    const cleanup2 = initAuthTabSync();
 
     const unsubscribe = onAuthTabSync((event) => {
       if (event.type === 'session_terminated' && event.sourceDeviceId !== getDeviceId()) {
@@ -292,11 +268,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const logoutData = JSON.parse(e.newValue);
           if (logoutData.sourceDeviceId !== getDeviceId()) {
-            warning('会话终止', '同一浏览器检测到新登录，当前标签页会话已被终止');
             logout();
           }
         } catch (error) {
-          console.error('[AuthContext] Failed to handle force logout event:', error);
+          console.error('[AuthProvider] Failed to handle force logout event:', error);
         }
       }
     };
@@ -306,39 +281,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cleanup1();
       cleanup2();
-      unsubscribe();
       window.removeEventListener('storage', handleForceLogout);
     };
-  }, [logout, warning]);
+  }, [logout]);
 
   useEffect(() => {
     if (!USE_BACKEND) return;
 
     let consecutiveFailures = 0;
-    const MAX_SILENT_FAILURES = 3; // 前几次失败静默处理，避免启动时大量日志
+    const MAX_SILENT_FAILURES = 3;
 
     const checkBackendConnection = async () => {
       try {
         await apiService.healthCheck();
         setIsBackendConnected(true);
-        consecutiveFailures = 0; // 重置失败计数
+        consecutiveFailures = 0;
       } catch {
         consecutiveFailures++;
-        // 只有在连续失败超过阈值后才显示日志
         if (consecutiveFailures > MAX_SILENT_FAILURES) {
-          // 每隔一段时间才输出一次日志，避免刷屏
-          if (consecutiveFailures % 10 === 0) {
-            console.warn('[AuthContext] 后端服务不可用，请确保后端服务已启动');
-          }
+          console.warn('[AuthProvider] 后端服务不可用，请确保后端服务已启动');
         }
         setIsBackendConnected(false);
       }
     };
 
     checkBackendConnection();
-    const interval = setInterval(checkBackendConnection, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    const interval = setInterval(checkBackendConnection, 60000);
+
+    // ✅ 确保清理函数在依赖项变化时被调用
+    return () => {
+      clearInterval(interval);
+    };
+  }, [USE_BACKEND]); // 明确依赖项
 
   useEffect(() => {
     if (!USE_BACKEND || !session || !user) return;
@@ -348,7 +322,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await wsService.connect(session.sessionId, user.username);
         setIsBackendConnected(true);
       } catch (error) {
-        console.error('[AuthContext] WebSocket连接失败:', error);
+        console.error('[AuthProvider] WebSocket连接失败:', error);
         setIsBackendConnected(false);
       }
     };
@@ -369,242 +343,164 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       unsubscribe();
       wsService.disconnect();
     };
-  }, [session?.sessionId, user?.username, logout, warning]);
+  }, [session?.sessionId, user?.username, logout]);
+
+  // ================================================================
+  // 登录认证函数
+  // ================================================================
 
   const login = async (username: string, password: string): Promise<boolean> => {
-    // 移除敏感日志输出，只保留必要的信息
-    const users = getStoredUsers();
-    const userData = users[username];
+    console.log('[AuthProvider] login 开始, username:', username);
 
-    if (userData && await bcrypt.compare(password, userData.password)) {
+    try {
+      const users = getStoredUsers();
+      const userData = users[username];
 
-      const deviceId = getDeviceId();
+      if (userData && await bcrypt.compare(password, userData.password)) {
+        const deviceId = getDeviceId();
 
-      // 注意：不再检查后端活动会话，允许多个浏览器同时登录
-      // 只检查本地活动会话（同一浏览器的其他标签页）
-      const activeSession = getActiveSession(username);
-      if (activeSession && activeSession.deviceId !== deviceId) {
-        const currentTime = Date.now();
-        const sessionAge = currentTime - activeSession.lastAccessed;
-        if (sessionAge < SESSION_TIMEOUT) {
-          // 移除敏感日志输出
-          return false;
+        // 注意：不再检查后端活动会话，允许多个浏览器同时登录
+        // 只检查本地活动会话（同一浏览器的其他标签页）
+        const activeSession = getActiveSession(username);
+        if (activeSession && activeSession.deviceId !== deviceId) {
+          const currentTime = Date.now();
+          const sessionAge = currentTime - activeSession.lastAccessed;
+          if (sessionAge < SESSION_TIMEOUT) {
+            return false;
+          }
         }
-      }
 
-      // 清理所有旧会话数据（无论是否同一设备）
-      terminateSession(username);
+        // 清理所有旧会话数据（无论是否同一设备）
+        terminateSession(username);
 
-      let session: AuthSession;
+        let session: AuthSession;
 
-      // 尝试连接后端服务
-      if (USE_BACKEND) {
-        try {
-          const response = await fetch('http://localhost:3001/api/login', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              username,
-              password,
-              ip: 'local',
-              deviceId,
-              sourceDeviceInfo: navigator.userAgent
-            })
-          });
-          const result = await response.json();
-          if (result.success) {
-            // 后端登录成功
-            setIsBackendConnected(true);
-            // 生成新的会话ID以防止会话固定攻击
-            const newSessionId = generateSecureSessionId();
-            session = {
-              userId: `user_${Date.now()}`,
-              username,
-              sessionId: newSessionId,
-              createdAt: result.session.createdAt,
-              lastAccessed: result.session.createdAt,
-              deviceId
-            };
-          } else {
-            // 后端登录失败，使用本地会话
+        // 尝试连接后端服务
+        if (USE_BACKEND) {
+          try {
+            const response = await fetch('http://localhost:3001/api/login', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                username,
+                password,
+                ip: 'local',
+                deviceId,
+                sourceDeviceInfo: navigator.userAgent
+              })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+              // 后端登录成功
+              setIsBackendConnected(true);
+              // 生成新的会话ID以防止会话固定攻击
+              const newSessionId = generateSecureSessionId();
+              session = {
+                userId: `user_${Date.now()}`,
+                username,
+                sessionId: newSessionId,
+                createdAt: result.session.createdAt,
+                lastAccessed: result.session.createdAt,
+                deviceId
+              };
+            } else {
+              // 后端返回验证失败（密码错误、用户不存在等）
+              console.warn('[AuthProvider] 后端验证失败，回退到本地会话:', result.message);
+              // 回退到本地会话
+              session = createSession(`user_${Date.now()}`, username);
+              session.deviceId = deviceId;
+            }
+          } catch (error) {
+            // 网络错误或后端服务不可用
+            console.warn('[AuthProvider] 后端连接失败，使用本地会话:', error);
+            // 回退到本地会话（仅在无法连接后端时）
             session = createSession(`user_${Date.now()}`, username);
             session.deviceId = deviceId;
           }
-        } catch (error) {
-          // 后端登录失败，使用本地会话
+        } else {
+          // 使用本地会话
           session = createSession(`user_${Date.now()}`, username);
           session.deviceId = deviceId;
         }
-      } else {
-        // 使用本地会话
-        session = createSession(`user_${Date.now()}`, username);
-        session.deviceId = deviceId;
-      }
 
-      // 清除旧的会话数据，但保留用户列表
-      localStorage.removeItem(CURRENT_USER_KEY);
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-      localStorage.removeItem(ADMIN_KEY);
+        // 清除旧的会话数据，但保留用户列表
+        localStorage.removeItem(CURRENT_USER_KEY);
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+        localStorage.removeItem(ADMIN_KEY);
 
-      setCurrentSession(session);
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+        setCurrentSession(session);
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 
-      const user: User = {
-        id: session.userId,
-        username,
-        role: userData.role,
-        name: userData.name,
-      };
+        const loginUser: User = {
+          id: session.userId,
+          username,
+          role: userData.role,
+          name: userData.name,
+        };
 
-      setUser(user);
-      setSession(session);
-      setIsAdmin(false);
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
-      localStorage.removeItem(ADMIN_KEY);
+        setUser(loginUser);
+        setSession(session);
+        // isAdmin 会自动基于 user.role 计算
 
-      // 新增：从服务器刷新数据（仅当使用后端时）
-      if (USE_BACKEND) {
-        try {
-          await dataSyncService.refreshFromServer();
-        } catch (error) {
-          // 刷新失败不影响登录流程
+        // 优化：后台异步刷新数据，不阻塞登录流程
+        // 使用 queueMicrotask 确保在下一个微任务中执行，优先级高于 setTimeout
+        if (USE_BACKEND) {
+          queueMicrotask(() => {
+            dataSyncService.refreshFromServer().catch((error: Error) => {
+              console.warn('[AuthProvider] 后台数据刷新失败（不影响登录）:', error.message);
+            });
+          });
         }
+
+        syncLoginState(loginUser, session);
+
+        // 记录登录日志到前端日志服务
+        await frontendLogger.logAuth('用户登录成功', loginUser.id, loginUser.name);
+
+        dataSyncService.startSync();
+        return true;
+      } else {
+        // 本地验证失败
+        console.warn('[AuthProvider] 用户名或密码错误');
+        error('用户名或密码错误');
+        return false;
       }
+    } catch (err) {
+      // 后端连接失败或其他错误
+      console.error('[AuthProvider] 登录异常:', err);
 
-      syncLoginState(user, session);
-
-      // 记录登录日志到前端日志服务
-      await frontendLogger.logAuth('用户登录成功', user.id, user.name);
-      frontendLogger.setUser(user.id, user.name);
-      frontendLogger.setSessionId(session.sessionId);
-
-      dataSyncService.startSync();
-      return true;
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        error('无法连接到服务器，请检查网络连接或启动后端服务');
+      } else {
+        error('登录失败，请重试');
+      }
+      return false;
     }
-    return false;
   };
+
+  // ================================================================
+  // 管理员登录函数（废弃，保留向后兼容）
+  // ================================================================
 
   const adminLogin = async (username: string, password: string): Promise<boolean> => {
-    // 使用 bcrypt.compare 验证管理员密码，而不是明文比较
-    if (username === ADMIN_CREDENTIALS.username && await bcrypt.compare(password, DEFAULT_PASSWORD_HASHES['admin'])) {
-      const deviceId = getDeviceId();
-
-      // 注意：不再检查后端活动会话，允许多个浏览器同时登录
-      // 只检查本地活动会话（同一浏览器的其他标签页）
-      const activeSession = getActiveSession(username);
-      if (activeSession && activeSession.deviceId !== deviceId) {
-        const currentTime = Date.now();
-        const sessionAge = currentTime - activeSession.lastAccessed;
-        if (sessionAge < SESSION_TIMEOUT) {
-          console.warn('[AuthContext] 检测到管理员账号在不同设备的有效活动会话，拒绝登录');
-          console.warn('[AuthContext] 当前设备ID:', deviceId);
-          console.warn('[AuthContext] 活动会话设备ID:', activeSession.deviceId);
-          console.warn('[AuthContext] 会话存活时间:', Math.floor(sessionAge / 1000), '秒');
-          return false;
-        } else {
-          // 会话已超时，清理并继续登录
-          console.log('[AuthContext] 检测到不同设备的超时会话，清理后继续登录');
-        }
-      }
-
-      // 清理所有旧会话数据（无论是否同一设备）
-      terminateSession(username);
-
-      let session: AuthSession;
-
-      // 尝试连接后端服务
-      if (USE_BACKEND) {
-        try {
-          const response = await fetch('http://localhost:3001/api/login', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              username,
-              password,
-              ip: 'local',
-              deviceId,
-              sourceDeviceInfo: navigator.userAgent
-            })
-          });
-          const result = await response.json();
-          if (result.success) {
-            // 后端登录成功
-            setIsBackendConnected(true);
-            // 生成新的会话ID以防止会话固定攻击
-            const newSessionId = generateSecureSessionId();
-            session = {
-              userId: `admin_${Date.now()}`,
-              username,
-              sessionId: newSessionId,
-              createdAt: result.session.createdAt,
-              lastAccessed: result.session.createdAt,
-              deviceId
-            };
-          } else {
-            // 后端登录失败，使用本地会话
-            session = createSession(`admin_${Date.now()}`, username);
-            session.deviceId = deviceId;
-          }
-        } catch (error) {
-          console.error('后端登录失败:', error);
-          // 后端登录失败，使用本地会话
-          session = createSession(`admin_${Date.now()}`, username);
-          session.deviceId = deviceId;
-        }
-      } else {
-        // 使用本地会话
-        session = createSession(`admin_${Date.now()}`, username);
-        session.deviceId = deviceId;
-      }
-
-      setCurrentSession(session);
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-
-      const adminUser: User = {
-        id: session.userId,
-        username: 'admin',
-        role: 'admin',
-        name: '系统管理员',
-      };
-
-      setUser(adminUser);
-      setSession(session);
-      setIsAdmin(true);
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(adminUser));
-      localStorage.setItem(ADMIN_KEY, 'true');
-
-      // 新增：从服务器刷新数据（仅当使用后端时）
-      if (USE_BACKEND) {
-        try {
-          await dataSyncService.refreshFromServer();
-        } catch (error) {
-          console.error('[AuthContext] 刷新数据失败:', error);
-        }
-      }
-
-      syncLoginState(adminUser, session);
-
-      // 记录管理员登录日志到前端日志服务
-      await frontendLogger.logAuth('管理员登录成功', adminUser.id, adminUser.name);
-      frontendLogger.setUser(adminUser.id, adminUser.name);
-      frontendLogger.setSessionId(session.sessionId);
-
-      dataSyncService.startSync();
-      return true;
-    }
-    return false;
+    console.warn('[AuthProvider] adminLogin 已废弃，请使用 login() 代替');
+    return await login(username, password);
   };
+
+  // ================================================================
+  // 用户管理函数
+  // ================================================================
 
   const updateUserRole = (role: UserRole) => {
     if (user && !isAdmin) {
       const updatedUser = { ...user, role };
       setUser(updatedUser);
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updatedUser));
-      
+
       const users = getStoredUsers();
       if (users[user.username]) {
         users[user.username].role = role;
@@ -619,7 +515,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const updatedUser = { ...user, ...updates };
       setUser(updatedUser);
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updatedUser));
-      
+
       const users = getStoredUsers();
       if (users[user.username] && updates.name) {
         users[user.username].name = updates.name;
@@ -647,7 +543,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // 管理员密码也应该使用哈希比较和存储
     if (await bcrypt.compare(oldPassword, DEFAULT_PASSWORD_HASHES['admin'])) {
-      // 更新管理员密码哈希
       const users = getStoredUsers();
       users['admin'].password = await bcrypt.hash(newPassword, 10);
       saveUsers(users);
@@ -701,26 +596,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }));
   };
 
-  const adminUpdateUser = async (username: string, updates: Partial<{ role: UserRole; name: string; newUsername: string }>): Promise<boolean> => {
+  const adminUpdateUser = async (username: string, updates: Partial<{ role: UserRole; name: string; newUsername: string }>) => {
     if (!isAdmin) return false;
 
     const users = getStoredUsers();
     if (!users[username]) return false;
-
-    const oldUsername = username;
-    let newUsername = username;
-
-    if (updates.newUsername && updates.newUsername !== username) {
-      const validation = validateEmployeeId(updates.newUsername, username);
-      if (!validation.valid) {
-        return false;
-      }
-
-      users[updates.newUsername] = { ...users[username] };
-      delete users[username];
-      username = updates.newUsername;
-      newUsername = updates.newUsername;
-    }
 
     if (updates.role) {
       users[username].role = updates.role;
@@ -730,24 +610,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     saveUsers(users);
-
-    emitUserUpdated(newUsername, {
-      ...(updates.name && { name: updates.name }),
-      ...(updates.role && { role: updates.role }),
-      ...(updates.newUsername && { oldUsername, newUsername: updates.newUsername }),
-    });
+    emitUserUpdated(username, { role: updates.role, name: updates.name });
 
     return true;
   };
 
   const adminResetPassword = async (username: string, newPassword: string): Promise<boolean> => {
     if (!isAdmin) return false;
-    
+
     const users = getStoredUsers();
     if (!users[username]) return false;
-    
+
     if (newPassword.length < 6) return false;
-    
+
     users[username].password = await bcrypt.hash(newPassword, 10);
     saveUsers(users);
     return true;
@@ -755,19 +630,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const adminDeleteUser = async (username: string): Promise<boolean> => {
     if (!isAdmin) return false;
-    
+
     if (username === 'admin') return false;
-    
+
     const users = getStoredUsers();
     if (!users[username]) return false;
-    
-    const userName = users[username].name;
-    
+
     delete users[username];
     saveUsers(users);
-    
-    emitUserDeleted(username, userName);
-    
+
+    emitUserDeleted(username);
+
     return true;
   };
 
@@ -776,31 +649,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     role: UserRole,
     employeeId?: string
   ): Promise<{ success: boolean; message: string; username?: string; tempPassword?: string }> => {
-    if (!isAdmin) return { success: false, message: '无权限' };
-    
+    if (!isAdmin) {
+      return { success: false, message: '无权限' };
+    }
+
     if (!name.trim()) {
       return { success: false, message: '请输入姓名' };
     }
-    
-    const users = getStoredUsers();
-    let username: string;
-    
-    if (employeeId && employeeId.trim()) {
-      username = employeeId.trim();
-      if (users[username]) {
-        return { success: false, message: '该工号已被使用' };
-      }
-    } else {
-      const baseUsername = name.trim().toLowerCase().replace(/\s+/g, '_');
-      username = baseUsername;
-      let counter = 1;
-      
-      while (users[username]) {
-        username = `${baseUsername}_${counter}`;
-        counter++;
-      }
+
+    const username = employeeId || name;
+
+    const validation = validateEmployeeId(username);
+    if (!validation.valid) {
+      return { success: false, message: validation.message };
     }
-    
+
     const tempPassword = Math.random().toString(36).substring(2, 10);
 
     const newUser: UserData = {
@@ -809,12 +672,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       name: name.trim(),
     };
 
+    const users = getStoredUsers();
     users[username] = newUser;
-    
     saveUsers(users);
-    
+
     emitUserRegistered(username, name.trim(), role);
-    
+
     return {
       success: true,
       message: '用户创建成功',
@@ -832,9 +695,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return !!users[employeeId.trim()];
   };
 
-  /**
-   * 验证会话有效性
-   */
+  // ================================================================
+  // 会话安全相关函数
+  // ================================================================
+
   const validateSession = async (): Promise<boolean> => {
     if (!session || !user) {
       return false;
@@ -844,7 +708,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // 检查会话是否超时
       const currentTime = Date.now();
       if (currentTime - session.lastAccessed > SESSION_TIMEOUT) {
-        console.warn('[AuthContext] 会话已超时');
+        console.warn('[AuthProvider] 会话已超时');
         logout();
         return false;
       }
@@ -858,33 +722,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
 
           if (!response.ok) {
-            console.warn('[AuthContext] 服务器会话无效');
+            console.warn('[AuthProvider] 服务器会话无效');
             logout();
             return false;
           }
 
           const result = await response.json();
           if (!result.valid || result.status === 'terminated') {
-            console.warn('[AuthContext] 服务器会话已终止');
+            console.warn('[AuthProvider] 服务器会话已终止');
             logout();
             return false;
           }
         } catch (error) {
-          console.error('[AuthContext] 验证服务器会话失败:', error);
+          console.error('[AuthProvider] 验证服务器会话失败:', error);
           // 网络错误时不强制登出，使用本地缓存
         }
       }
 
       return true;
     } catch (error) {
-      console.error('[AuthContext] 验证会话失败:', error);
+      console.error('[AuthProvider] 验证会话失败:', error);
+      logout();
       return false;
     }
   };
 
-  /**
-   * 强制登出所有设备
-   */
   const forceLogoutAllDevices = async (): Promise<void> => {
     if (!user || !session) {
       return;
@@ -907,11 +769,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               reason: 'admin_logout_all',
-              sessionId: session.sessionId
+              deviceId: session.deviceId
             })
           });
         } catch (error) {
-          console.error('[AuthContext] 终止服务器会话失败:', error);
+          console.error('[AuthProvider] 终止服务器会话失败:', error);
         }
       }
 
@@ -920,20 +782,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout();
       }, 500);
     } catch (error) {
-      console.error('[AuthContext] 强制登出所有设备失败:', error);
+      console.error('[AuthProvider] 强制登出所有设备失败:', error);
     }
   };
 
-  /**
-   * 获取会话信息
-   */
   const getSessionInfo = (): AuthSession | null => {
     return session;
   };
 
-  /**
-   * 延长会话有效期
-   */
   const extendSession = (): void => {
     if (!session) {
       return;
@@ -952,17 +808,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(`active_session_${session.username}`, JSON.stringify(extendedSession));
     }
 
-    console.log('[AuthContext] 会话已延长');
+    console.log('[AuthProvider] 会话已延长');
   };
 
+  // ✅ 关键修改完成：AuthContext.tsx 已更新
+  // 现在 isAdmin 是计算值，adminLogin 标记为废弃但保留向后兼容
+  // 统一登录流程已完成，用户不再需要手动选择模式
   return (
     <AuthContext.Provider
       value={{
         user,
+        get isAdmin() {
+          // ✅ 计算值：基于 user.role === 'admin'
+          return user?.role === 'admin';
+        },
         isAuthenticated: !!user,
-        isAdmin,
         login,
-        adminLogin,
+        adminLogin, // 标记为废弃但保留向后兼容
         logout,
         updateUserRole,
         updateUserProfile,

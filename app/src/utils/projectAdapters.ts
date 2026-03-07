@@ -148,20 +148,20 @@ export function toLegacyProjects(newProjects: NewProject[]): LegacyProject[] {
  */
 export function separateProjectsByVersion(projects: AnyProject[]): {
   legacy: LegacyProject[];
-  new: NewProject[];
+  modern: NewProject[];
 } {
   const legacy: LegacyProject[] = [];
-  const new: NewProject[] = [];
+  const modern: NewProject[] = [];
 
   projects.forEach(project => {
     if (isLegacyProject(project)) {
       legacy.push(project);
     } else {
-      new.push(project);
+      modern.push(project);
     }
   });
 
-  return { legacy, new };
+  return { legacy, modern };
 }
 
 /**

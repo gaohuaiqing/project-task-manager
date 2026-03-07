@@ -15,25 +15,25 @@ class DatabaseService {
         user: process.env.DB_USER || 'root',
         database: process.env.DB_NAME || 'task_manager',
         waitForConnections: true,
-        // 连接池大小配置（针对100人并发场景优化）
-        connectionLimit: 100,           // 最大连接数（应对突发流量）
-        queueLimit: 0,                 // 队列限制（0表示无限制，但会排队等待）
-        maxIdle: 20,                    // 最大空闲连接数（增加空闲连接复用）
-        idleTimeout: 300000,            // 空闲连接超时时间（5分钟，减少频繁创建/销毁）
-        connectTimeout: 10000,          // 连接超时（10秒）
-        acquireTimeout: 30000,          // 获取连接超时（30秒）
+        // 连接池大小配置（支持环境变量）
+        connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT ||
+          (process.env.NODE_ENV === 'production' ? '100' : '30')),
+        queueLimit: parseInt(process.env.DB_QUEUE_LIMIT || '200'),
+        maxIdle: parseInt(process.env.DB_MAX_IDLE || '25'),
+        idleTimeout: parseInt(process.env.DB_IDLE_TIMEOUT || '600000'),
+        connectTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT || '10000'),
+        acquireTimeout: parseInt(process.env.DB_ACQUIRE_TIMEOUT || '5000'),
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
-        keepAlive: 10000,               // 保活间隔（10秒）
+        keepAlive: parseInt(process.env.DB_KEEP_ALIVE || '10000'),
         charset: 'utf8mb4',
         collation: 'utf8mb4_unicode_ci',
         multipleStatements: true,
-        timezone: '+08:00',             // 使用中国时区（UTC+8）
-        // 性能优化
-        namedPlaceholders: true,        // 使用命名占位符（性能优化）
-        dateStrings: true,              // 返回字符串避免时区转换问题
-        supportBigNumbers: true,        // 支持大数（避免精度丢失）
-        bigNumberStrings: false         // 大数作为字符串返回
+        timezone: '+08:00',
+        namedPlaceholders: true,
+        dateStrings: true,
+        supportBigNumbers: true,
+        bigNumberStrings: false
       };
 
       // 只有当密码非空时才添加password字段
@@ -119,6 +119,8 @@ class DatabaseService {
           project_type ENUM('product_development', 'other') DEFAULT 'other',
           planned_start_date DATE,
           planned_end_date DATE,
+          actual_start_date DATE NULL COMMENT '实际开始日期',
+          actual_end_date DATE NULL COMMENT '实际结束日期',
           progress INT DEFAULT 0,
           task_count INT DEFAULT 0,
           completed_task_count INT DEFAULT 0,
@@ -150,10 +152,13 @@ class DatabaseService {
           id INT PRIMARY KEY AUTO_INCREMENT,
           project_id INT NOT NULL,
           user_id INT NOT NULL,
+          role ENUM('owner', 'manager', 'member', 'viewer') DEFAULT 'member' COMMENT '成员角色',
+          member_name VARCHAR(100) NULL COMMENT '冗余成员名称',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-          UNIQUE KEY (project_id, user_id)
+          UNIQUE KEY (project_id, user_id),
+          INDEX idx_role (role)
         )
       `);
 
@@ -184,6 +189,31 @@ class DatabaseService {
         )
       `);
 
+      // 审计日志表
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS audit_logs (
+          id VARCHAR(36) PRIMARY KEY,
+          operation_type VARCHAR(50) NOT NULL,
+          result ENUM('success', 'failure', 'warning') NOT NULL,
+          user_id INT NULL,
+          username VARCHAR(100) NULL,
+          target_id INT NULL,
+          target_type VARCHAR(50) NULL,
+          target_name VARCHAR(255) NULL,
+          details JSON,
+          ip_address VARCHAR(50),
+          user_agent TEXT,
+          session_id VARCHAR(255),
+          server_node VARCHAR(100),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_operation_type (operation_type),
+          INDEX idx_result (result),
+          INDEX idx_user_id (user_id),
+          INDEX idx_target_type (target_type),
+          INDEX idx_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
       // ========== 核心业务表 - MySQL主存储架构 ==========
 
       // 成员表（组织架构）
@@ -201,7 +231,10 @@ class DatabaseService {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           created_by INT,
-          FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+          user_id INT NULL COMMENT '关联的用户账户ID',
+          FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+          INDEX idx_user_id (user_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `);
 
@@ -212,7 +245,9 @@ class DatabaseService {
           project_id INT NOT NULL,
           parent_id INT,
           task_code VARCHAR(50) NOT NULL,
+          wbs_code VARCHAR(50) NULL COMMENT 'WBS编码(如1.1.2)',
           task_name VARCHAR(200) NOT NULL,
+          level INT NULL COMMENT '层级深度',
           description TEXT,
           task_type ENUM('milestone', 'phase', 'task', 'deliverable') DEFAULT 'task',
           status ENUM('pending', 'in_progress', 'completed', 'delayed', 'cancelled') DEFAULT 'pending',
@@ -228,6 +263,7 @@ class DatabaseService {
           dependencies JSON,
           tags JSON,
           attachments JSON,
+          subtasks JSON NULL COMMENT '子任务ID数组',
           version INT DEFAULT 1,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -260,7 +296,7 @@ class DatabaseService {
           INDEX idx_status (status),
           INDEX idx_assigned_at (assigned_at),
           FOREIGN KEY (task_id) REFERENCES wbs_tasks(id) ON DELETE CASCADE,
-          FOREIGN KEY (assignee_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (assignee_id) REFERENCES members(id) ON DELETE CASCADE,
           FOREIGN KEY (assigned_by) REFERENCES users(id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `);
@@ -433,6 +469,10 @@ class DatabaseService {
         'CREATE INDEX idx_projects_status ON projects(status)',
         'CREATE INDEX idx_projects_created_by ON projects(created_by)',
         'CREATE INDEX idx_projects_type_status ON projects(project_type, status)', // 新增：复合索引优化
+        'CREATE INDEX idx_projects_code ON projects(code)', // 新增：项目编码查询优化
+        'CREATE INDEX idx_projects_updated_at ON projects(updated_at)', // 新增：按更新时间排序优化
+        'CREATE INDEX idx_projects_dates ON projects(planned_start_date, planned_end_date)', // 新增：日期范围查询优化
+        'CREATE INDEX idx_projects_creator_status ON projects(created_by, status)', // 新增：创建人+状态复合索引
         'CREATE INDEX idx_milestones_project_id ON milestones(project_id)',
         'CREATE INDEX idx_project_members_project_id ON project_members(project_id)',
         'CREATE INDEX idx_project_members_user_id ON project_members(user_id)',
@@ -473,7 +513,7 @@ class DatabaseService {
 
       // 插入默认管理员用户（密码: admin123）
       await connection.execute(
-        "INSERT IGNORE INTO users (username, password, role, name) VALUES ('admin', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW', 'admin', '系统管理员')"
+        "INSERT IGNORE INTO users (username, password, role, name) VALUES ('admin', '$2b$10$UlqvBIzHlnAJpb5wT1Aa9.fgLC.SKKjyCPiIMpIRNXDc0Bjx65RTS', 'admin', '系统管理员')"
       );
 
       // 插入默认测试数据（仅在开发环境）

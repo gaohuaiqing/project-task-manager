@@ -42,6 +42,13 @@ export interface WbsTask {
   // 前置任务
   predecessor?: string;     // 前置任务ID
   leadLag?: number;         // 提前/落后时间（天数）
+
+  // 前置任务列表（支持多路径依赖）
+  predecessors?: Array<{
+    taskId: string;         // 前置任务ID
+    type: 'finish_to_start' | 'start_to_start' | 'finish_to_finish' | 'start_to_finish'; // 依赖类型
+    lag?: number;           // 延迟天数（负数为提前）
+  }>;
   
   // 任务类型
   taskType?: string;        // 任务类型

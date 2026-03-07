@@ -72,6 +72,11 @@ async function createProjectMilestonesTable(): Promise<void> {
 
 export async function runMigration002(): Promise<boolean> {
   try {
+    // 确保 DatabaseService 已初始化
+    if (!databaseService['pool']) {
+      await databaseService.init();
+    }
+
     // 检查是否已执行
     if (await checkMigrationExecuted()) {
       console.log('📋 迁移 002 已执行，跳过');
@@ -109,8 +114,16 @@ export async function runMigration002(): Promise<boolean> {
   }
 }
 
+// 导入迁移 003 和 004
+import { runMigration003 } from './003-unify-users-members.js';
+import { runMigration004 } from './004-add-missing-fields.js';
+
 // 导出自动运行函数
 export async function runPendingMigrations(): Promise<void> {
   console.log('🔍 检查待执行的数据库迁移...');
+
+  // 按顺序执行迁移
   await runMigration002();
+  await runMigration003();
+  await runMigration004();
 }

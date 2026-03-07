@@ -434,13 +434,21 @@ export function getMigrationReport(): {
 }
 
 // ================================================================
-// 自动执行迁移
+// 自动执行迁移（优化：使用 requestIdleCallback 避免阻塞）
 // ================================================================
 
 if (typeof window !== 'undefined' && !isMigrationComplete()) {
-  // 延迟执行，确保其他模块已加载
-  setTimeout(() => {
-    console.log('[StorageMigration] 检测到未迁移的存储，开始自动迁移...');
-    runMigration();
-  }, 2000);
+  // 优先使用 requestIdleCallback 在浏览器空闲时执行
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(() => {
+      console.log('[StorageMigration] 检测到未迁移的存储，开始自动迁移...');
+      runMigration();
+    }, { timeout: 5000 });
+  } else {
+    // 降级方案：使用较短延迟
+    setTimeout(() => {
+      console.log('[StorageMigration] 检测到未迁移的存储，开始自动迁移...');
+      runMigration();
+    }, 100);
+  }
 }

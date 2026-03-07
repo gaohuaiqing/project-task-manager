@@ -229,6 +229,13 @@ class CacheManagerClass {
     MAX_MEMORY_CACHE_SIZE
   );
 
+  // 生命周期管理属性
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  private initTimeout: ReturnType<typeof setTimeout> | null = null;
+  private pendingIndexedDBOps: Set<Promise<void>> = new Set();
+  private isDestroyed: boolean = false;
+  private isInitialized: boolean = false;
+
   /**
    * 估算数据大小（字节）
    */
@@ -302,13 +309,19 @@ class CacheManagerClass {
       // 存储到 localStorage
       localStorage.setItem(normalizedKey, JSON.stringify(entry));
 
-      // 可选：同步到 IndexedDB
-      if (options.syncToIndexedDB) {
-        indexedDBSyncService.init().then(() => {
-          indexedDBSyncService.saveData(normalizedKey, entry);
+      // 可选：同步到 IndexedDB（追踪 Promise）
+      if (options.syncToIndexedDB && !this.isDestroyed) {
+        const indexedDBOp = indexedDBSyncService.init().then(() => {
+          if (!this.isDestroyed) {
+            return indexedDBSyncService.saveData(normalizedKey, entry);
+          }
         }).catch(err => {
           console.warn(`[CacheManager] IndexedDB 同步失败:`, err);
+        }).finally(() => {
+          this.pendingIndexedDBOps.delete(indexedDBOp);
         });
+
+        this.pendingIndexedDBOps.add(indexedDBOp);
       }
 
       return true;
@@ -641,18 +654,83 @@ export function getCacheStats(): CacheStats {
 }
 
 // ================================================================
-// 初始化时自动清理过期缓存
+// CacheManager 类扩展（初始化和销毁方法）
 // ================================================================
 
-if (typeof window !== 'undefined') {
-  setTimeout(() => {
-    const cleaned = cleanExpiredCache();
-    if (cleaned > 0) {
-      console.log(`[CacheManager] 页面加载时清理了 ${cleaned} 个过期缓存`);
+declare module './CacheManager' {
+  interface CacheManagerClass {
+    init(): void;
+    destroy(): Promise<void>;
+    isServiceDestroyed(): boolean;
+  }
+}
+
+CacheManagerClass.prototype.init = function(): void {
+  if (this.isDestroyed || this.isInitialized) {
+    return;
+  }
+
+  this.isInitialized = true;
+
+  // 延迟清理过期缓存
+  this.initTimeout = setTimeout(() => {
+    if (!this.isDestroyed) {
+      const cleaned = this.cleanExpired();
+      if (cleaned > 0) {
+        console.log(`[CacheManager] 页面加载时清理了 ${cleaned} 个过期缓存`);
+      }
     }
   }, 1000);
 
-  setInterval(() => {
-    cleanExpiredCache();
+  // 定期清理过期缓存（每5分钟）
+  this.cleanupInterval = setInterval(() => {
+    if (!this.isDestroyed) {
+      this.cleanExpired();
+    }
   }, 5 * 60 * 1000);
-}
+
+  console.log('[CacheManager] 缓存管理器已初始化');
+};
+
+CacheManagerClass.prototype.destroy = async function(): Promise<void> {
+  if (this.isDestroyed) {
+    return;
+  }
+
+  this.isDestroyed = true;
+  this.isInitialized = false;
+
+  // 清理定时器
+  if (this.initTimeout) {
+    clearTimeout(this.initTimeout);
+    this.initTimeout = null;
+  }
+
+  if (this.cleanupInterval) {
+    clearInterval(this.cleanupInterval);
+    this.cleanupInterval = null;
+  }
+
+  // 等待所有 IndexedDB 操作完成
+  await Promise.allSettled(Array.from(this.pendingIndexedDBOps));
+  this.pendingIndexedDBOps.clear();
+
+  // 清空内存缓存
+  this.memoryCache.clear();
+
+  console.log('[CacheManager] 缓存管理器已销毁');
+};
+
+CacheManagerClass.prototype.isServiceDestroyed = function(): boolean {
+  return this.isDestroyed;
+};
+
+// ================================================================
+// 初始化时自动清理过期缓存
+// ================================================================
+
+// ❌ 删除自动初始化代码
+// 现在由 ServiceManager 统一管理初始化
+// if (typeof window !== 'undefined') {
+//   CacheManager.init();
+// }

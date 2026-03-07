@@ -1,16 +1,30 @@
-# 依赖目录
+# ========================================
+# 依赖管理
+# ========================================
 node_modules/
 app/node_modules/
 app/server/node_modules/
+Test/E2E_AutoTest/node_modules/
 
+# ========================================
 # 构建输出
+# ========================================
+# 统一构建输出目录
+Build/
+build/
+
+# 传统构建目录（向后兼容）
 dist/
 app/dist/
 app/server/dist/
 app/build/
 .app/
 
+# ========================================
 # 日志文件
+# ========================================
+# 统一日志目录
+logs/
 *.log
 *.log.*
 npm-debug.log*
@@ -18,94 +32,146 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-logs/
 
+# ========================================
+# 测试报告与覆盖率
+# ========================================
+# 统一测试报告目录
+Test/reports/
+Test/frontend/coverage/
+Test/backend/coverage/
+*.lcov
+.nyc_output/
+
+# E2E 测试输出
+Test/E2E_AutoTest/test-results/
+Test/E2E_AutoTest/playwright-report/
+Test/E2E_AutoTest/playwright/.cache/
+
+# ========================================
+# 测试框架
+# ========================================
+.vitest/
+coverage/
+
+# ========================================
 # 备份文件
+# ========================================
 *.backup
 *.bak
 *.old
 *_backup
 src-root-backup/
+package.json.new
 
-# 临时开发脚本（保留在 scripts/dev 中用于本地调试）
-# 如果确实不需要提交到 git，可以取消下面的注释
-# scripts/dev/
-# scripts/maintenance/
-
-# 编辑器
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# 环境变量（安全敏感）
-.env
-.env.local
-.env.*.local
-app/server/.env
-
-# 测试覆盖率
-coverage/
-*.lcov
-.nyc_output/
-
+# ========================================
 # 临时文件
+# ========================================
 *.tmp
 *.temp
 .cache/
 .parcel-cache/
-
-# 操作系统
 Thumbs.db
 .DS_Store
 
-# Playwright
-app/test-results/
-app/playwright-report/
-app/playwright/.cache/
+# Windows 保留设备名（无效文件，不应提交）
+nul
+con
+prn
+aux
+clock$
+com1
+com2
+com3
+com4
+com5
+com6
+com7
+com8
+com9
+lpt1
+lpt2
+lpt3
+lpt4
+lpt5
+lpt6
+lpt7
+lpt8
+lpt9
 
-# Vitest
-.vitest/
-
+# ========================================
 # TypeScript
+# ========================================
 *.tsbuildinfo
 
-# AI 开发工具配置（个人偏好，不应提交）
+# ========================================
+# 环境变量（安全敏感）
+# ========================================
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+app/server/.env
+
+# ========================================
+# 编辑器和工具配置
+# ========================================
+# 所有编辑器和 AI 工具配置，一律忽略
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
 .claude/
 .claude-code/
+.claude_context/
+.playwright-mcp/
 .cursorrules
 .cursor/
+.cursor-cache/
 .trae/
 .tr/
 .aider/
 .aider.cache/
 .aider.diff.history/
+.aider.history
 .continue/
 .cline/
-.github/copilot-instructions.md
+.github/
 .windsurfrules/
 .roo/
 .spec-workflow/
 .claude-ask/
 .ai/
-.claude_context/
+.ai.cache/
 
+# ========================================
 # AI 聊天历史和会话
+# ========================================
 *.chat
 *.conversation
-.aider.history
 .claude_history/
 
-# AI 工具生成的缓存
-.ai.cache/
-.cursor-cache/
+# ========================================
+# 自动化测试（遗留）
+# ========================================
+auto-tests/reports/
+auto-tests/node_modules/
+auto-tests/*.json
 
-# 锁文件（根据团队约定，npm 保留）
-# package-lock.json
-# yarn.lock
+# ========================================
+# 项目报告和个人文档
+# ========================================
+# AI 生成的临时报告，记录测试和优化过程，不影响代码功能
+docs/reports/
+
+# 用户的个人原始想法和跟踪文件
+docs/自定义Prompt/
+
+# ========================================
+# 其他临时输出
+# ========================================
+# Docker 部署临时文件
+docker-compose.override.yml

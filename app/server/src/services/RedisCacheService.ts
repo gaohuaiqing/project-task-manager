@@ -32,6 +32,97 @@ interface CacheItem<T = any> {
   version?: number;
 }
 
+// ================================================================
+// 简单的 LRU 缓存实现（防止内存无限增长）
+// ================================================================
+
+class LRUMemoryCache<K, V> {
+  private cache: Map<K, V>;
+  private maxSize: number;
+  private maxBytes: number;
+  private currentBytes: number;
+  private sizeCalculation: (value: V) => number;
+
+  constructor(options: {
+    max: number;
+    maxSize?: number;
+    sizeCalculation?: (value: V) => number;
+  }) {
+    this.cache = new Map();
+    this.maxSize = options.max;
+    this.maxBytes = options.maxSize || Infinity;
+    this.currentBytes = 0;
+    this.sizeCalculation = options.sizeCalculation || (() => 1);
+  }
+
+  set(key: K, value: V): void {
+    // 如果键已存在，先删除旧值
+    if (this.cache.has(key)) {
+      const oldValue = this.cache.get(key);
+      if (oldValue !== undefined) {
+        this.currentBytes -= this.sizeCalculation(oldValue);
+      }
+      this.cache.delete(key);
+    }
+
+    // 计算新值大小
+    const valueSize = this.sizeCalculation(value);
+
+    // 检查是否超过限制
+    if (this.currentBytes + valueSize > this.maxBytes || this.cache.size >= this.maxSize) {
+      // 删除最旧的项（第一个）
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey !== undefined) {
+        const firstValue = this.cache.get(firstKey);
+        if (firstValue !== undefined) {
+          this.currentBytes -= this.sizeCalculation(firstValue);
+        }
+        this.cache.delete(firstKey);
+      }
+    }
+
+    // 添加新项
+    this.cache.set(key, value);
+    this.currentBytes += valueSize;
+  }
+
+  get(key: K): V | undefined {
+    const value = this.cache.get(key);
+    if (value !== undefined) {
+      // 重新插入以更新 LRU 顺序
+      this.cache.delete(key);
+      this.cache.set(key, value);
+    }
+    return value;
+  }
+
+  has(key: K): boolean {
+    return this.cache.has(key);
+  }
+
+  delete(key: K): boolean {
+    const value = this.cache.get(key);
+    const deleted = this.cache.delete(key);
+    if (deleted && value !== undefined) {
+      this.currentBytes -= this.sizeCalculation(value);
+    }
+    return deleted;
+  }
+
+  clear(): void {
+    this.cache.clear();
+    this.currentBytes = 0;
+  }
+
+  size(): number {
+    return this.cache.size;
+  }
+
+  getMemoryUsage(): number {
+    return this.currentBytes;
+  }
+}
+
 interface CacheStats {
   hitRate: number;
   totalHits: number;
@@ -51,15 +142,28 @@ class RedisCacheService {
   private reconnectDelay: number = 1000;
   private isInitialized: boolean = false;
   private isOptional: boolean = false; // Redis 是否可选（降级模式）
-  private memoryCache: Map<string, { data: any; expiry: number }>; // 内存缓存降级方案
+  private memoryCache: LRUMemoryCache<string, { data: any; expiry: number }>; // LRU 内存缓存降级方案
 
   constructor() {
     // 检查 Redis 是否可选（允许降级到内存缓存）
     this.isOptional = process.env.REDIS_OPTIONAL === 'true' || process.env.REDIS_ENABLED === 'false';
-    this.memoryCache = new Map();
+
+    // 使用 LRU 缓存限制内存使用（最大 1000 项，每项约 1KB，总共约 1MB）
+    const maxCacheSize = parseInt(process.env.MEMORY_CACHE_MAX_SIZE || '1000');
+    const maxCacheBytes = parseInt(process.env.MEMORY_CACHE_MAX_BYTES || '10485760'); // 10MB
+
+    this.memoryCache = new LRUMemoryCache({
+      max: maxCacheSize,
+      maxSize: maxCacheBytes,
+      sizeCalculation: (value) => {
+        // 估算缓存项大小（JSON 字符串长度）
+        return JSON.stringify(value).length;
+      }
+    });
 
     if (this.isOptional) {
-      console.warn('[RedisCache] Redis 处于可选模式，将降级到内存缓存');
+      console.warn(`[RedisCache] Redis 处于可选模式，将降级到 LRU 内存缓存`);
+      console.warn(`[RedisCache] LRU 缓存限制: ${maxCacheSize} 项, ${(maxCacheBytes / 1024 / 1024).toFixed(2)}MB`);
     }
   }
 
@@ -204,11 +308,16 @@ class RedisCacheService {
    * 在内存缓存模式下，使用内存缓存
    */
   async set<T>(key: string, value: T, ttl: number = 3600): Promise<void> {
-    // 内存缓存模式
+    // 内存缓存模式（使用 LRU 缓存）
     if (!this.client?.isOpen) {
       if (this.isOptional) {
         const expiry = Date.now() + ttl * 1000;
         this.memoryCache.set(key, { data: value, expiry });
+        // 监控缓存大小
+        if (this.memoryCache.size() % 100 === 0) {
+          console.warn(`[RedisCache] LRU 缓存大小: ${this.memoryCache.size()} 项, ` +
+                      `内存使用: ${(this.memoryCache.getMemoryUsage() / 1024).toFixed(2)}KB`);
+        }
         return;
       }
       throw new Error('[RedisCache] Redis 未初始化或连接已断开，无法设置缓存');
@@ -222,9 +331,9 @@ class RedisCacheService {
 
       await this.client.setEx(key, ttl, JSON.stringify(item));
     } catch (error) {
-      // 如果 Redis 可选且操作失败，降级到内存缓存
+      // 如果 Redis 可选且操作失败，降级到 LRU 内存缓存
       if (this.isOptional) {
-        console.warn('[RedisCache] Redis 设置失败，降级到内存缓存:', key);
+        console.warn('[RedisCache] Redis 设置失败，降级到 LRU 内存缓存:', key);
         const expiry = Date.now() + ttl * 1000;
         this.memoryCache.set(key, { data: value, expiry });
         return;
@@ -239,7 +348,7 @@ class RedisCacheService {
    * 在内存缓存模式下，从内存缓存读取
    */
   async get<T>(key: string): Promise<T | null> {
-    // 内存缓存模式
+    // 内存缓存模式（使用 LRU 缓存）
     if (!this.client?.isOpen) {
       if (this.isOptional) {
         const cached = this.memoryCache.get(key);
@@ -247,7 +356,9 @@ class RedisCacheService {
           return cached.data as T;
         }
         // 过期或不存在，清理
-        this.memoryCache.delete(key);
+        if (cached) {
+          this.memoryCache.delete(key);
+        }
         return null;
       }
       throw new Error('[RedisCache] Redis 未初始化或连接已断开，无法获取缓存');
@@ -263,9 +374,9 @@ class RedisCacheService {
 
       return null;
     } catch (error) {
-      // 如果 Redis 可选且操作失败，尝试从内存缓存读取
+      // 如果 Redis 可选且操作失败，尝试从 LRU 内存缓存读取
       if (this.isOptional) {
-        console.warn('[RedisCache] Redis 获取失败，尝试从内存缓存读取:', key);
+        console.warn('[RedisCache] Redis 获取失败，尝试从 LRU 内存缓存读取:', key);
         const cached = this.memoryCache.get(key);
         if (cached && cached.expiry > Date.now()) {
           return cached.data as T;

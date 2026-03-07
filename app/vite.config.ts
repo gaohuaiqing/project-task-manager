@@ -41,9 +41,63 @@ export default defineConfig({
     __BUILD_TIME__: JSON.stringify(BUILD_START_TIME),
     __IS_DEV__: JSON.stringify(process.env.NODE_ENV === 'development'),
   },
+  build: {
+    outDir: path.resolve(__dirname, '../Build/frontend/dist'),
+    emptyOutDir: true,
+    // 内存优化配置
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'radix-vendor': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
+          'utils-vendor': ['date-fns', 'clsx', 'tailwind-merge'],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@test": path.resolve(__dirname, "../Test/frontend"),
     },
+  },
+  // 开发服务器优化
+  server: {
+    host: '0.0.0.0',      // 监听所有网络接口
+    port: 5173,           // 明确指定端口
+    strictPort: false,    // 端口被占用时自动尝试其他端口
+    hmr: {
+      overlay: true,
+    },
+    watch: {
+      // 减少文件监听压力
+      ignored: ['**/node_modules/**', '**/dist/**', '**/Build/**'],
+    },
+    // 企业代理绕过配置（解决 localhost:3001 无法访问的问题）
+    proxy: {
+      // 不使用代理，直接访问本地后端
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        configure: (proxy, options) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            // 确保不经过企业代理
+            proxyReq.removeHeader('proxy-connection');
+            console.log(`[Proxy] ${req.method} ${req.url} -> http://localhost:3001${req.url}`);
+          });
+        },
+      },
+    },
+  },
+  // 优化预构建配置
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-hook-form',
+      'date-fns',
+      'lucide-react',
+    ],
   },
 });

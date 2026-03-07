@@ -2,7 +2,7 @@ import type { DelayRecord, PlanAdjustmentRecord } from '@/types/wbs';
 
 export function generateTestDelayRecords(taskIds: string[]): DelayRecord[] {
   const records: DelayRecord[] = [];
-  
+
   taskIds.forEach((taskId, index) => {
     if (index % 3 === 0) {
       records.push({
@@ -16,7 +16,7 @@ export function generateTestDelayRecords(taskIds: string[]): DelayRecord[] {
         createdAt: new Date().toISOString()
       });
     }
-    
+
     if (index % 5 === 0) {
       records.push({
         id: `delay-${taskId}-2`,
@@ -30,13 +30,13 @@ export function generateTestDelayRecords(taskIds: string[]): DelayRecord[] {
       });
     }
   });
-  
+
   return records;
 }
 
 export function generateTestPlanAdjustmentRecords(taskIds: string[]): PlanAdjustmentRecord[] {
   const records: PlanAdjustmentRecord[] = [];
-  
+
   taskIds.forEach((taskId, index) => {
     if (index % 4 === 0) {
       records.push({
@@ -58,7 +58,7 @@ export function generateTestPlanAdjustmentRecords(taskIds: string[]): PlanAdjust
         createdAt: new Date().toISOString()
       });
     }
-    
+
     if (index % 6 === 0) {
       records.push({
         id: `adjust-${taskId}-2`,
@@ -80,17 +80,17 @@ export function generateTestPlanAdjustmentRecords(taskIds: string[]): PlanAdjust
       });
     }
   });
-  
+
   return records;
 }
 
 export function initializeTestRecords(taskIds: string[]) {
   const delayRecords = generateTestDelayRecords(taskIds);
   const adjustmentRecords = generateTestPlanAdjustmentRecords(taskIds);
-  
+
   localStorage.setItem('delayRecords', JSON.stringify(delayRecords));
   localStorage.setItem('planAdjustmentRecords', JSON.stringify(adjustmentRecords));
-  
+
   console.log('测试数据已初始化');
   console.log('延期记录:', delayRecords);
   console.log('计划调整记录:', adjustmentRecords);

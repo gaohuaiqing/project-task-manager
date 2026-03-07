@@ -13,7 +13,7 @@
  * @module components/projects/ProjectManager
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { canPerformProjectOperation } from '@/types/auth';
@@ -21,6 +21,7 @@ import { useProjectApi } from '@/hooks/useProjectApi';
 import { useProjectForm, useProjectTypeValidation } from '@/hooks/useProjectForm';
 import { ProjectList } from './ProjectList';
 import { ProjectForm } from './ProjectForm';
+import { ProjectTimePlanDialog } from './ProjectTimePlanDialog';
 import { getOrganizationSync } from '@/utils/organizationManager';
 import { memberService, getDisplayMembersMap } from '@/services/MemberService';
 import { useDialog } from '@/hooks/useDialog';
@@ -53,13 +54,14 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showTimePlanDialog, setShowTimePlanDialog] = useState(false);
 
   // ==================== 组织架构数据 ====================
   const organization = getOrganizationSync() as OrganizationStructure | null;
   const [membersMap, setMembersMap] = useState<Map<string, DisplayMember>>(new Map());
 
   // 加载成员映射表
-  React.useEffect(() => {
+  useEffect(() => {
     getDisplayMembersMap().then(setMembersMap);
   }, []);
 
@@ -227,6 +229,20 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
     setEditingProjectId(null);
   };
 
+  // ==================== 时间计划编辑器 ====================
+  const handleMilestonesChange = (milestones: any[]) => {
+    formHook.setFieldValue('milestones', milestones);
+  };
+
+  const handleWbsTasksChange = (tasks: any[]) => {
+    formHook.setFieldValue('wbsTasks', tasks);
+  };
+
+  const handleSaveTimePlan = (data: { milestones: any[]; tasks: any[] }) => {
+    handleMilestonesChange(data.milestones);
+    handleWbsTasksChange(data.tasks);
+  };
+
   // ==================== 渲染 ====================
   return (
     <>
@@ -250,8 +266,8 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
         if (!open) handleDialogClose(open);
         else setIsCreateDialogOpen(true);
       }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
+        <DialogContent className="max-w-3xl p-0 max-h-[95vh] overflow-y-auto">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border sticky top-0 bg-card z-10">
             <DialogTitle className="text-xl font-semibold text-white">新建项目</DialogTitle>
           </DialogHeader>
           <div className="px-6 pb-6">
@@ -266,6 +282,7 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
               onSubmit={handleCreateProject}
               onCancel={handleCancelForm}
               isSubmitting={isSubmitting}
+              onOpenTimePlanDialog={() => setShowTimePlanDialog(true)}
             />
           </div>
         </DialogContent>
@@ -276,8 +293,8 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
         if (!open) handleDialogClose(open);
         else setIsEditDialogOpen(true);
       }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
+        <DialogContent className="max-w-3xl p-0 max-h-[95vh] overflow-y-auto">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border sticky top-0 bg-card z-10">
             <DialogTitle className="text-xl font-semibold text-white">编辑项目</DialogTitle>
           </DialogHeader>
           <div className="px-6 pb-6">
@@ -292,6 +309,7 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
               onSubmit={handleSaveEdit}
               onCancel={handleCancelForm}
               isSubmitting={isSubmitting}
+              onOpenTimePlanDialog={() => setShowTimePlanDialog(true)}
             />
           </div>
         </DialogContent>
@@ -299,6 +317,22 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
 
       {/* 确认对话框 */}
       <ConfirmDialog />
+
+      {/* 时间计划编辑对话框 - 独立渲染 */}
+      <ProjectTimePlanDialog
+        open={showTimePlanDialog}
+        onOpenChange={setShowTimePlanDialog}
+        plannedStartDate={formHook.formData.plannedStartDate}
+        plannedEndDate={formHook.formData.plannedEndDate}
+        milestones={formHook.formData.milestones || []}
+        wbsTasks={formHook.formData.wbsTasks || []}
+        onMilestonesChange={handleMilestonesChange}
+        onTasksChange={handleWbsTasksChange}
+        onSave={handleSaveTimePlan}
+        readonly={false}
+        projectId={formHook.formData.id}
+        memberId={formHook.formData.memberIds?.[0]?.toString()}
+      />
     </>
   );
 }
@@ -307,3 +341,5 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
  * 导出别名，便于渐进式迁移
  */
 export const ProjectManager = ProjectManagerV2;
+
+export default ProjectManager;

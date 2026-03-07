@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
+import bcrypt from 'bcrypt';
 import { SessionManager } from './services/SessionManager.js';
 import { DataSyncService } from './services/DataSyncService.js';
 import { databaseService } from './services/DatabaseService.js';
@@ -23,7 +24,35 @@ import dataRoutes, { setBroadcastFunction, setSessionManager } from './routes/da
 import permissionRoutes from './routes/permissionRoutes.js';
 // import organizationRoutes from './routes/organizationRoutes.js'; // 文件不存在，已注释
 import projectExtendedRoutes, { setSessionManager as setProjectSessionManager } from './routes/projectExtendedRoutes.js';
+import projectTypesRouter from './routes/projectTypes.js';
 import type { ClientMessage, ServerMessage, Session, User } from './types/index.js';
+
+// ================================================================
+// LRU 缓存实现（简单实现，避免额外依赖）
+// ================================================================
+class LRUCache<K, V> extends Map<K, V> {
+  private maxSize: number;
+
+  constructor(maxSize: number, entries?: Iterable<readonly [K, V]> | null) {
+    super(entries);
+    this.maxSize = maxSize;
+  }
+
+  override set(key: K, value: V): this {
+    // 删除旧值（如果存在）以便重新插入到末尾
+    if (super.has(key)) {
+      super.delete(key);
+    }
+    // 如果达到最大大小，删除最老的条目（第一个）
+    else if (this.size >= this.maxSize) {
+      const firstKey = this.keys().next().value;
+      if (firstKey !== undefined) {
+        super.delete(firstKey);
+      }
+    }
+    return super.set(key, value);
+  }
+}
 
 const app = express();
 const server = createServer(app);
@@ -150,6 +179,9 @@ app.use('/api', dataRoutes);
 // 注册权限配置路由
 app.use('/api/permissions', permissionRoutes);
 
+// 注册项目类型路由
+app.use('/api/project-types', projectTypesRouter);
+
 // 注册组织架构路由
 // app.use('/api/organization', organizationRoutes); // 文件不存在，已注释
 
@@ -176,7 +208,29 @@ dataSyncService.setBroadcastCallback((username, message) => {
   broadcastToUser(username, message);
 });
 
-const clients = new Map<string, { ws: WebSocket; sessionId: string; username: string; ip: string; userId?: number; role?: string }>();
+// ================================================================
+// WebSocket 连接管理（LRU 缓存 + 心跳机制）
+// ================================================================
+
+// 限制最大连接数为 1000，减少内存压力（从 5000 降到 1000）
+const MAX_WS_CONNECTIONS = 1000;
+const clients = new LRUCache<string, WebSocketClientData>(MAX_WS_CONNECTIONS);
+
+// WebSocket 客户端数据接口
+interface WebSocketClientData {
+  ws: WebSocket;
+  sessionId: string;
+  username: string;
+  ip: string;
+  userId?: number;
+  role?: string;
+  lastSeen: number; // 最后活跃时间（心跳检测用）
+  heartbeatInterval?: NodeJS.Timeout; // 心跳定时器引用
+}
+
+// 心跳配置 - 优化：减少心跳频率
+const HEARTBEAT_INTERVAL = 60000; // 30秒 → 60秒，减少心跳频率
+const CONNECTION_TIMEOUT = 120000; // 60秒 → 120秒，减少超时检测频率
 
 // ================================================================
 // 全局数据管理
@@ -434,6 +488,14 @@ app.get('/health/all', async (req, res) => {
   // 检查WebSocket连接数
   health.services.websocket.activeConnections = clients.size;
 
+  // 检查连接数是否接近上限
+  const connectionUtilization = (clients.size / MAX_WS_CONNECTIONS) * 100;
+  if (connectionUtilization > 80) {
+    health.status = health.status === 'ok' ? 'degraded' : health.status;
+    health.services.websocket.status = 'degraded';
+    console.warn(`[健康检查] WebSocket 连接数接近上限: ${clients.size}/${MAX_WS_CONNECTIONS} (${connectionUtilization.toFixed(1)}%)`);
+  }
+
   // 如果所有服务都正常，返回200；否则返回503
   const statusCode = health.status === 'ok' ? 200 : 503;
   res.status(statusCode).json(health);
@@ -448,11 +510,36 @@ app.post('/api/login', async (req, res) => {
 
     const userIp = ip || req.ip || 'unknown';
     const userAgent = req.get('User-Agent') || 'unknown';
+    const loginDeviceId = deviceId || uuidv4();
+    const loginSourceDeviceInfo = sourceDeviceInfo || userAgent;
     const loginStartTime = Date.now();
 
     try {
+      // 【安全修复】验证用户名和密码
+      const users = await databaseService.query(
+        'SELECT id, username, password, role, name FROM users WHERE username = ?',
+        [username]
+      );
+
+      if (!users || users.length === 0) {
+        console.warn(`[API] 登录失败: 用户不存在 - ${username}`);
+        return res.status(401).json({ success: false, message: '用户名或密码错误' });
+      }
+
+      const user = users[0];
+
+      // 验证密码
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+
+      if (!isPasswordValid) {
+        console.warn(`[API] 登录失败: 密码错误 - ${username}`);
+        return res.status(401).json({ success: false, message: '用户名或密码错误' });
+      }
+
+      console.log(`[API] 密码验证通过: ${username} (${user.role})`);
+
       // 创建新会话（会自动终止现有会话）
-      const session = await sessionManager.createSession(username, userIp, deviceId, sourceDeviceInfo);
+      const session = await sessionManager.createSession(username, userIp, loginDeviceId, loginSourceDeviceInfo);
 
       // 【性能优化】异步记录日志，不阻塞登录响应
       // 系统日志（队列化异步）
@@ -461,7 +548,7 @@ app.post('/api/login', async (req, res) => {
         session.userId,
         session.username,
         userIp,
-        sourceDeviceInfo
+        loginSourceDeviceInfo
       );
 
       // 审计日志（队列化异步，不等待）
@@ -1033,30 +1120,63 @@ wss.on('connection', (ws, req) => {
   const clientIp = req.socket.remoteAddress || 'unknown';
   const clientId = uuidv4();
 
-  console.log(`[WebSocket] 新连接: ${clientId} from ${clientIp}`);
+  console.log(`[WebSocket] 新连接: ${clientId} from ${clientIp}, 当前连接数: ${clients.size}/${MAX_WS_CONNECTIONS}`);
 
   // 记录WebSocket连接日志
-  systemLogger.info(`WebSocket新连接`, { clientId, clientIp });
+  systemLogger.info(`WebSocket新连接`, { clientId, clientIp, connectionCount: clients.size });
+
+  // 启动心跳检测定时器并保存引用
+  const heartbeatInterval = setInterval(() => {
+    const client = clients.get(clientId);
+    if (!client) {
+      clearInterval(heartbeatInterval);
+      return;
+    }
+
+    const now = Date.now();
+    const inactiveTime = now - client.lastSeen;
+
+    // 检查是否超时
+    if (inactiveTime > CONNECTION_TIMEOUT) {
+      console.warn(`[WebSocket] 连接超时: ${clientId}, 用户: ${client.username}, 不活跃时间: ${inactiveTime}ms`);
+      ws.terminate();
+      clearInterval(heartbeatInterval);
+      return;
+    }
+
+    // 发送 ping
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.ping();
+    }
+  }, HEARTBEAT_INTERVAL);
 
   ws.on('message', async (message: string) => {
     try {
       const msg: ClientMessage = JSON.parse(message.toString());
-      await handleMessage(clientId, ws, msg, clientIp);
+      await handleMessage(clientId, ws, msg, clientIp, heartbeatInterval);
     } catch (error) {
       console.error('[WebSocket] 解析消息失败:', error);
       sendError(ws, '消息格式错误');
     }
   });
 
+  ws.on('pong', () => {
+    // 收到 pong 响应，更新最后活跃时间
+    const client = clients.get(clientId);
+    if (client) {
+      client.lastSeen = Date.now();
+    }
+  });
+
   ws.on('close', async () => {
     const client = clients.get(clientId);
     if (client) {
-      console.log(`[WebSocket] 连接关闭: ${clientId}, 用户: ${client.username}`);
+      console.log(`[WebSocket] 连接关闭: ${clientId}, 用户: ${client.username}, 剩余连接: ${clients.size - 1}`);
 
       // 记录WebSocket断开日志
       await systemLogger.info(
         `WebSocket连接关闭`,
-        { clientId, username: client.username },
+        { clientId, username: client.username, connectionCount: clients.size - 1 },
         client.userId,
         client.username
       );
@@ -1066,19 +1186,47 @@ wss.on('connection', (ws, req) => {
       } catch (error) {
         console.error('[WebSocket] 更新会话活动失败:', error);
       }
+
+      // ✅ 清理心跳定时器（使用本地变量，因为连接可能未认证）
+      clearInterval(heartbeatInterval);
+
+      // ✅ 同时清理客户端数据中保存的定时器引用
+      if (client.heartbeatInterval) {
+        clearInterval(client.heartbeatInterval);
+      }
+
       clients.delete(clientId);
+    } else {
+      // 如果客户端数据不存在，也要清理心跳定时器
+      clearInterval(heartbeatInterval);
     }
   });
 
   ws.on('error', (error) => {
     console.error(`[WebSocket] 连接错误: ${clientId}`, error);
+
+    // 🔧 修复内存泄漏：错误发生时也要清理定时器
+    clearInterval(heartbeatInterval);
+
+    const client = clients.get(clientId);
+    if (client?.heartbeatInterval) {
+      clearInterval(client.heartbeatInterval);
+    }
+
+    // 清理客户端数据
+    clients.delete(clientId);
+
+    // 确保连接被关闭
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.terminate();
+    }
   });
 });
 
-async function handleMessage(clientId: string, ws: WebSocket, msg: ClientMessage, ip: string) {
+async function handleMessage(clientId: string, ws: WebSocket, msg: ClientMessage, ip: string, heartbeatInterval: NodeJS.Timeout) {
   switch (msg.type) {
     case 'auth':
-      await handleAuth(clientId, ws, msg.data, ip);
+      await handleAuth(clientId, ws, msg.data, ip, heartbeatInterval);
       break;
     case 'data_update':
       handleDataUpdate(clientId, ws, msg.data);
@@ -1109,7 +1257,7 @@ async function handleMessage(clientId: string, ws: WebSocket, msg: ClientMessage
   }
 }
 
-async function handleAuth(clientId: string, ws: WebSocket, data: { sessionId?: string; username: string }, ip: string) {
+async function handleAuth(clientId: string, ws: WebSocket, data: { sessionId?: string; username: string }, ip: string, heartbeatInterval: NodeJS.Timeout) {
   const { sessionId, username } = data;
 
   try {
@@ -1156,7 +1304,17 @@ async function handleAuth(clientId: string, ws: WebSocket, data: { sessionId?: s
     const userId = session.userId;
     const role = session.role;
 
-    clients.set(clientId, { ws, sessionId: session.sessionId, username, ip, userId, role });
+    // ✅ 保存心跳定时器引用到客户端数据中
+    clients.set(clientId, {
+      ws,
+      sessionId: session.sessionId,
+      username,
+      ip,
+      userId,
+      role,
+      lastSeen: Date.now(),
+      heartbeatInterval // ✅ 保存定时器引用，确保清理时能正确清除
+    });
 
     sendToClient(ws, {
       type: 'auth_success',
@@ -1890,10 +2048,32 @@ function broadcastToUser(username: string, message: ServerMessage, excludeSessio
   });
 }
 
-setInterval(async () => {
+// ================================================================
+// 会话-WSS 联动清理定时器
+// ================================================================
+// 保存定时器引用，以便在服务器关闭时清理
+let sessionCleanupInterval: NodeJS.Timeout | null = null;
+
+sessionCleanupInterval = setInterval(async () => {
   try {
     const expiredSessions = await sessionManager.cleanupExpiredSessions();
-    expiredSessions.forEach(session => {
+
+    // 清理过期会话对应的 WebSocket 连接
+    for (const session of expiredSessions) {
+      // 查找并关闭所有使用该会话的 WebSocket 连接
+      for (const [clientId, client] of clients.entries()) {
+        if (client.sessionId === session.sessionId) {
+          console.log(`[会话清理] 关闭过期会话的 WebSocket 连接: ${clientId}, 用户: ${client.username}`);
+          client.ws.terminate();
+          // 清理心跳定时器
+          if (client.heartbeatInterval) {
+            clearInterval(client.heartbeatInterval);
+          }
+          clients.delete(clientId);
+        }
+      }
+
+      // 广播会话终止消息（给用户的其他连接）
       broadcastToUser(session.username, {
         type: 'session_terminated',
         data: {
@@ -1901,7 +2081,11 @@ setInterval(async () => {
           reason: 'timeout'
         }
       });
-    });
+    }
+
+    if (expiredSessions.length > 0) {
+      console.log(`[会话清理] 已清理 ${expiredSessions.length} 个过期会话及其 WebSocket 连接`);
+    }
   } catch (error) {
     console.error('[定时任务] 清理过期会话失败:', error);
   }
@@ -1960,6 +2144,51 @@ async function startServer() {
       console.log(`[服务器] ✅ 运行在 http://${HOST}:${PORT}`);
       console.log(`[WebSocket] ✅ 运行在 ws://${HOST}:${PORT}`);
 
+      // 🔧 内存监控：每 5 分钟输出内存使用情况
+      const MEMORY_MONITOR_INTERVAL = 5 * 60 * 1000; // 5 分钟
+      const MEMORY_WARNING_THRESHOLD = 0.8; // 80% 内存使用率警告阈值
+      const MEMORY_CRITICAL_THRESHOLD = 0.9; // 90% 内存使用率严重警告阈值
+
+      const memoryMonitorInterval = setInterval(() => {
+        const memUsage = process.memoryUsage();
+        const totalMem = memUsage.heapTotal;
+        const usedMem = memUsage.heapUsed;
+        const externalMem = memUsage.external;
+        const arrayBuffersMem = memUsage.arrayBuffers;
+
+        const memUsagePercent = usedMem / totalMem;
+        const usedMemMB = (usedMem / 1024 / 1024).toFixed(2);
+        const totalMemMB = (totalMem / 1024 / 1024).toFixed(2);
+        const externalMemMB = (externalMem / 1024 / 1024).toFixed(2);
+        const arrayBuffersMemMB = (arrayBuffersMem / 1024 / 1024).toFixed(2);
+
+        // 根据内存使用率选择日志级别
+        if (memUsagePercent >= MEMORY_CRITICAL_THRESHOLD) {
+          console.error(`[内存监控] 🔴 严重警告: 堆内存使用率 ${(memUsagePercent * 100).toFixed(1)}%`);
+          console.error(`[内存监控]   已用: ${usedMemMB}MB / 总计: ${totalMemMB}MB`);
+          console.error(`[内存监控]   外部: ${externalMemMB}MB / ArrayBuffers: ${arrayBuffersMemMB}MB`);
+          console.error(`[内存监控]   WebSocket 连接数: ${clients.size}`);
+          console.error(`[内存监控]   ⚠️ 建议立即重启服务器以释放内存！`);
+        } else if (memUsagePercent >= MEMORY_WARNING_THRESHOLD) {
+          console.warn(`[内存监控] ⚠️ 警告: 堆内存使用率 ${(memUsagePercent * 100).toFixed(1)}%`);
+          console.warn(`[内存监控]   已用: ${usedMemMB}MB / 总计: ${totalMemMB}MB`);
+          console.warn(`[内存监控]   外部: ${externalMemMB}MB / ArrayBuffers: ${arrayBuffersMemMB}MB`);
+          console.warn(`[内存监控]   WebSocket 连接数: ${clients.size}`);
+        } else {
+          console.log(`[内存监控] ✅ 正常: 堆内存使用率 ${(memUsagePercent * 100).toFixed(1)}% (${usedMemMB}MB / ${totalMemMB}MB)`);
+        }
+
+        // 如果内存使用率超过 95%，强制触发垃圾回收（如果可用）
+        if (memUsagePercent >= 0.95 && global.gc) {
+          console.warn('[内存监控] 触发手动垃圾回收...');
+          global.gc();
+        }
+      }, MEMORY_MONITOR_INTERVAL);
+
+      // 保存定时器引用，用于优雅关闭
+      (global as any).memoryMonitorInterval = memoryMonitorInterval;
+      console.log(`[内存监控] ✅ 内存监控已启动 (每 ${MEMORY_MONITOR_INTERVAL / 60000} 分钟检查一次)`);
+
       // 查询并显示数据库中的组织架构数据
       try {
         const orgData = await globalDataManager.getGlobalData('organization_units', 'default');
@@ -1993,6 +2222,21 @@ async function startServer() {
 
 async function gracefulShutdown(signal: string): Promise<void> {
   console.log(`\n[服务器] 收到 ${signal} 信号，开始优雅关闭...`);
+
+  // 0. 清理内存监控定时器（防止内存泄漏）
+  const memoryMonitorInterval = (global as any).memoryMonitorInterval;
+  if (memoryMonitorInterval) {
+    clearInterval(memoryMonitorInterval);
+    (global as any).memoryMonitorInterval = null;
+    console.log('[服务器] 内存监控定时器已停止');
+  }
+
+  // 1. 清理会话清理定时器（防止内存泄漏）
+  if (sessionCleanupInterval) {
+    clearInterval(sessionCleanupInterval);
+    sessionCleanupInterval = null;
+    console.log('[服务器] 会话清理定时器已停止');
+  }
 
   // 1. 停止接受新连接
   server.close(() => {

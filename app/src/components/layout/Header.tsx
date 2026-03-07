@@ -18,6 +18,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ROLE_CONFIG } from '@/types/auth';
 import { ProfileDialog } from '@/components/profile/ProfileDialog';
 import { dataSyncService } from '@/services/DataSyncService';
+import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher';
 
 interface HeaderProps {
   title: string;
@@ -54,13 +55,24 @@ export function Header({
 
   // 初始化构建时间和热更新检测
   useEffect(() => {
+    console.log('🔍 [Header] 热更新调试信息:');
+    console.log('  - import.meta.env.DEV:', import.meta.env.DEV);
+    console.log('  - import.meta.hot:', import.meta.hot);
+    console.log('  - __BUILD_TIME__:', (__BUILD_TIME__ as any));
+
     if (import.meta.env.DEV) {
+      console.log('✅ 开发模式检测成功，设置 HMR 状态');
       setIsHmr(true);
-      setHmrTime(getCurrentTime());
+      const now = getCurrentTime();
+      setHmrTime(now);
+      console.log('  - 设置 hmrTime:', now);
 
       if (import.meta.hot) {
+        console.log('✅ import.meta.hot 存在，监听热更新事件');
         const handleUpdate = () => {
-          setHmrTime(getCurrentTime());
+          const newTime = getCurrentTime();
+          console.log('🔥 [Header] 检测到热更新，更新时间:', newTime);
+          setHmrTime(newTime);
         };
 
         import.meta.hot.on('vite:afterUpdate', handleUpdate);
@@ -68,7 +80,11 @@ export function Header({
         return () => {
           import.meta.hot.off('vite:afterUpdate', handleUpdate);
         };
+      } else {
+        console.warn('⚠️ import.meta.hot 不存在，热更新监听器未注册');
       }
+    } else {
+      console.warn('⚠️ 非开发模式，HMR 功能未启用');
     }
   }, []);
   
@@ -117,25 +133,25 @@ export function Header({
   return (
     <>
       <header 
-        className={cn(
-          "fixed top-0 right-0 h-16 bg-card border-b border-border flex items-center justify-between px-6 z-40 transition-all duration-300",
-          sidebarCollapsed ? "left-16" : "left-64"
-        )}
+        className="h-16 bg-card border-b border-border flex items-center justify-between px-6 z-10"
       >
         {/* 左侧：编译时间 */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Clock className="w-4 h-4 text-blue-400" />
             <span className="font-mono text-xs">
-              {isHmr ? (
-                <>
-                  热更新完成: <span className="text-blue-400 font-medium">{hmrTime || new Date().toLocaleString('zh-CN')}</span>
-                </>
-              ) : (
-                <>
-                  完整构建完成: <span className="text-blue-400 font-medium">{__BUILD_TIME__}</span>
-                </>
-              )}
+              {(() => {
+                console.log('🎨 [Header] 渲染状态:', { isHmr, hmrTime, buildTime: __BUILD_TIME__ });
+                return isHmr ? (
+                  <>
+                    热更新完成: <span className="text-blue-400 font-medium">{hmrTime || new Date().toLocaleString('zh-CN')}</span>
+                  </>
+                ) : (
+                  <>
+                    完整构建完成: <span className="text-blue-400 font-medium">{(__BUILD_TIME__ as any) || '未知'}</span>
+                  </>
+                );
+              })()}
             </span>
           </div>
         </div>
@@ -144,10 +160,10 @@ export function Header({
         <div className="flex items-center gap-4">
 
           {/* 同步按钮 */}
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             size="icon"
-            className="relative text-muted-foreground hover:text-white hover:bg-accent"
+            className="relative text-muted-foreground hover:text-foreground hover:bg-accent"
             onClick={handleSync}
             disabled={isSyncing}
             title="同步数据"
@@ -160,17 +176,20 @@ export function Header({
             <div className="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-green-500 animate-pulse" />
           </Button>
 
+          {/* 主题切换器 */}
+          <ThemeSwitcher />
+
           {/* 通知按钮 */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 size="icon"
-                className="relative text-muted-foreground hover:text-white hover:bg-accent"
+                className="relative text-muted-foreground hover:text-foreground hover:bg-accent"
               >
                 <Bell className="w-5 h-5" />
                 {unreadCount > 0 && (
-                  <Badge 
+                  <Badge
                     className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 bg-red-500 text-white text-xs"
                   >
                     {unreadCount}
@@ -178,25 +197,25 @@ export function Header({
                 )}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent 
-              align="end" 
+            <DropdownMenuContent
+              align="end"
               className="w-80 bg-card border-border"
             >
               <DropdownMenuLabel className="flex items-center justify-between">
-                <span className="text-white">通知中心</span>
+                <span className="text-foreground">通知中心</span>
                 <div className="flex gap-1">
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-8 w-8 text-muted-foreground hover:text-white"
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
                     onClick={onMarkAllRead}
                   >
                     <Check className="w-4 h-4" />
                   </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-8 w-8 text-muted-foreground hover:text-white"
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
                     onClick={onClearNotifications}
                   >
                     <Trash2 className="w-4 h-4" />
@@ -222,12 +241,12 @@ export function Header({
                       {getNotificationIcon(notification.type)}
                       <div className="flex-1 min-w-0">
                         <p className={cn(
-                          "text-sm truncate",
-                          !notification.read ? "text-white font-medium" : "text-muted-foreground"
+                          "text-sm line-clamp-2",
+                          !notification.read ? "text-foreground font-medium" : "text-muted-foreground"
                         )}>
                           {notification.title}
                         </p>
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
                           {notification.content}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
@@ -252,20 +271,20 @@ export function Header({
                 className="flex items-center gap-2 hover:bg-accent"
               >
                 <div 
-                  className="flex items-center gap-2 cursor-pointer"
+                  className="flex items-center gap-2 cursor-pointer min-w-0"
                   onClick={(e) => {
                     e.stopPropagation();
                     setIsProfileOpen(true);
                   }}
                 >
-                  <Avatar className="h-8 w-8">
+                  <Avatar className="h-8 w-8 flex-shrink-0">
                     <AvatarImage src={`https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=professional%20avatar%20portrait%20of%20a%20tech%20person%2C%20minimalist%2C%20flat%20design%2C%20blue%20background&image_size=square`} />
                     <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500 text-white">
                       {user?.name?.charAt(0) || <User className="w-4 h-4" />}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="hidden sm:flex flex-col items-start">
-                    <div className="text-sm text-white font-medium">{user?.name || '用户'}</div>
+                  <div className="hidden sm:flex flex-col items-start min-w-0">
+                    <div className="text-sm text-foreground font-medium truncate">{user?.name || '用户'}</div>
                     <div className={cn("text-xs", getRoleColor(user?.role || ''))}>
                       {user ? ROLE_CONFIG[user.role].label : ''}
                     </div>
@@ -274,7 +293,7 @@ export function Header({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48 bg-card border-border">
-              <DropdownMenuLabel className="text-white">
+              <DropdownMenuLabel className="text-foreground">
                 <div className="flex flex-col">
                   <div>{user?.name || '用户'}</div>
                   <div className={cn("text-xs font-normal mt-0.5", getRoleColor(user?.role || ''))}>

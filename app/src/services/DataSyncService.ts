@@ -42,7 +42,7 @@ export interface SyncConfig {
 
 // 默认配置
 const DEFAULT_CONFIG: SyncConfig = {
-  syncInterval: 5000, // 增加同步间隔到5秒，减少不必要的刷新
+  syncInterval: 30000, // 优化：增加同步间隔到30秒，减少数据库压力（从5秒优化到30秒，减少6倍请求量）
   conflictResolution: 'lastWriteWins',
   enableIncrementalSync: true
 };
@@ -67,16 +67,25 @@ export class DataSyncService {
   private operationQueue: typeof operationQueue;
   private isReadOnlyCache: boolean = true; // 只读缓存模式
 
+  // 生命周期管理属性
+  private initTimeout: ReturnType<typeof setTimeout> | null = null;
+  private storageChangeHandler: ((e: StorageEvent) => void) | null = null;
+  private broadcastDataUpdateUnsubscribe: (() => void) | null = null;
+  private isDestroyed: boolean = false;
+  private isInitialized: boolean = false;
+
   constructor(config: Partial<SyncConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.deviceId = getDeviceId();
     this.operationQueue = operationQueue;
-    
+
     // 初始化BroadcastChannel服务
     broadcastService.init();
-    
-    // 监听其他浏览器的数据更新
-    broadcastService.onDataUpdate((data, dataType) => {
+
+    // 监听其他浏览器的数据更新（保存取消订阅函数）
+    this.broadcastDataUpdateUnsubscribe = broadcastService.onDataUpdate((data, dataType) => {
+      if (this.isDestroyed) return;
+
       console.log('[DataSyncService] 收到BroadcastChannel数据更新:', dataType, data);
       // 修复：data参数实际上是一个包含dataType和data属性的对象
       if (data && data.dataType) {
@@ -90,12 +99,19 @@ export class DataSyncService {
       // 触发本地同步
       this.notifyListeners();
     });
-    
-    this.initializeSync();
+
+    // ❌ 移除自动初始化
+    // this.initializeSync(); // 不再自动调用
   }
 
   // 初始化同步
   private async initializeSync(): Promise<void> {
+    if (this.isDestroyed || this.isInitialized) {
+      return;
+    }
+
+    this.isInitialized = true;
+
     // 初始化持久化操作队列
     try {
       await indexedDBOperationQueue.init();
@@ -116,9 +132,9 @@ export class DataSyncService {
     // 启动数据一致性检查
     this.startConsistencyCheck();
 
-    // 初始数据一致性验证
-    setTimeout(() => {
-      if (!this.validateDataConsistency()) {
+    // 初始数据一致性验证（保存定时器引用）
+    this.initTimeout = setTimeout(() => {
+      if (!this.isDestroyed && !this.validateDataConsistency()) {
         console.log('[DataSyncService] Initial data inconsistency detected, attempting to fix...');
         this.fixDataConsistency();
       }
@@ -149,17 +165,20 @@ export class DataSyncService {
   
   // 监听localStorage变化
   private startStorageListener(): void {
-    const handleStorageChange = (e: StorageEvent) => {
+    // 保存事件处理器引用以便后续清理
+    this.storageChangeHandler = (e: StorageEvent) => {
+      if (this.isDestroyed) return;
+
       if (!e.key || e.newValue === null) return;
-      
+
       // 监听关键数据的变化
       const watchedKeys = ['projects', 'members', 'wbsTasks', 'tasks'];
       if (watchedKeys.includes(e.key)) {
         console.log('[DataSyncService] 检测到数据变化:', e.key);
-        
+
         // 立即触发同步
         this.notifyListeners();
-        
+
         // 通过BroadcastChannel广播变化
         try {
           const data = JSON.parse(e.newValue);
@@ -170,9 +189,9 @@ export class DataSyncService {
         }
       }
     };
-    
+
     // 监听其他标签页的存储变化
-    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('storage', this.storageChangeHandler);
   }
 
   // 确保同步数据存在
@@ -559,11 +578,9 @@ export class DataSyncService {
       this.applySyncDataToLocalStorage(externalData);
       console.log('[DataSyncService] Applied newer external data (version:', externalData.version, ')');
     } else if (externalData.version < localData.version) {
-      // 本地数据更新，保存到外部存储
-      this.saveToLocalStorage('shared_sync_data', localData);
-      this.saveToLocalStorage('cross_browser_sync_data', localData);
-      this.saveToLocalStorage('global_sync_data', localData);
-      console.log('[DataSyncService] Saved newer local data (version:', localData.version, ') to external storage');
+      // 本地数据更新，保存到主存储键
+      this.saveSyncData(localData);
+      console.log('[DataSyncService] Saved newer local data (version:', localData.version, ')');
     } else {
       // 版本相同，根据时间戳决定
       if (externalData.lastUpdated > localData.lastUpdated) {
@@ -571,11 +588,9 @@ export class DataSyncService {
         this.applySyncDataToLocalStorage(externalData);
         console.log('[DataSyncService] Applied newer external data by timestamp');
       } else if (externalData.lastUpdated < localData.lastUpdated) {
-        // 本地数据更新，保存到外部存储
-        this.saveToLocalStorage('shared_sync_data', localData);
-        this.saveToLocalStorage('cross_browser_sync_data', localData);
-        this.saveToLocalStorage('global_sync_data', localData);
-        console.log('[DataSyncService] Saved newer local data by timestamp to external storage');
+        // 本地数据更新，保存到主存储键
+        this.saveSyncData(localData);
+        console.log('[DataSyncService] Saved newer local data by timestamp');
       }
     }
   }
@@ -621,22 +636,8 @@ export class DataSyncService {
     syncData.version = Math.max(...changes.map(c => c.version), syncData.version);
     this.saveSyncData(syncData);
 
-    // 保存到共享存储，确保所有浏览器都能读取到
-    this.saveToLocalStorage('shared_sync_data', syncData);
-    
-    // 保存到跨浏览器存储键
-    this.saveToLocalStorage('cross_browser_sync_data', syncData);
-    this.saveToLocalStorage('global_sync_data', syncData);
-    
-    // 尝试保存到浏览器特定的存储键，增加兼容性
-    const userAgent = navigator.userAgent;
-    if (userAgent.includes('Edge')) {
-      this.saveToLocalStorage('sync_data_edge', syncData);
-    } else if (userAgent.includes('Chrome')) {
-      this.saveToLocalStorage('sync_data_chrome', syncData);
-    } else if (userAgent.includes('Firefox')) {
-      this.saveToLocalStorage('sync_data_firefox', syncData);
-    }
+    // 保存到主存储键（删除多余的多重存储）
+    this.saveSyncData(syncData);
 
     // 应用到本地存储
     this.applySyncDataToLocalStorage(syncData);
@@ -836,29 +837,10 @@ export class DataSyncService {
       // 3. 应用同步数据到本地存储
       this.applySyncDataToLocalStorage(syncData);
       
-      // 4. 保存到所有可能的存储键
-      const storageKeys = [
-        'sync_data',
-        'shared_sync_data',
-        'cross_browser_sync_data',
-        'global_sync_data'
-      ];
+      // 4. 保存到主存储键（删除多余的多重存储）
+      this.saveSyncData(syncData);
 
-      for (const key of storageKeys) {
-        this.saveToLocalStorage(key, syncData);
-      }
-
-      // 5. 保存到浏览器特定的存储键
-      const userAgent = navigator.userAgent;
-      if (userAgent.includes('Edge')) {
-        this.saveToLocalStorage('sync_data_edge', syncData);
-      } else if (userAgent.includes('Chrome')) {
-        this.saveToLocalStorage('sync_data_chrome', syncData);
-      } else if (userAgent.includes('Firefox')) {
-        this.saveToLocalStorage('sync_data_firefox', syncData);
-      }
-
-      // 6. 通知其他浏览器数据已更新
+      // 5. 通知其他浏览器数据已更新
       syncDataUpdated({
         key: 'consistency_fix',
         timestamp: syncData.lastUpdated,
@@ -910,7 +892,7 @@ export class DataSyncService {
     let isFixing = false;
 
     this.consistencyCheckInterval = setInterval(() => {
-      if (isFixing) return; // 如果正在修复，跳过本次检查
+      if (this.isDestroyed || isFixing) return; // 如果正在修复，跳过本次检查
 
       if (!this.validateDataConsistency()) {
         console.log('[DataSyncService] Data inconsistency detected, attempting to fix...');
@@ -923,6 +905,53 @@ export class DataSyncService {
         });
       }
     }, 30000); // 增加到30秒检查一次，减少性能消耗
+  }
+
+  /**
+   * 销毁服务，清理所有资源
+   * 这个方法应该只在应用卸载时调用
+   */
+  destroy(): void {
+    if (this.isDestroyed) {
+      return;
+    }
+
+    this.isDestroyed = true;
+    this.isInitialized = false;
+
+    // 停止所有定时器
+    this.stopSync();
+
+    // 清理初始化定时器
+    if (this.initTimeout) {
+      clearTimeout(this.initTimeout);
+      this.initTimeout = null;
+    }
+
+    // 移除存储事件监听器
+    if (this.storageChangeHandler) {
+      window.removeEventListener('storage', this.storageChangeHandler);
+      this.storageChangeHandler = null;
+    }
+
+    // 取消 BroadcastChannel 订阅
+    if (this.broadcastDataUpdateUnsubscribe) {
+      this.broadcastDataUpdateUnsubscribe();
+      this.broadcastDataUpdateUnsubscribe = null;
+    }
+
+    // 清空所有监听器
+    this.syncListeners.clear();
+    this.pendingChanges = [];
+
+    console.log('[DataSyncService] 数据同步服务已销毁');
+  }
+
+  /**
+   * 检查服务是否已销毁
+   */
+  isServiceDestroyed(): boolean {
+    return this.isDestroyed;
   }
 } 
 

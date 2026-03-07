@@ -252,7 +252,10 @@ class IndexedDBHelper {
 class OfflineDraftService {
   private db: IndexedDBHelper;
   private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
+  private autoCleanupInterval: ReturnType<typeof setInterval> | null = null;
   private syncInProgress = false;
+  private isDestroyed: boolean = false;
+  private isInitialized: boolean = false;
 
   constructor() {
     this.db = new IndexedDBHelper();
@@ -263,6 +266,12 @@ class OfflineDraftService {
    * 初始化服务
    */
   private async init(): Promise<void> {
+    if (this.isDestroyed || this.isInitialized) {
+      return;
+    }
+
+    this.isInitialized = true;
+
     try {
       await this.db.init();
 
@@ -613,12 +622,14 @@ class OfflineDraftService {
    * 启动自动清理
    */
   private startAutoCleanup(): void {
-    // 每小时清理一次过期草稿
-    setInterval(async () => {
-      try {
-        await this.cleanupExpiredDrafts();
-      } catch (error) {
-        console.error('[OfflineDraftService] 自动清理失败:', error);
+    // 保存定时器引用以便后续清理
+    this.autoCleanupInterval = setInterval(async () => {
+      if (!this.isDestroyed) {
+        try {
+          await this.cleanupExpiredDrafts();
+        } catch (error) {
+          console.error('[OfflineDraftService] 自动清理失败:', error);
+        }
       }
     }, 60 * 60 * 1000);
 
@@ -626,6 +637,16 @@ class OfflineDraftService {
     this.cleanupExpiredDrafts().catch(error => {
       console.error('[OfflineDraftService] 启动清理失败:', error);
     });
+  }
+
+  /**
+   * 停止自动清理
+   */
+  private stopAutoCleanup(): void {
+    if (this.autoCleanupInterval) {
+      clearInterval(this.autoCleanupInterval);
+      this.autoCleanupInterval = null;
+    }
   }
 
   /**
@@ -658,11 +679,33 @@ class OfflineDraftService {
    * 销毁服务
    */
   destroy(): void {
+    if (this.isDestroyed) {
+      return;
+    }
+
+    this.isDestroyed = true;
+    this.isInitialized = false;
+
+    // 停止所有定时器
     this.stopAutoSync();
+    this.stopAutoCleanup();
+
+    // 移除事件监听器
     window.removeEventListener('online', this.handleNetworkOnline);
     window.removeEventListener('offline', this.handleNetworkOffline);
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+
+    // 关闭数据库连接
     this.db.close();
+
+    console.log('[OfflineDraftService] 离线草稿服务已销毁');
+  }
+
+  /**
+   * 检查服务是否已销毁
+   */
+  isServiceDestroyed(): boolean {
+    return this.isDestroyed;
   }
 }
 

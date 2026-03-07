@@ -1,68 +1,65 @@
-import type { Member, Project, Task, Notification } from '@/types';
+/**
+ * Mock 数据文件
+ * 用于前端开发和展示
+ */
 
-// 团队成员数据
-export const members: Member[] = [];
+export interface TaskType {
+  value: string;
+  label: string;
+  color: string;
+}
 
-// 项目数据
-export const projects: Project[] = [];
+export interface Priority {
+  value: string;
+  label: string;
+  color: string;
+  level: number;
+}
 
-// 任务数据
-export const tasks: Task[] = [];
-
-// 通知数据
-export const notifications: Notification[] = [];
-
-// 技能列表
-export const skillList = [];
-
-// 任务类型
-export const taskTypes = [
+/** 任务类型列表 */
+export const taskTypes: TaskType[] = [
   { value: 'frontend', label: '前端开发', color: '#60a5fa' },
   { value: 'backend', label: '后端开发', color: '#4ade80' },
   { value: 'test', label: '测试', color: '#facc15' },
   { value: 'design', label: '设计', color: '#f472b6' },
-  { value: 'other', label: '其他', color: '#9ca3af' }
+  { value: 'other', label: '其他', color: '#9ca3af' },
 ];
 
-// 任务难度
-export const taskDifficulties = [
-  { value: 'easy', label: '简单', color: '#4ade80', factor: 1 },
-  { value: 'medium', label: '中等', color: '#facc15', factor: 1.5 },
-  { value: 'hard', label: '困难', color: '#fb923c', factor: 2 },
-  { value: 'extreme', label: '极难', color: '#f87171', factor: 3 }
+/** 优先级列表 */
+export const priorities: Priority[] = [
+  { value: 'critical', label: '紧急', color: '#ef4444', level: 4 },
+  { value: 'high', label: '高', color: '#f97316', level: 3 },
+  { value: 'medium', label: '中', color: '#eab308', level: 2 },
+  { value: 'low', label: '低', color: '#22c55e', level: 1 },
 ];
 
-// 优先级
-export const priorities = [
-  { value: 'low', label: '低', color: '#60a5fa' },
-  { value: 'medium', label: '中', color: '#facc15' },
-  { value: 'high', label: '高', color: '#f87171' }
-];
-
-// 状态
-export const statuses = [
-  { value: 'pending', label: '待处理', color: '#facc15' },
-  { value: 'in_progress', label: '进行中', color: '#60a5fa' },
-  { value: 'completed', label: '已完成', color: '#4ade80' }
-];
-
-// 系统数据管理说明
-// 1. 本文件不再包含默认示例数据，所有数据将由用户手动创建
-// 2. 系统启动时不会自动生成任何默认示例数据
-// 3. 成员数据通过用户管理模块进行管理
-// 4. 项目、任务等业务数据需要用户手动添加
-
-// 清空本地存储中的旧示例数据
-if (typeof localStorage !== 'undefined') {
-  // 仅清除可能存在的旧示例数据，保留成员和用户数据
-  localStorage.removeItem('projects');
-  localStorage.removeItem('tasks');
-  localStorage.removeItem('notifications');
-  // 注意：members 数据由用户管理模块生成
+/** 任务难度列表 */
+export interface TaskDifficulty {
+  value: string;
+  label: string;
+  description?: string;
 }
 
-// 数据生成机制优化
-// - 移除了所有 AI 自动生成的默认示例数据
-// - 确保系统启动时不会自动创建任何示例数据
-// - 用户需要通过界面手动创建项目、任务等数据
-// - 成员数据通过用户管理功能创建
+export const taskDifficulties: TaskDifficulty[] = [
+  { value: 'trivial', label: '简单', description: '1小时内完成' },
+  { value: 'easy', label: '容易', description: '1-2小时' },
+  { value: 'medium', label: '中等', description: '半天' },
+  { value: 'hard', label: '困难', description: '1-2天' },
+  { value: 'challenging', label: '挑战性', description: '3-5天' },
+  { value: 'expert', label: '专家级', description: '需要专家介入' },
+];
+
+/** 根据值获取任务类型 */
+export function getTaskTypeByValue(value: string): TaskType | undefined {
+  return taskTypes.find(type => type.value === value);
+}
+
+/** 根据值获取优先级 */
+export function getPriorityByValue(value: string): Priority | undefined {
+  return priorities.find(priority => priority.value === value);
+}
+
+/** 根据级别获取优先级 */
+export function getPriorityByLevel(level: number): Priority | undefined {
+  return priorities.find(priority => priority.level === level);
+}

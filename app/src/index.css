@@ -1,3 +1,10 @@
+/**
+ * 苹果风格设计系统 - 全局样式
+ * Apple Design System - Global Styles
+ *
+ * 基于 Apple Human Interface Guidelines 的设计系统实现
+ */
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
@@ -6,49 +13,69 @@
 
 @layer base {
   :root {
-    --background: 0 0% 7.5%;
-    --foreground: 0 0% 100%;
-    --card: 200 5% 11.5%;
-    --card-foreground: 0 0% 100%;
-    --popover: 200 5% 11.5%;
-    --popover-foreground: 0 0% 100%;
-    --primary: 210 10% 18%;
+    /* 苹果风格系统颜色 */
+    --system-blue: 211 98% 52%;
+    --system-blue-light: 211 98% 56%;
+    --system-blue-dark: 211 100% 50%;
+
+    --system-green: 142 69% 58%;
+    --system-green-light: 142 71% 63%;
+    --system-green-dark: 142 76% 48%;
+
+    --system-orange: 28 93% 62%;
+    --system-orange-light: 28 92% 68%;
+    --system-orange-dark: 28 93% 53%;
+
+    --system-red: 0 84% 60%;
+    --system-red-light: 0 88% 65%;
+    --system-red-dark: 0 89% 48%;
+
+    /* 语义化颜色 - 亮色主题（默认） */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 13%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 13%;
+    --primary: 0 0% 13%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 10% 23%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 210 10% 18%;
-    --muted-foreground: 0 0% 73%;
-    --accent: 210 10% 23%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 70% 65%;
+    --secondary: 0 0% 97%;
+    --secondary-foreground: 0 0% 13%;
+    --muted: 0 0% 97%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 97%;
+    --accent-foreground: 0 0% 13%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 210 10% 23%;
-    --input: 210 10% 23%;
-    --ring: 217 90% 60%;
-    --radius: 0.5rem;
-    --sidebar-background: 200 5% 11.5%;
-    --sidebar-foreground: 0 0% 100%;
-    --sidebar-primary: 210 10% 18%;
+    --border: 0 0% 88%;
+    --input: 0 0% 88%;
+    --ring: 211 98% 52%;
+    --radius: 0.75rem; /* 苹果风格圆角 - 12px */
+    --sidebar-background: 0 0% 97%;
+    --sidebar-foreground: 0 0% 13%;
+    --sidebar-primary: 0 0% 13%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 210 10% 23%;
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 210 10% 23%;
-    --sidebar-ring: 217 90% 60%;
+    --sidebar-accent: 0 0% 97%;
+    --sidebar-accent-foreground: 0 0% 13%;
+    --sidebar-border: 0 0% 88%;
+    --sidebar-ring: 211 98% 52%;
+
+    /* 苹果风格动画时长 */
+    --duration-instant: 100ms;
+    --duration-fast: 200ms;
+    --duration-base: 300ms;
+    --duration-medium: 400ms;
+    --duration-slow: 500ms;
+    --duration-slower: 600ms;
+
+    /* 苹果风格缓动函数 */
+    --ease-apple: cubic-bezier(0.25, 0.1, 0.25, 1);
+    --ease-apple-in: cubic-bezier(0.32, 0, 0.67, 0);
+    --ease-apple-out: cubic-bezier(0.33, 1, 0.68, 1);
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
-  /* 日期输入框样式 - 白色日历图标 */
-  input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1);
-  }
-
-  input[type="date"]::-moz-calendar-picker-indicator {
-    filter: invert(1);
-  }
-
-  input[type="date"]::-ms-clear {
-    display: none;
-  }
-
+  /* 深色主题 */
   .dark {
     --background: 0 0% 7.5%;
     --foreground: 0 0% 100%;
@@ -78,200 +105,398 @@
     --sidebar-border: 210 10% 23%;
     --sidebar-ring: 217 90% 60%;
   }
+
+  /* 日期输入框样式 */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity var(--duration-fast) var(--ease-apple);
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
+
+  input[type="date"]::-moz-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity var(--duration-fast) var(--ease-apple);
+  }
+
+  input[type="date"]::-moz-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
+
+  input[type="date"]::-ms-clear {
+    display: none;
+  }
 }
 
 @layer base {
   * {
     @apply border-border;
   }
-  
+
   html {
     scroll-behavior: smooth;
+    /* 平滑的字体渲染 */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  
+
   body {
-    @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    @apply bg-background text-foreground;
+    /* 苹果系统字体优先 */
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+                 "Inter", "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
+    font-feature-settings: "kern" 1;
+    /* 优化文本渲染 */
+    text-rendering: optimizeLegibility;
+    /* 防止文本高亮时的背景色 */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 标题样式 */
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: hsl(var(--foreground));
+  }
+
+  h1 {
+    font-size: 32px;
+    line-height: 40px;
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    font-size: 28px;
+    line-height: 36px;
+    letter-spacing: -0.015em;
+  }
+
+  h3 {
+    font-size: 24px;
+    line-height: 32px;
+    letter-spacing: -0.01em;
+  }
+
+  h4 {
+    font-size: 20px;
+    line-height: 28px;
+    letter-spacing: -0.005em;
+  }
+
+  /* 按钮基础样式 */
+  button {
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 输入框基础样式 */
+  input, textarea, select {
+    font-family: inherit;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 链接样式 */
+  a {
+    color: hsl(var(--system-blue));
+    transition: color var(--duration-fast) var(--ease-apple-out);
+  }
+
+  a:hover {
+    color: hsl(var(--system-blue-light));
+  }
+
+  /* 焦点样式 */
+  :focus-visible {
+    outline: 2px solid hsl(var(--system-blue));
+    outline-offset: 2px;
+  }
+
+  /* 选择文本样式 */
+  ::selection {
+    background-color: hsl(var(--system-blue) / 0.3);
+    color: inherit;
   }
 }
 
 @layer utilities {
-  /* 自定义滚动条 - 垂直 */
+  /* ==================== 苹果风格滚动条 ==================== */
   .scrollbar-thin::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-track {
-    background: rgba(42, 47, 52, 0.3);
+    background: transparent;
     border-radius: 4px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: #475569;
+    background: rgba(255, 255, 255, 0.2);
     border-radius: 4px;
     border: 2px solid transparent;
     background-clip: padding-box;
-    min-height: 40px;
+    transition: background var(--duration-fast) var(--ease-apple-out);
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background: #64748b;
-    border: 2px solid transparent;
+    background: rgba(255, 255, 255, 0.3);
     background-clip: padding-box;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb:active {
-    background: #94a3b8;
+    background: rgba(255, 255, 255, 0.4);
+    background-clip: padding-box;
   }
 
-  /* 水平滚动条特定样式 */
-  .scrollbar-thin::-webkit-scrollbar:horizontal {
-    height: 8px;
+  /* 深色主题滚动条 */
+  .dark .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    background-clip: padding-box;
   }
 
-  .scrollbar-thin::-webkit-scrollbar-track:horizontal {
-    background: rgba(42, 47, 52, 0.3);
-    margin: 0 4px;
+  .dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+    background-clip: padding-box;
   }
 
-  .scrollbar-thin::-webkit-scrollbar-thumb:horizontal {
-    background: #475569;
-    border-radius: 4px;
-    min-width: 40px;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-thumb:horizontal:hover {
-    background: #64748b;
-  }
-
-  /* 深色主题滚动条 - 用于表格等组件 */
-  .scrollbar-dark::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-
-  .scrollbar-dark::-webkit-scrollbar-track {
-    background: #1e293b;
-    border-radius: 5px;
-    border: 1px solid #334155;
-  }
-
-  .scrollbar-dark::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, #475569 0%, #64748b 100%);
-    border-radius: 5px;
-    border: 2px solid #1e293b;
-    min-height: 50px;
-    min-width: 50px;
-  }
-
-  .scrollbar-dark::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, #64748b 0%, #94a3b8 100%);
-    border-color: #334155;
-  }
-
-  .scrollbar-dark::-webkit-scrollbar-thumb:active {
-    background: linear-gradient(180deg, #94a3b8 0%, #cbd5e1 100%);
-  }
-
-  /* 水平滚动条 - 深色主题 */
-  .scrollbar-dark::-webkit-scrollbar:horizontal {
-    height: 12px;
-  }
-
-  .scrollbar-dark::-webkit-scrollbar-track:horizontal {
-    background: #1e293b;
-    border-radius: 6px;
-    border: 1px solid #334155;
-    margin: 0 2px;
-  }
-
-  .scrollbar-dark::-webkit-scrollbar-thumb:horizontal {
-    background: linear-gradient(90deg, #475569 0%, #64748b 100%);
-    border-radius: 6px;
-    border: 2px solid #1e293b;
-    min-width: 60px;
-  }
-
-  .scrollbar-dark::-webkit-scrollbar-thumb:horizontal:hover {
-    background: linear-gradient(90deg, #64748b 0%, #94a3b8 100%);
-    border-color: #334155;
-  }
-
-  .scrollbar-dark::-webkit-scrollbar-thumb:horizontal:active {
-    background: linear-gradient(90deg, #94a3b8 0%, #cbd5e1 100%);
+  .dark .scrollbar-thin::-webkit-scrollbar-thumb:active {
+    background: rgba(255, 255, 255, 0.4);
+    background-clip: padding-box;
   }
 
   /* Firefox 滚动条支持 */
-  .scrollbar-dark {
-    scrollbar-width: thin;
-    scrollbar-color: #64748b #1e293b;
-  }
-  
-  /* 滚动条显示/隐藏动画 */
   .scrollbar-thin {
-    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
   }
-  
+
+  .dark .scrollbar-thin {
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+
   /* 隐藏滚动条但保持功能 */
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
-  
+
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
-  
-  /* 动画工具类 */
+
+  /* ==================== 苹果风格动画工具类 ==================== */
   .animate-fade-in {
-    animation: fadeIn 0.5s ease-out forwards;
+    animation: fade-in var(--duration-base) var(--ease-apple-out) forwards;
   }
-  
-  .animate-slide-up {
-    animation: slideUp 0.5s ease-out forwards;
+
+  .animate-fade-out {
+    animation: fade-out var(--duration-base) var(--ease-apple-in) forwards;
   }
-  
-  .animate-scale-in {
-    animation: scaleIn 0.3s ease-out forwards;
+
+  .animate-scale-fade-in {
+    animation: scale-fade-in var(--duration-base) var(--ease-spring) forwards;
   }
-  
-  .animate-count-up {
-    animation: countUp 1s ease-out forwards;
+
+  .animate-scale-fade-out {
+    animation: scale-fade-out var(--duration-fast) var(--ease-apple-in) forwards;
   }
-  
+
+  .animate-slide-up-fade-in {
+    animation: slide-up-fade-in var(--duration-base) var(--ease-apple-out) forwards;
+  }
+
+  .animate-slide-down-fade-out {
+    animation: slide-down-fade-out var(--duration-base) var(--ease-apple-in) forwards;
+  }
+
+  .animate-spring-scale {
+    animation: spring-scale var(--duration-medium) var(--ease-spring) forwards;
+  }
+
+  /* ==================== 苹果风格交互工具类 ==================== */
+  /* 按钮悬停效果 */
+  .btn-hover {
+    transition: all var(--duration-fast) var(--ease-apple-out);
+  }
+
+  .btn-hover:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .btn-hover:active {
+    transform: scale(0.97);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  }
+
+  /* 卡片悬停效果 */
+  .card-hover {
+    transition: all var(--duration-fast) var(--ease-apple-out);
+  }
+
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+  }
+
+  /* 轻微悬停提升 */
+  .hover-lift {
+    transition: transform var(--duration-fast) var(--ease-apple-out),
+                box-shadow var(--duration-fast) var(--ease-apple-out);
+  }
+
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  }
+
+  /* 按下效果 */
+  .press-scale {
+    transition: transform var(--duration-instant) var(--ease-apple-in);
+  }
+
+  .press-scale:active {
+    transform: scale(0.97);
+  }
+
+  /* ==================== 苹果风格视觉效果 ==================== */
+  /* 玻璃态效果 */
+  .glass-subtle {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+
+  .glass-standard {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* 深色玻璃态 */
+  .glass-dark {
+    background: rgba(28, 28, 30, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
   /* 渐变文字 */
   .text-gradient {
-    background: linear-gradient(135deg, #60a5fa 0%, #4ade80 100%);
+    background: linear-gradient(135deg, hsl(var(--system-blue)) 0%, hsl(var(--system-green)) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
-  
-  /* 玻璃态效果 */
-  .glass {
-    background: rgba(27, 29, 31, 0.8);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+
+  /* 彩虹渐变文字 */
+  .text-gradient-rainbow {
+    background: linear-gradient(90deg,
+      hsl(var(--system-blue)),
+      hsl(var(--system-green)),
+      hsl(var(--system-orange)),
+      hsl(var(--system-red))
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
-  
+
+  /* ==================== 苹果风格阴影 ==================== */
+  .shadow-apple-subtle {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+
+  .shadow-apple-floating {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+  }
+
+  .shadow-apple-elevated {
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1), 0 4px 8px rgba(0, 0, 0, 0.06);
+  }
+
+  .shadow-apple-prominent {
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12), 0 6px 12px rgba(0, 0, 0, 0.08);
+  }
+
+  /* 彩色发光阴影 */
+  .shadow-blue-glow {
+    box-shadow: 0 4px 12px hsl(var(--system-blue) / 0.25);
+  }
+
+  .shadow-green-glow {
+    box-shadow: 0 4px 12px hsl(var(--system-green) / 0.25);
+  }
+
+  .shadow-red-glow {
+    box-shadow: 0 4px 12px hsl(var(--system-red) / 0.25);
+  }
+
+  /* ==================== 其他工具类 ==================== */
   /* 进度条动画 */
   .progress-animate {
-    transition: width 1s ease-out;
+    transition: width var(--duration-slow) var(--ease-apple-out);
   }
-  
-  /* 悬停效果 */
-  .hover-lift {
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+
+  /* 平滑过渡 */
+  .transition-apple {
+    transition: all var(--duration-base) var(--ease-apple);
   }
-  
-  .hover-lift:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+
+  .transition-apple-fast {
+    transition: all var(--duration-fast) var(--ease-apple-out);
+  }
+
+  /* 防止文本选择 */
+  .select-none {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* 文本溢出省略 */
+  .text-ellipsis {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 多行文本溢出 */
+  .text-ellipsis-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .text-ellipsis-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 }
 
-@keyframes fadeIn {
+/* ==================== 苹果风格关键帧动画 ==================== */
+
+/* 淡入动画 */
+@keyframes fade-in {
   from {
     opacity: 0;
   }
@@ -280,18 +505,18 @@
   }
 }
 
-@keyframes slideUp {
+/* 淡出动画 */
+@keyframes fade-out {
   from {
-    opacity: 0;
-    transform: translateY(20px);
+    opacity: 1;
   }
   to {
-    opacity: 1;
-    transform: translateY(0);
+    opacity: 0;
   }
 }
 
-@keyframes scaleIn {
+/* 缩放淡入动画 - 苹果模态框标准动画 */
+@keyframes scale-fade-in {
   from {
     opacity: 0;
     transform: scale(0.95);
@@ -302,7 +527,20 @@
   }
 }
 
-@keyframes countUp {
+/* 缩放淡出动画 */
+@keyframes scale-fade-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* 上滑淡入动画 */
+@keyframes slide-up-fade-in {
   from {
     opacity: 0;
     transform: translateY(10px);
@@ -310,6 +548,31 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* 下滑淡出动画 */
+@keyframes slide-down-fade-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* 弹性缩放动画 - 苹果风格弹性效果 */
+@keyframes spring-scale {
+  0% {
+    transform: scale(0.95);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 
@@ -323,9 +586,119 @@
   }
 }
 
+/* 呼吸动画 - 更柔和的脉冲效果 */
+@keyframes breathe {
+  0%, 100% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+/* 旋转动画 */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 弹跳动画 */
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-25%);
+  }
+}
+
+/* 摇晃动画 - 用于错误提示 */
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-5px);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(5px);
+  }
+}
+
+/* 闪烁动画 - 用于加载提示 */
+@keyframes blink {
+  0%, 50%, 100% {
+    opacity: 1;
+  }
+  25%, 75% {
+    opacity: 0;
+  }
+}
+
+/* 滑入动画 - 从左侧 */
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* 滑入动画 - 从右侧 */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* 旋转弹入动画 - 特殊效果 */
+@keyframes rotate-scale-in {
+  from {
+    transform: rotate(-180deg) scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: rotate(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* ==================== 动画工具类 ==================== */
 .animate-pulse-slow {
   animation: pulse 2s ease-in-out infinite;
 }
+
+.animate-breathe {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spin 3s linear infinite;
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* ==================== 响应式和无障碍 ==================== */
 
 /* 减少动画偏好 */
 @media (prefers-reduced-motion: reduce) {
@@ -335,5 +708,21 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* 高对比度模式 */
+@media (prefers-contrast: high) {
+  :root {
+    --border: 0 0% 50%;
+    --input: 0 0% 50%;
+  }
+
+  .glass-subtle,
+  .glass-standard,
+  .glass-strong,
+  .glass-dark {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
