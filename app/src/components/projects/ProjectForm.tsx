@@ -203,11 +203,10 @@ export function ProjectForm({
    * @param currentMembers - 当前已选择的成员 ID 列表
    * @returns 更新后的成员 ID 列表
    */
-  const toggleMemberSelection = (memberId: string, currentMembers: number[] = []) => {
-    const numMemberId = parseInt(memberId, 10);
-    return currentMembers.includes(numMemberId)
-      ? currentMembers.filter(id => id !== numMemberId)
-      : [...currentMembers, numMemberId];
+  const toggleMemberSelection = (memberId: string, currentMembers: string[] = []) => {
+    return currentMembers.includes(memberId)
+      ? currentMembers.filter(id => id !== memberId)
+      : [...currentMembers, memberId];
   };
 
   // 处理成员选择
@@ -219,8 +218,7 @@ export function ProjectForm({
   // 处理成员移除（从已选展示区）
   const handleMemberRemove = (memberId: string) => {
     const currentMembers = formData.memberIds || [];
-    const numMemberId = parseInt(memberId, 10);
-    const newMembers = currentMembers.filter(id => id !== numMemberId);
+    const newMembers = currentMembers.filter(id => id !== memberId);
     onFieldValueChange('memberIds', newMembers);
   };
 
@@ -245,7 +243,7 @@ export function ProjectForm({
     const currentTasks = formData.wbsTasks || [];
     const newTask: Omit<WbsTask, 'id' | 'createdAt' | 'updatedAt'> = {
       projectId: formData.id?.toString() || 'new',
-      memberId: (formData.memberIds?.[0]?.toString()) || '',
+      memberId: formData.memberIds?.[0] || '',
       title: '新任务',
       description: '',
       status: 'not_started',
@@ -271,7 +269,55 @@ export function ProjectForm({
   return (
     <div className={cn("", className)}>
       <div className="space-y-4">
-        {/* 工艺代号 - 移到最前面 */}
+        {/* 项目类型选择 - 设计文档第124行：第一个字段 */}
+        <div className="space-y-1.5">
+          <Label>项目类型 *</Label>
+          <Select
+            value={currentType}
+            onValueChange={(value) => handleTypeChange(value as ProjectType)}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="请选择项目类型" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="product_development">
+                <div className="flex items-center gap-2">
+                  <Rocket className="w-4 h-4 text-blue-500" />
+                  <span>产品开发类</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="functional_management">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-purple-500" />
+                  <span>职能管理类</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="material_substitution">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 text-green-500" />
+                  <span>物料改代类</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="troubleshooting">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-500" />
+                  <span>故障排查类</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="other">
+                <div className="flex items-center gap-2">
+                  <Info className="w-4 h-4 text-gray-500" />
+                  <span>其他</span>
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          {validationErrors.projectType && (
+            <p className="text-sm text-red-400">{validationErrors.projectType}</p>
+          )}
+        </div>
+
+        {/* 工艺代号 - 设计文档第125行：第二个字段 */}
         <div className="space-y-1.5">
           <Label htmlFor="project-code">工艺代号 *</Label>
           <Input
@@ -286,30 +332,7 @@ export function ProjectForm({
           )}
         </div>
 
-        {/* 项目类型选择 - 移到项目名称之后 */}
-        <div className="space-y-1.5">
-          <Label>项目类型 *</Label>
-          <Select
-            value={currentType}
-            onValueChange={(value) => handleTypeChange(value as ProjectType)}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="请选择项目类型" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="product_development">产品开发类</SelectItem>
-              <SelectItem value="functional_management">职能管理类</SelectItem>
-              <SelectItem value="material_substitution">物料改代类</SelectItem>
-              <SelectItem value="troubleshooting">故障排查类</SelectItem>
-              <SelectItem value="other">其他</SelectItem>
-            </SelectContent>
-          </Select>
-          {validationErrors.projectType && (
-            <p className="text-sm text-red-400">{validationErrors.projectType}</p>
-          )}
-        </div>
-
-        {/* 项目名称 */}
+        {/* 项目名称 - 设计文档第126行：第三个字段 */}
         <div className="space-y-1.5">
           <Label htmlFor="project-name">项目名称 *</Label>
           <Input
@@ -330,51 +353,55 @@ export function ProjectForm({
           </div>
         </div>
 
-        {/* 项目描述 */}
+        {/* 项目描述 - 设计文档：必填字段 */}
         <div className="space-y-1.5">
-          <Label htmlFor="project-desc">项目描述</Label>
+          <Label htmlFor="project-desc">项目描述 *</Label>
           <Textarea
             id="project-desc"
             value={formData.description || ''}
             onChange={(e) => onFieldValueChange('description', e.target.value)}
             placeholder="简要描述项目的目标和范围..."
             rows={3}
-            className="resize-none"
+            className={cn("resize-none", validationErrors.description && "border-red-500")}
           />
+          {validationErrors.description && (
+            <p className="text-sm text-red-400">{validationErrors.description}</p>
+          )}
         </div>
 
-        {/* 项目成员选择 */}
+        {/* 项目成员选择 - 设计文档第136-137行 */}
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <Label>项目成员 *</Label>
-            {!organization ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  // 可以导航到组织架构设置页面
-                  window.location.href = '/settings?tab=organization';
-                }}
-              >
-                <Users2 className="w-4 h-4 mr-1" />
-                前往设置组织架构
-              </Button>
-            ) : (
+          <Label>项目成员 *</Label>
+          {organization ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* 已选成员 */}
+              {(formData.memberIds || []).map((memberId) => {
+                const memberInfo = membersMap.get(memberId);
+                return (
+                  <Badge key={memberId} variant="secondary" className="flex items-center gap-1">
+                    {memberInfo?.name || memberId}
+                    <button
+                      type="button"
+                      onClick={() => handleMemberRemove(memberId)}
+                      className="ml-1 hover:text-red-400 transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                );
+              })}
+              {/* 选择成员按钮 */}
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setShowMemberSelector(true)}
               >
-                <Users2 className="w-4 h-4 mr-1" />
+                <Plus className="w-4 h-4 mr-1" />
                 选择成员
               </Button>
-            )}
-          </div>
-
-          {/* 组织架构为空时的友好提示 */}
-          {!organization && (
+            </div>
+          ) : (
             <div className="p-3 text-center border border-dashed border-border rounded-lg bg-muted/30">
               <div className="flex items-center justify-center gap-2 mb-1">
                 <Info className="w-4 h-4 text-muted-foreground" />
@@ -385,32 +412,18 @@ export function ProjectForm({
               <p className="text-xs text-muted-foreground">
                 请先创建或导入组织架构，然后再选择项目成员
               </p>
-            </div>
-          )}
-
-          {/* 已选成员展示 */}
-          {organization && (
-            <div className="flex flex-wrap gap-2">
-              {(formData.memberIds || []).map((memberId) => {
-                const memberInfo = membersMap.get(memberId.toString());
-                return (
-                  <Badge key={memberId} variant="secondary" className="flex items-center gap-1">
-                    {memberInfo?.name || memberId}
-                    <button
-                      type="button"
-                      onClick={() => handleMemberRemove(memberId.toString())}
-                      className="ml-1 hover:text-red-400 transition-colors"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </Badge>
-                );
-              })}
-              {(!formData.memberIds || formData.memberIds.length === 0) && (
-                <p className="text-sm text-muted-foreground">
-                  请点击"选择成员"按钮添加项目成员
-                </p>
-              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => {
+                  window.location.href = '/settings?tab=organization';
+                }}
+              >
+                <Users2 className="w-4 h-4 mr-1" />
+                前往设置组织架构
+              </Button>
             </div>
           )}
           {validationErrors.members && (
@@ -427,7 +440,7 @@ export function ProjectForm({
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="start-date" className="flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5" />
+                  <Calendar className="w-3.5 h-3.5 text-foreground" />
                   计划开始日期
                 </Label>
                 <Input
@@ -444,7 +457,7 @@ export function ProjectForm({
 
               <div className="space-y-1.5">
                 <Label htmlFor="end-date" className="flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5" />
+                  <Calendar className="w-3.5 h-3.5 text-foreground" />
                   计划结束日期
                 </Label>
                 <Input
@@ -474,8 +487,8 @@ export function ProjectForm({
           </div>
         )}
 
-        {/* 操作按钮 */}
-        <div className="flex justify-end gap-3 pt-4 border-t border-border">
+        {/* 操作按钮 - 设计文档第144行：按钮靠在一起 */}
+        <div className="flex justify-center gap-3 pt-4 border-t border-border">
           <Button type="button" variant="outline" onClick={onCancel}>
             取消
           </Button>
@@ -494,11 +507,11 @@ export function ProjectForm({
                 <AlertTriangle className="w-5 h-5 text-amber-500" />
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold text-white mb-2">
+                <h3 className="text-lg font-semibold text-foreground mb-2">
                   确认切换项目类型
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  切换到 <span className="text-white font-medium">
+                  切换到 <span className="text-foreground font-medium">
                     {allTypeConfigs.find(c => c.type === pendingTypeChange)?.label || pendingTypeChange}
                   </span> 将清除以下数据：
                 </p>
@@ -536,7 +549,7 @@ export function ProjectForm({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="bg-card border border-border rounded-lg shadow-lg max-w-xl w-full mx-4 p-6 animate-in fade-in-0 zoom-in-95">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">选择项目成员</h3>
+              <h3 className="text-lg font-semibold text-foreground">选择项目成员</h3>
               <Button
                 type="button"
                 variant="ghost"
@@ -549,7 +562,7 @@ export function ProjectForm({
             <div className="border border-border rounded-lg max-h-[500px] overflow-x-auto overflow-y-auto mb-4">
               <ProjectMemberSelector
                 organization={organization}
-                selectedMembers={(formData.memberIds || []).map(String)}
+                selectedMembers={formData.memberIds || []}
                 onMemberToggle={handleMemberToggle}
               />
             </div>

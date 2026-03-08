@@ -208,7 +208,7 @@ export function StatsDetailDialog({ open, onOpenChange, statsData }: StatsDetail
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-card/95 backdrop-blur-sm border-border max-w-lg max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-white flex items-center gap-2">
+          <DialogTitle className="text-foreground flex items-center gap-2">
             <FileText className="w-5 h-5 text-primary" />
             {statsData?.title}详情
           </DialogTitle>

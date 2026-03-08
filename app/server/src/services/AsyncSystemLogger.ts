@@ -1,10 +1,12 @@
 /**
  * 异步日志服务
  * 将日志写入操作放入队列异步执行，避免阻塞主流程
+ * 🚨 紧急修复：使用日志专用连接池，避免占用主业务连接池
  */
 
 import { v4 as uuidv4 } from 'uuid';
 import { databaseService } from './DatabaseService.js';
+import { logDatabaseService } from './LogDatabaseService.js';  // 🚨 新增：日志专用连接池
 import { withQueryTimeout, QUERY_TIMEOUT } from '../utils/DatabaseQueryTimeout.js';
 
 export type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
@@ -39,14 +41,21 @@ export interface LogEntry {
 
 /**
  * 异步日志队列管理器
+ * 🚨 紧急修复：增加熔断器机制
  */
 class AsyncLogQueue {
   private queue: LogEntry[] = [];
   private isProcessing: boolean = false;
-  private batchSize: number = 50;  // 每批处理50条日志
-  private flushInterval: number = 5000;  // 5秒强制刷新
-  private maxQueueSize: number = 1000;  // 最大队列长度
+  private batchSize: number = 100;  // 🚨 优化：增加到 100，减少写入频率
+  private flushInterval: number = 10000;  // 🚨 优化：增加到 10 秒
+  private maxQueueSize: number = 500;  // 🚨 优化：降低到 500，减少内存占用
   private flushTimer: NodeJS.Timeout | null = null;
+
+  // 🚨 新增：熔断器机制
+  private failureCount: number = 0;
+  private circuitBreakerOpen: boolean = false;
+  private readonly failureThreshold: number = 10;  // 10 次失败后熔断
+  private readonly cooldownTime: number = 60000;  // 1 分钟冷却
 
   constructor() {
     this.startFlushTimer();
@@ -54,8 +63,18 @@ class AsyncLogQueue {
 
   /**
    * 添加日志到队列
+   * 🚨 紧急修复：增加熔断器检查
    */
   enqueue(entry: LogEntry): void {
+    // 🚨 熔断器检查
+    if (this.circuitBreakerOpen) {
+      // 熔断开启，静默丢弃
+      if (entry.level === 'ERROR') {
+        console.error('[AsyncLogQueue] 🔴 熔断中，丢弃错误日志:', entry.message);
+      }
+      return;
+    }
+
     // 添加时间戳和重试计数（修复Bug-P2-002）
     entry.timestamp = Date.now();
     entry.retryCount = entry.retryCount || 0;
@@ -92,6 +111,7 @@ class AsyncLogQueue {
 
   /**
    * 刷新队列到数据库
+   * 🚨 紧急修复：使用日志专用连接池
    */
   private async flush(): Promise<void> {
     // 如果已经在处理中，跳过
@@ -101,6 +121,11 @@ class AsyncLogQueue {
 
     // 如果队列为空，跳过
     if (this.queue.length === 0) {
+      return;
+    }
+
+    // 🚨 熔断器检查
+    if (this.circuitBreakerOpen) {
       return;
     }
 
@@ -115,7 +140,8 @@ class AsyncLogQueue {
     }
 
     try {
-      const connection = await databaseService.getConnection();
+      // 🚨 关键修复：使用日志专用连接池
+      const connection = await logDatabaseService.getConnection();
 
       try {
         // 批量插入日志
@@ -141,12 +167,29 @@ class AsyncLogQueue {
 
         await connection.query(sql, flatValues);
 
-        console.log(`[AsyncLogQueue] 已写入 ${logsToProcess.length} 条日志`);
+        // 🚨 成功，重置失败计数
+        this.failureCount = 0;
+
+        console.log(`[AsyncLogQueue] ✅ 已写入 ${logsToProcess.length} 条日志`);
       } finally {
         connection.release();
       }
     } catch (error) {
-      console.error('[AsyncLogQueue] 批量写入日志失败:', error);
+      this.failureCount++;
+      console.error('[AsyncLogQueue] ❌ 批量写入日志失败:', error);
+
+      // 🚨 检查是否需要熔断
+      if (this.failureCount >= this.failureThreshold) {
+        this.circuitBreakerOpen = true;
+        console.error(`[AsyncLogQueue] 🔴 熔断器开启！连续失败 ${this.failureCount} 次`);
+
+        // 1 分钟后自动恢复
+        setTimeout(() => {
+          this.circuitBreakerOpen = false;
+          this.failureCount = 0;
+          console.log('[AsyncLogQueue] ✅ 熔断器已恢复');
+        }, this.cooldownTime);
+      }
 
       // 修复Bug-P2-002: 添加重试次数限制，防止无限重试导致内存泄漏
       const maxRetries = 3;

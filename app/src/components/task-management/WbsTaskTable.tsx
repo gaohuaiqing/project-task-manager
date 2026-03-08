@@ -52,7 +52,8 @@ import { getAllHolidayDates } from '@/utils/holidayManager';
 import { TaskHistoryPanel } from './TaskHistoryPanel';
 import { TaskProgressPanel } from './TaskProgressPanel';
 import { ExportProgressDialog } from './ExportProgressDialog';
-import * as XLSX from 'xlsx';
+// ✅ 优化：移除静态导入，使用动态导入减少初始 bundle 大小
+// import * as XLSX from 'xlsx';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDialog } from '@/hooks/useDialog';
 import { ConfirmDialog, InputDialog, CustomAlertDialog } from '@/components/common/DialogProvider';
@@ -549,11 +550,14 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
   // 导出WBS任务分解表到Excel
   const handleExportWbs = async () => {
     if (isExporting) return;
-    
+
     setIsExporting(true);
     const startTime = performance.now();
-    
+
     try {
+      // ✅ 优化：动态导入 XLSX 库，减少初始 bundle 大小
+      const XLSX = await import('xlsx');
+
       const holidays = holidayDates;
       
       // 预先读取所有localStorage数据，避免重复读取
@@ -1929,7 +1933,7 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
         <div className="flex items-center justify-between flex-wrap gap-3">
           {/* 左侧：表格标题、任务数统计和任务状态信息框 */}
           <div className="flex items-center gap-3 flex-wrap">
-            <CardTitle className="text-lg font-semibold text-white">WBS任务分解表</CardTitle>
+            <CardTitle className="text-lg font-semibold text-foreground">WBS任务分解表</CardTitle>
             <Badge variant="secondary" className="bg-slate-700 text-slate-300">
               {tasks.length} 个任务
             </Badge>
@@ -2034,39 +2038,39 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
           
           {/* 筛选框 */}
           <Select value={filterStatus[0] || 'all'} onValueChange={(v) => setFilterStatus?.([v])}>
-            <SelectTrigger className="w-40 bg-card border-border text-white">
+            <SelectTrigger className="w-40 bg-card border-border text-foreground">
               <SelectValue placeholder="筛选状态" />
             </SelectTrigger>
             <SelectContent className="bg-card border-border">
-              <SelectItem value="all" className="text-white">全部任务状态</SelectItem>
-              <SelectItem value="not_started" className="text-white">未开始</SelectItem>
-              <SelectItem value="in_progress" className="text-white">进行中</SelectItem>
-              <SelectItem value="delayed" className="text-white">延期</SelectItem>
-              <SelectItem value="early_completed" className="text-white">提前完成</SelectItem>
-              <SelectItem value="overdue_completed" className="text-white">超期完成</SelectItem>
+              <SelectItem value="all" className="text-foreground">全部任务状态</SelectItem>
+              <SelectItem value="not_started" className="text-foreground">未开始</SelectItem>
+              <SelectItem value="in_progress" className="text-foreground">进行中</SelectItem>
+              <SelectItem value="delayed" className="text-foreground">延期</SelectItem>
+              <SelectItem value="early_completed" className="text-foreground">提前完成</SelectItem>
+              <SelectItem value="overdue_completed" className="text-foreground">超期完成</SelectItem>
             </SelectContent>
           </Select>
 
           <Select value={filterPriority[0] || 'all'} onValueChange={(v) => setFilterPriority?.([v])}>
-            <SelectTrigger className="w-40 bg-card border-border text-white">
+            <SelectTrigger className="w-40 bg-card border-border text-foreground">
               <SelectValue placeholder="筛选优先级" />
             </SelectTrigger>
             <SelectContent className="bg-card border-border">
-              <SelectItem value="all" className="text-white">全部优先级</SelectItem>
-              <SelectItem value="high" className="text-white">高</SelectItem>
-              <SelectItem value="medium" className="text-white">中</SelectItem>
-              <SelectItem value="low" className="text-white">低</SelectItem>
+              <SelectItem value="all" className="text-foreground">全部优先级</SelectItem>
+              <SelectItem value="high" className="text-foreground">高</SelectItem>
+              <SelectItem value="medium" className="text-foreground">中</SelectItem>
+              <SelectItem value="low" className="text-foreground">低</SelectItem>
             </SelectContent>
           </Select>
-          
+
           <Select value={filterProject[0] || 'all'} onValueChange={(v) => setFilterProject?.([v])}>
-            <SelectTrigger className="w-40 bg-card border-border text-white">
+            <SelectTrigger className="w-40 bg-card border-border text-foreground">
               <SelectValue placeholder="筛选项目" />
             </SelectTrigger>
             <SelectContent className="bg-card border-border">
-              <SelectItem value="all" className="text-white">全部项目</SelectItem>
+              <SelectItem value="all" className="text-foreground">全部项目</SelectItem>
               {projects.map(project => (
-                <SelectItem key={project.id} value={project.id} className="text-white">
+                <SelectItem key={project.id} value={project.id} className="text-foreground">
                   {project.name}
                 </SelectItem>
               ))}
@@ -2074,13 +2078,13 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
           </Select>
 
           <Select value={filterMember[0] || 'all'} onValueChange={(v) => setFilterMember?.([v])}>
-            <SelectTrigger className="w-40 bg-card border-border text-white">
+            <SelectTrigger className="w-40 bg-card border-border text-foreground">
               <SelectValue placeholder="筛选负责人" />
             </SelectTrigger>
             <SelectContent className="bg-card border-border">
-              <SelectItem value="all" className="text-white">全部人员</SelectItem>
+              <SelectItem value="all" className="text-foreground">全部人员</SelectItem>
               {members.map(member => (
-                <SelectItem key={member.id} value={member.id} className="text-white">
+                <SelectItem key={member.id} value={member.id} className="text-foreground">
                   {member.name}
                 </SelectItem>
               ))}

@@ -177,43 +177,56 @@ export function EngineerDashboard({ member, projects, allTasks, onNavigateToTask
     const { totalDays, phases } = getProjectTimeline(project);
 
     return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Calendar className="w-4 h-4" />
-            <span>项目周期: {project.startDate} ~ {project.deadline}</span>
-          </div>
-          <span className="text-muted-foreground">总工期: {totalDays} 天</span>
+      <div className="space-y-3">
+        {/* 项目周期信息 */}
+        <div className="flex items-center gap-2 text-sm text-muted-foreground pb-2 border-b border-border">
+          <Calendar className="w-4 h-4" />
+          <span>{project.startDate} ~ {project.deadline}</span>
+          <span className="ml-auto">共 {totalDays} 天</span>
         </div>
 
-        <div className="space-y-3">
+        {/* 时间计划列表 - 只读展示 */}
+        <div className="space-y-2">
+          <div className="text-xs text-muted-foreground font-medium">时间计划</div>
           {phases.map((phase, index) => (
-            <div key={index} className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-white">{phase.name}</span>
-                <span className="text-xs text-muted-foreground">{phase.startDate} ~ {phase.endDate}</span>
+            <div
+              key={index}
+              className="flex items-center justify-between p-2 bg-background/50 rounded border border-border/50 hover:bg-background/70 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <div className={cn(
+                  "w-2 h-2 rounded-full",
+                  phase.progress === 100 ? "bg-green-500" : "bg-blue-500"
+                )} />
+                <span className="text-sm text-foreground">{phase.name}</span>
               </div>
-              <div className="space-y-1">
-                <Progress value={phase.progress} className="h-2" />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>进度: {phase.progress}%</span>
-                </div>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span>{phase.startDate} ~ {phase.endDate}</span>
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded",
+                  phase.progress === 100
+                    ? "bg-green-500/20 text-green-400"
+                    : "bg-blue-500/20 text-blue-400"
+                )}>
+                  {phase.progress}%
+                </span>
               </div>
             </div>
           ))}
         </div>
 
+        {/* 里程碑列表 */}
         {(project.timeline?.filter(t => t.type === 'milestone').length ?? 0) > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Flag className="w-4 h-4 text-yellow-400" />
-              <span className="text-sm text-white">里程碑</span>
-            </div>
-            <div className="space-y-2">
+          <div className="space-y-2 pt-2 border-t border-border">
+            <div className="text-xs text-muted-foreground font-medium">里程碑</div>
+            <div className="space-y-1">
               {project.timeline?.filter(t => t.type === 'milestone').map((milestone, index) => (
-                <div key={index} className="flex items-center gap-3 p-2 bg-yellow-500/10 rounded border border-yellow-500/30">
-                  <span className="text-xs text-muted-foreground">{milestone.date}</span>
-                  <span className="text-sm text-white">{milestone.title}</span>
+                <div
+                  key={index}
+                  className="flex items-center gap-2 p-2 bg-background/30 rounded border-l-2 border-yellow-500/50"
+                >
+                  <span className="text-xs text-muted-foreground w-20">{milestone.date}</span>
+                  <span className="text-sm text-foreground flex-1">{milestone.title}</span>
                 </div>
               ))}
             </div>
@@ -511,7 +524,7 @@ export function EngineerDashboard({ member, projects, allTasks, onNavigateToTask
                         <ChevronRight className="w-5 h-5 text-muted-foreground" />
                       )}
                       <div>
-                        <CardTitle className="text-base text-white">{project.name}</CardTitle>
+                        <CardTitle className="text-base text-foreground">{project.name}</CardTitle>
                         <p className="text-xs text-muted-foreground mt-0.5">{project.code}</p>
                       </div>
                     </div>
@@ -558,7 +571,7 @@ export function EngineerDashboard({ member, projects, allTasks, onNavigateToTask
       <Dialog open={isDetailDialogOpen} onOpenChange={setIsDetailDialogOpen}>
         <DialogContent className="bg-card/95 backdrop-blur-sm border-border max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <FileText className="w-5 h-5 text-primary" />
               任务详情
             </DialogTitle>
@@ -685,7 +698,7 @@ export function EngineerDashboard({ member, projects, allTasks, onNavigateToTask
       <Dialog open={isStatsDialogOpen} onOpenChange={setIsStatsDialogOpen}>
         <DialogContent className="bg-card/95 backdrop-blur-sm border-border max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <FileText className="w-5 h-5 text-primary" />
               {selectedStatsType === 'total' && '我的任务详情'}
               {selectedStatsType === 'inProgress' && '进行中任务详情'}

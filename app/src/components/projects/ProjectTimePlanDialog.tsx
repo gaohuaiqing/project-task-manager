@@ -270,6 +270,7 @@ export function ProjectTimePlanDialog({
         }}
       >
         <ResizableDialogContent
+          open={open}
           storageKey="timePlanDialog"
           defaultWidth={900}
           defaultHeight={700}
@@ -279,6 +280,7 @@ export function ProjectTimePlanDialog({
           maxHeight="95vh"
           showSizeIndicator={true}
           onResize={handleDialogResize}
+          draggable={true}
         >
           {/* 标题栏 */}
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
@@ -289,7 +291,7 @@ export function ProjectTimePlanDialog({
                   项目时间计划编辑器
                 </DialogTitle>
                 {hasUnsavedChanges && (
-                  <span className="px-2 py-0.5 text-xs bg-amber-500/20 text-amber-600 rounded-md">
+                  <span className="px-2 py-0.5 text-xs bg-amber-500/20 text-amber-500 rounded-md">
                     未保存
                   </span>
                 )}
@@ -300,7 +302,7 @@ export function ProjectTimePlanDialog({
                     {plannedStartDate} ~ {plannedEndDate}
                   </span>
                 ) : (
-                  <span className="text-red-400">请先设置项目日期范围</span>
+                  <span className="text-destructive">请先设置项目日期范围</span>
                 )}
               </div>
             </div>
@@ -367,7 +369,7 @@ export function ProjectTimePlanDialog({
                 <AlertCircle className="w-5 h-5 text-amber-500" />
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold text-white mb-2">
+                <h3 className="text-lg font-semibold text-foreground mb-2">
                   确认关闭？
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4">

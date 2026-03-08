@@ -4,6 +4,57 @@ module.exports = {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      // 苹果风格字体系统
+      fontFamily: {
+        sans: [
+          '-apple-system',
+          'BlinkMacSystemFont',
+          '"SF Pro Display"',
+          '"SF Pro Text"',
+          '"Inter"',
+          '"Segoe UI"',
+          '"Roboto"',
+          '"Helvetica Neue"',
+          'Arial',
+          'sans-serif',
+        ],
+        display: [
+          '-apple-system',
+          'BlinkMacSystemFont',
+          '"SF Pro Display"',
+          '"Inter"',
+          '"Segoe UI"',
+          'sans-serif',
+        ],
+        body: [
+          '-apple-system',
+          'BlinkMacSystemFont',
+          '"SF Pro Text"',
+          '"Inter"',
+          '"Segoe UI"',
+          'sans-serif',
+        ],
+        mono: [
+          '"SF Mono"',
+          '"Monaco"',
+          '"Cascadia Code"',
+          '"Roboto Mono"',
+          'monospace',
+        ],
+      },
+      fontSize: {
+        // 苹果风格字体大小
+        'apple-caption': ['12px', { lineHeight: '16px', letterSpacing: '0', fontWeight: '400' }],
+        'apple-footnote': ['13px', { lineHeight: '18px', letterSpacing: '-0.01em', fontWeight: '400' }],
+        'apple-subheadline': ['15px', { lineHeight: '20px', letterSpacing: '-0.015em', fontWeight: '400' }],
+        'apple-callout': ['16px', { lineHeight: '21px', letterSpacing: '-0.02em', fontWeight: '400' }],
+        'apple-body': ['17px', { lineHeight: '22px', letterSpacing: '-0.022em', fontWeight: '400' }],
+        'apple-headline': ['17px', { lineHeight: '22px', letterSpacing: '-0.022em', fontWeight: '600' }],
+        'apple-title3': ['20px', { lineHeight: '25px', letterSpacing: '0', fontWeight: '600' }],
+        'apple-title2': ['22px', { lineHeight: '28px', letterSpacing: '0', fontWeight: '600' }],
+        'apple-title1': ['28px', { lineHeight: '34px', letterSpacing: '0.005em', fontWeight: '700' }],
+        'apple-large-title': ['34px', { lineHeight: '41px', letterSpacing: '0.01em', fontWeight: '700' }],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -47,6 +98,12 @@ module.exports = {
           "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
+          active: "hsl(var(--sidebar-active))",
+          "active-foreground": "hsl(var(--sidebar-active-foreground))",
+        },
+        nav: {
+          active: "hsl(var(--nav-active))",
+          "active-foreground": "hsl(var(--nav-active-foreground))",
         },
         // 苹果风格系统颜色
         system: {

@@ -240,11 +240,10 @@ export function CapabilityDimensionManager() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Settings className="w-6 h-6 text-blue-400" />
-          <h2 className="text-xl font-semibold text-white">能力维度设置</h2>
+          <h2 className="text-xl font-semibold text-foreground">能力维度设置</h2>
         </div>
         <Button
           onClick={handleAddDimension}
-          className="bg-blue-500 hover:bg-blue-600 text-white"
         >
           <Plus className="w-4 h-4 mr-1" />
           新增维度
@@ -262,7 +261,7 @@ export function CapabilityDimensionManager() {
       {/* 维度列表 */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold text-white">维度列表</CardTitle>
+          <CardTitle className="text-lg font-semibold text-foreground">维度列表</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -311,7 +310,7 @@ export function CapabilityDimensionManager() {
                   {/* 维度信息 */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-white">{dimension.name}</span>
+                      <span className="font-medium text-foreground">{dimension.name}</span>
                       {!dimension.isActive && (
                         <Badge variant="secondary" className="text-xs bg-slate-700 text-slate-400">
                           已禁用
@@ -355,7 +354,7 @@ export function CapabilityDimensionManager() {
 
       {/* 创建/编辑对话框 */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="bg-card border-border text-white max-w-md">
+        <DialogContent className="bg-card border-border text-foreground max-w-md">
           <DialogHeader>
             <DialogTitle>
               {editingDimension ? '编辑维度' : '新增维度'}
@@ -381,7 +380,7 @@ export function CapabilityDimensionManager() {
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label className="text-white">维度名称 <span className="text-red-400">*</span></Label>
+              <Label className="text-foreground">维度名称 <span className="text-red-400">*</span></Label>
               <Input
                 value={dimensionName}
                 onChange={(e) => setDimensionName(e.target.value)}
@@ -391,7 +390,7 @@ export function CapabilityDimensionManager() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white">维度描述</Label>
+              <Label className="text-foreground">维度描述</Label>
               <textarea
                 value={dimensionDescription}
                 onChange={(e) => setDimensionDescription(e.target.value)}
@@ -402,7 +401,7 @@ export function CapabilityDimensionManager() {
 
             {editingDimension && (
               <div className="flex items-center justify-between">
-                <Label className="text-white">启用状态</Label>
+                <Label className="text-foreground">启用状态</Label>
                 <Switch
                   checked={isActive}
                   onCheckedChange={setIsActive}
@@ -419,7 +418,7 @@ export function CapabilityDimensionManager() {
                 取消
               </Button>
               <Button
-                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
+                className="flex-1"
                 onClick={handleSaveDimension}
               >
                 {editingDimension ? '保存' : '创建'}
@@ -431,7 +430,7 @@ export function CapabilityDimensionManager() {
 
       {/* 删除确认对话框 */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <DialogContent className="bg-card border-border text-white max-w-md">
+        <DialogContent className="bg-card border-border text-foreground max-w-md">
           <DialogHeader>
             <DialogTitle>删除维度</DialogTitle>
             <DialogDescription className="text-slate-400">

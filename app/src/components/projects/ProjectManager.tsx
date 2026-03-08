@@ -13,7 +13,7 @@
  * @module components/projects/ProjectManager
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { canPerformProjectOperation } from '@/types/auth';
@@ -38,7 +38,8 @@ interface ProjectManagerProps {
 /**
  * 项目管理器组件
  */
-export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
+// ✅ 使用 React.memo 优化组件，防止不必要的重渲染
+export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) => {
   const { user, isAdmin } = useAuth();
   const dialog = useDialog();
 
@@ -71,7 +72,8 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
   const canDelete = isAdmin || canPerformProjectOperation(user, 'delete');
 
   // ==================== 创建项目 ====================
-  const handleCreateProject = async () => {
+  // ✅ 使用 useCallback 优化回调函数
+  const handleCreateProject = useCallback(async () => {
     if (isSubmitting) return;
 
     if (!formHook.validate(validationRules)) {
@@ -92,10 +94,11 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [isSubmitting, formHook, validationRules, api, dialog]);
 
   // ==================== 编辑项目 ====================
-  const handleEditProject = async (project: Project) => {
+  // ✅ 使用 useCallback 优化回调函数
+  const handleEditProject = useCallback(async (project: Project) => {
     const projectId = typeof project.id === 'number' ? project.id : parseInt(project.id);
     setEditingProjectId(projectId);
     formHook.loadFromProject(project);
@@ -123,9 +126,10 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
     }
 
     setIsEditDialogOpen(true);
-  };
+  }, [api, formHook, dialog]);
 
-  const handleSaveEdit = async () => {
+  // ✅ 使用 useCallback 优化回调函数
+  const handleSaveEdit = useCallback(async () => {
     if (!editingProjectId || isSubmitting) return;
 
     if (!formHook.validate(validationRules)) {
@@ -157,10 +161,11 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [editingProjectId, isSubmitting, formHook, validationRules, api, dialog]);
 
   // ==================== 关闭对话框前确认 ====================
-  const handleDialogClose = (open: boolean) => {
+  // ✅ 使用 useCallback 优化回调函数
+  const handleDialogClose = useCallback((open: boolean) => {
     if (!open && formHook.isDirty) {
       // 有未保存的更改，显示确认对话框
       dialog.confirm('有未保存的更改，确定要离开吗？', {
@@ -185,10 +190,11 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
       setIsCreateDialogOpen(false);
       setIsEditDialogOpen(false);
     }
-  };
+  }, [formHook, dialog]);
 
   // ==================== 删除项目 ====================
-  const handleDeleteProject = async (project: Project) => {
+  // ✅ 使用 useCallback 优化回调函数
+  const handleDeleteProject = useCallback(async (project: Project) => {
     if (!canDelete) {
       await dialog.alert('权限不足：您没有删除项目的权限', { variant: 'error' });
       return;
@@ -213,35 +219,67 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
       const message = error instanceof Error ? error.message : '删除项目失败';
       await dialog.alert(message, { variant: 'error' });
     }
-  };
+  }, [canDelete, dialog, api]);
 
   // ==================== 项目点击 ====================
-  const handleProjectClick = (project: Project) => {
+  // ✅ 使用 useCallback 优化回调函数
+  const handleProjectClick = useCallback((project: Project) => {
     // 可以导航到项目详情页或打开详情对话框
     console.log('点击项目:', project);
-  };
+  }, []);
 
   // ==================== 取消创建/编辑 ====================
-  const handleCancelForm = () => {
+  // ✅ 使用 useCallback 优化回调函数
+  const handleCancelForm = useCallback(() => {
     setIsCreateDialogOpen(false);
     setIsEditDialogOpen(false);
     formHook.resetForm();
     setEditingProjectId(null);
-  };
+  }, [formHook]);
 
   // ==================== 时间计划编辑器 ====================
-  const handleMilestonesChange = (milestones: any[]) => {
+  // ✅ 使用 useCallback 优化回调函数
+  const handleMilestonesChange = useCallback((milestones: any[]) => {
     formHook.setFieldValue('milestones', milestones);
-  };
+  }, [formHook]);
 
-  const handleWbsTasksChange = (tasks: any[]) => {
+  // ✅ 使用 useCallback 优化回调函数
+  const handleWbsTasksChange = useCallback((tasks: any[]) => {
     formHook.setFieldValue('wbsTasks', tasks);
-  };
+  }, [formHook]);
 
-  const handleSaveTimePlan = (data: { milestones: any[]; tasks: any[] }) => {
+  // ✅ 使用 useCallback 优化回调函数
+  const handleSaveTimePlan = useCallback((data: { milestones: any[]; tasks: any[] }) => {
     handleMilestonesChange(data.milestones);
     handleWbsTasksChange(data.tasks);
-  };
+  }, [handleMilestonesChange, handleWbsTasksChange]);
+
+  // ✅ 使用 useCallback 优化打开创建对话框的回调
+  const handleOpenCreateDialog = useCallback(() => {
+    setIsCreateDialogOpen(true);
+  }, []);
+
+  // ✅ 使用 useCallback 优化打开时间计划对话框的回调
+  const handleOpenTimePlanDialog = useCallback(() => {
+    setShowTimePlanDialog(true);
+  }, []);
+
+  // ✅ 使用 useCallback 优化时间计划对话框状态变化的回调
+  const handleTimePlanDialogOpenChange = useCallback((open: boolean) => {
+    setShowTimePlanDialog(open);
+  }, []);
+
+  // ✅ 使用 useCallback 优化创建对话框状态变化的回调
+  const handleCreateDialogOpenChange = useCallback((open: boolean) => {
+    if (!open) handleDialogClose(open);
+    else setIsCreateDialogOpen(true);
+  }, [handleDialogClose]);
+
+  // ✅ 使用 useCallback 优化编辑对话框状态变化的回调
+  const handleEditDialogOpenChange = useCallback((open: boolean) => {
+    if (!open) handleDialogClose(open);
+    else setIsEditDialogOpen(true);
+  }, [handleDialogClose]);
 
   // ==================== 渲染 ====================
   return (
@@ -253,7 +291,7 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
         canCreate={canCreate}
         canDelete={canDelete}
         onProjectClick={handleProjectClick}
-        onCreateProject={() => setIsCreateDialogOpen(true)}
+        onCreateProject={handleOpenCreateDialog}
         onEdit={handleEditProject}
         onDelete={handleDeleteProject}
         isLoading={api.projectsLoading}
@@ -262,13 +300,10 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
       />
 
       {/* 创建项目对话框 */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={(open) => {
-        if (!open) handleDialogClose(open);
-        else setIsCreateDialogOpen(true);
-      }}>
-        <DialogContent className="max-w-3xl p-0 max-h-[95vh] overflow-y-auto">
+      <Dialog open={isCreateDialogOpen} onOpenChange={handleCreateDialogOpenChange}>
+        <DialogContent className="max-w-4xl p-0 max-h-[95vh] overflow-y-auto">
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-border sticky top-0 bg-card z-10">
-            <DialogTitle className="text-xl font-semibold text-white">新建项目</DialogTitle>
+            <DialogTitle className="text-xl font-semibold text-foreground">新建项目</DialogTitle>
           </DialogHeader>
           <div className="px-6 pb-6">
             <ProjectForm
@@ -282,20 +317,17 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
               onSubmit={handleCreateProject}
               onCancel={handleCancelForm}
               isSubmitting={isSubmitting}
-              onOpenTimePlanDialog={() => setShowTimePlanDialog(true)}
+              onOpenTimePlanDialog={handleOpenTimePlanDialog}
             />
           </div>
         </DialogContent>
       </Dialog>
 
       {/* 编辑项目对话框 */}
-      <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
-        if (!open) handleDialogClose(open);
-        else setIsEditDialogOpen(true);
-      }}>
-        <DialogContent className="max-w-3xl p-0 max-h-[95vh] overflow-y-auto">
+      <Dialog open={isEditDialogOpen} onOpenChange={handleEditDialogOpenChange}>
+        <DialogContent className="max-w-4xl p-0 max-h-[95vh] overflow-y-auto">
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-border sticky top-0 bg-card z-10">
-            <DialogTitle className="text-xl font-semibold text-white">编辑项目</DialogTitle>
+            <DialogTitle className="text-xl font-semibold text-foreground">编辑项目</DialogTitle>
           </DialogHeader>
           <div className="px-6 pb-6">
             <ProjectForm
@@ -309,7 +341,7 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
               onSubmit={handleSaveEdit}
               onCancel={handleCancelForm}
               isSubmitting={isSubmitting}
-              onOpenTimePlanDialog={() => setShowTimePlanDialog(true)}
+              onOpenTimePlanDialog={handleOpenTimePlanDialog}
             />
           </div>
         </DialogContent>
@@ -321,7 +353,7 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
       {/* 时间计划编辑对话框 - 独立渲染 */}
       <ProjectTimePlanDialog
         open={showTimePlanDialog}
-        onOpenChange={setShowTimePlanDialog}
+        onOpenChange={handleTimePlanDialogOpenChange}
         plannedStartDate={formHook.formData.plannedStartDate}
         plannedEndDate={formHook.formData.plannedEndDate}
         milestones={formHook.formData.milestones || []}
@@ -335,7 +367,9 @@ export function ProjectManagerV2({ initialProjects }: ProjectManagerProps) {
       />
     </>
   );
-}
+});
+
+ProjectManagerV2.displayName = 'ProjectManagerV2';
 
 /**
  * 导出别名，便于渐进式迁移

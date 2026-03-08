@@ -15,7 +15,6 @@ import { HolidayManagement } from './HolidayManagement';
 import { PermissionManagement } from './PermissionManagement';
 import { OrganizationSettings } from '../organization/OrganizationSettings';
 import { SystemLogs } from './SystemLogs';
-import { ProjectTypeManager } from './ProjectTypeManager';
 import { useSettingsNavigation } from '@/hooks/useSettingsNavigation';
 import { SettingsProfile } from './SettingsProfile';
 import { TaskTypesManager } from './TaskTypesManager';
@@ -123,24 +122,6 @@ export function SettingsPage({ initialSection = 'settings' }: SettingsPageProps)
               </ErrorBoundary>
             ) : (
               <PermissionAlert message="权限不足，无法访问事件日志" />
-            )}
-          </div>
-        );
-
-      case 'project-types':
-        return (
-          <div key="project-types-view" className="h-full">
-            {isAdmin ? (
-              <ErrorBoundary
-                onError={(error, errorInfo) => {
-                  console.error('[SettingsPage] 项目类型管理错误:', error);
-                  console.error('[SettingsPage] 组件堆栈:', errorInfo.componentStack);
-                }}
-              >
-                <ProjectTypeManager />
-              </ErrorBoundary>
-            ) : (
-              <PermissionAlert message="权限不足，只有管理员可以管理项目类型" />
             )}
           </div>
         );

@@ -147,15 +147,15 @@ export function ProjectMemberSelector({
               type="button"
               onClick={() => !readonly && toggleNode(node.id)}
               className={cn(
-                "p-0.5 hover:bg-slate-600 rounded transition-colors",
+                "p-0.5 hover:bg-accent rounded transition-colors",
                 readonly ? "cursor-not-allowed opacity-50" : "cursor-pointer"
               )}
               disabled={readonly}
             >
               {isExpanded(node.id) ? (
-                <ChevronDown className="w-3 h-3 text-slate-400" />
+                <ChevronDown className="w-3 h-3 text-muted-foreground" />
               ) : (
-                <ChevronRight className="w-3 h-3 text-slate-400" />
+                <ChevronRight className="w-3 h-3 text-muted-foreground" />
               )}
             </button>
           ) : (
@@ -164,27 +164,33 @@ export function ProjectMemberSelector({
 
           {/* 复选框（仅成员节点） */}
           {isMember && (
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={(e) => {
-                e.stopPropagation();
-                if (!readonly) onMemberToggle(node.id);
-              }}
-              disabled={readonly}
-              className={cn(
-                "w-4 h-4 rounded border-border bg-background text-primary focus:ring-primary focus:ring-offset-0",
-                readonly ? "cursor-not-allowed opacity-50" : "cursor-pointer"
-              )}
-            />
+            <label
+              className="flex items-center cursor-pointer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => {
+                  if (!readonly) {
+                    onMemberToggle(node.id);
+                  }
+                }}
+                disabled={readonly}
+                className={cn(
+                  "w-4 h-4 rounded border-border bg-background text-primary focus:ring-primary focus:ring-offset-0",
+                  readonly ? "cursor-not-allowed opacity-50" : ""
+                )}
+              />
+            </label>
           )}
 
           {/* 节点图标 */}
           <div className={cn(
             "w-4 h-4 flex items-center justify-center",
-            node.level === 'department' && "text-amber-400",
-            node.level === 'tech_group' && "text-blue-400",
-            node.level === 'member' && "text-slate-400"
+            node.level === 'department' && "text-amber-500",
+            node.level === 'tech_group' && "text-blue-500",
+            node.level === 'member' && "text-muted-foreground"
           )}>
             {node.level === 'department' && <Building2 className="w-4 h-4" />}
             {node.level === 'tech_group' && <Users className="w-4 h-4" />}
@@ -194,7 +200,7 @@ export function ProjectMemberSelector({
           {/* 节点名称 */}
           <span className={cn(
             "text-sm truncate flex-1 min-w-0",
-            isMember ? "text-white" : "text-muted-foreground"
+            isMember ? "text-foreground" : "text-muted-foreground"
           )}>
             {node.name}
           </span>
@@ -315,7 +321,7 @@ export function SelectedMembersDisplay({
             key={memberId}
             className="flex items-center gap-1.5 px-2 py-1 bg-muted rounded-md text-sm"
           >
-            <span className="text-white">{member.name}</span>
+            <span className="text-foreground">{member.name}</span>
             {member.department && (
               <span className="text-xs text-muted-foreground">({member.department})</span>
             )}
@@ -323,7 +329,7 @@ export function SelectedMembersDisplay({
               <button
                 type="button"
                 onClick={() => onRemove(memberId)}
-                className="ml-1 text-muted-foreground hover:text-white"
+                className="ml-1 text-muted-foreground hover:text-foreground"
               >
                 ×
               </button>

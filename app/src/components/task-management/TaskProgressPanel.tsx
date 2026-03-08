@@ -178,7 +178,7 @@ export function TaskProgressPanel({
       <DialogContent className="bg-card border-border max-w-2xl max-h-[80vh] flex flex-col" showCloseButton={false}>
         <DialogHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-purple-400" />
               {readOnly ? '任务进展记录' : '任务进展维护'}
             </DialogTitle>

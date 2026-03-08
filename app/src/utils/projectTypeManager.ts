@@ -11,7 +11,6 @@
  */
 
 import type { ProjectType, ProjectMemberRole } from '@/types/project';
-import { getProjectTypes, type ProjectTypeConfig } from '@/services/ProjectTypeService';
 
 // ==================== 类型定义 ====================
 
@@ -105,31 +104,11 @@ export class ProjectTypeManager {
 
   /**
    * 从后端获取项目类型配置
+   * 注意：项目类型设置功能已移除，现在直接使用默认配置
    */
   private static async fetchTypes(): Promise<DynamicProjectTypeConfig[]> {
-    try {
-      const types = await getProjectTypes();
-
-      return types.map((type): DynamicProjectTypeConfig => ({
-        id: type.id,
-        type: type.code as ProjectType,
-        label: type.name,
-        description: type.description,
-        detail: type.detail,
-        icon: type.icon,
-        color: type.color,
-        requiresDates: type.requiresDates,
-        requiresMilestones: type.requiresMilestones,
-        requiresMembers: type.requiresMembers,
-        fieldVisibility: type.fieldVisibility || {},
-        hints: type.hints || [],
-        codePrefix: type.codePrefix,
-      }));
-    } catch (error) {
-      console.error('获取项目类型失败:', error);
-      // 返回默认类型配置
-      return this.getDefaultTypes();
-    }
+    // 直接返回默认类型配置
+    return this.getDefaultTypes();
   }
 
   /**

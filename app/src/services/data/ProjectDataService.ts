@@ -220,7 +220,7 @@ export class ProjectDataService extends BaseDataService<Project> {
   /**
    * 同步项目成员
    */
-  async syncProjectMembers(projectId: number, memberIds: number[], role: ProjectMemberRole = 'member'): Promise<ProjectMember[]> {
+  async syncProjectMembers(projectId: number, memberIds: string[], role: ProjectMemberRole = 'member'): Promise<ProjectMember[]> {
     try {
       console.log('[ProjectDataService] 同步项目成员:', projectId, memberIds);
       const result = await this.post<ProjectMember[]>(`/projects/${projectId}/members/sync`, { memberIds, role });
@@ -400,7 +400,7 @@ export class ProjectDataService extends BaseDataService<Project> {
     projectType?: string;
     plannedStartDate?: string;
     plannedEndDate?: string;
-    memberIds?: number[];
+    memberIds?: string[];
     milestones?: any[];
   }): Promise<Project> {
     try {

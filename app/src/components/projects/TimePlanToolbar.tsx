@@ -88,7 +88,7 @@ export function TimePlanToolbar({
             className="flex items-center gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             disabled={disabled}
           >
-            <Calendar className="w-4 h-4" />
+            <Calendar className="w-4 h-4 text-foreground" />
             <span>里程碑</span>
             <Badge variant="secondary" className="ml-1 text-xs">
               {milestoneStats.total}

@@ -16,9 +16,56 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Users, Edit3, Trash2, CheckCircle2 } from 'lucide-react';
+import { Users, Edit3, Trash2, CheckCircle2, Rocket, AlertTriangle, RefreshCw, Info, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Project, Member } from '@/types';
+
+/**
+ * 项目类型图标映射
+ */
+const PROJECT_TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  product_development: Rocket,
+  functional_management: Users,
+  material_substitution: RefreshCw,
+  troubleshooting: AlertTriangle,
+  other: Info,
+};
+
+/**
+ * 项目类型标签映射（设计文档：图标 + 文字）
+ */
+const PROJECT_TYPE_LABELS: Record<string, string> = {
+  product_development: '产品开发类',
+  functional_management: '职能管理类',
+  material_substitution: '物料改代类',
+  troubleshooting: '故障排查类',
+  other: '其他',
+};
+
+/**
+ * 项目类型颜色映射
+ */
+const PROJECT_TYPE_COLORS: Record<string, string> = {
+  product_development: 'text-blue-400',
+  functional_management: 'text-purple-400',
+  material_substitution: 'text-green-400',
+  troubleshooting: 'text-red-400',
+  other: 'text-gray-400',
+};
+
+/**
+ * 获取项目类型图标组件
+ */
+function getProjectTypeIcon(type?: string) {
+  return PROJECT_TYPE_ICONS[type] || Rocket;
+}
+
+/**
+ * 获取项目类型颜色
+ */
+function getProjectTypeColor(type?: string) {
+  return PROJECT_TYPE_COLORS[type] || 'text-gray-400';
+}
 
 interface ProjectCardProps {
   /** 项目数据 */
@@ -113,29 +160,62 @@ export function ProjectCard({
     onDelete(project);
   };
 
+  // 设计文档：延期项目特别显眼（红色边框）
+  const isDelayed = project.status === 'delayed';
+
   return (
     <Card
-      className="bg-card border-border hover:border-muted-foreground/50 transition-all cursor-pointer group relative"
+      className={cn(
+        "bg-card border-border hover:border-muted-foreground/50 transition-all cursor-pointer group relative",
+        isDelayed && "border-red-500/50 hover:border-red-500 shadow-red-500/10"
+      )}
       onClick={handleCardClick}
     >
       <CardContent className="p-5">
-        {/* 标题和状态 */}
+        {/* 项目类型图标+文字 和标题、状态（设计文档第73行） */}
         <div className="flex items-start justify-between mb-3">
           <div className="flex-1 min-w-0">
+            {/* 项目类型：图标 + 文字（设计文档要求） */}
+            <div className="flex items-center gap-1 mb-1.5">
+              {React.createElement(getProjectTypeIcon(project.projectType), {
+                className: cn("w-3.5 h-3.5", getProjectTypeColor(project.projectType))
+              })}
+              <span className="text-xs text-muted-foreground">
+                {PROJECT_TYPE_LABELS[project.projectType] || '其他'}
+              </span>
+            </div>
             <p className="text-xs text-muted-foreground mb-1">{project.code}</p>
-            <h3 className="text-base font-medium text-white group-hover:text-blue-400 transition-colors line-clamp-1">
+            <h3 className="text-xl font-medium text-foreground group-hover:text-primary transition-colors line-clamp-1">
               {project.name}
             </h3>
           </div>
-          <Badge variant="outline" className={cn("text-xs flex-shrink-0 ml-2", status.color)}>
-            {status.label}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {/* 编辑按钮 - 移到右上角 */}
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-white"
+                onClick={handleEditClick}
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+              </Button>
+            )}
+            <Badge variant="outline" className={cn("text-xs flex-shrink-0", status.color)}>
+              {status.label}
+            </Badge>
+          </div>
         </div>
 
-        {/* 描述 */}
-        <p className="text-sm text-muted-foreground line-clamp-2 mb-4 min-h-[40px]">
-          {project.description}
-        </p>
+        {/* 描述 - 设计文档第167行：鼠标悬停时显示 */}
+        <div className="mb-4 h-10">
+          <p
+            className="text-sm text-muted-foreground line-clamp-2 opacity-0 group-hover:opacity-100 transition-opacity"
+            title={project.description || '暂无描述'}
+          >
+            {project.description || '暂无描述'}
+          </p>
+        </div>
 
         {/* 进度条 */}
         <div className="mb-4">
@@ -153,6 +233,18 @@ export function ProjectCard({
             />
           </div>
         </div>
+
+        {/* 时间范围 */}
+        {(project.plannedStartDate || project.plannedEndDate) && (
+          <div className="flex items-center gap-1.5 mb-4 text-xs text-muted-foreground">
+            <Calendar className="w-3.5 h-3.5 text-foreground" />
+            <span>
+              {project.plannedStartDate ? project.plannedStartDate : '---'}
+              {' ~ '}
+              {project.plannedEndDate ? project.plannedEndDate : '---'}
+            </span>
+          </div>
+        )}
 
         {/* 底部信息 */}
         <div className="flex items-center justify-between">
@@ -184,16 +276,6 @@ export function ProjectCard({
 
           {/* 操作按钮 */}
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            {canEdit && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0 text-muted-foreground hover:text-white"
-                onClick={handleEditClick}
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-              </Button>
-            )}
             {canDelete && (
               <Button
                 variant="ghost"

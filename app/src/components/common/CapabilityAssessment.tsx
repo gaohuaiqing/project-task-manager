@@ -205,8 +205,8 @@ const CapabilityAssessment: React.FC<CapabilityAssessmentProps> = ({
                   className="bg-slate-700 border-slate-600 text-white min-h-[80px]"
                 />
               </div>
-              <Button 
-                className="w-full bg-blue-500 hover:bg-blue-600 text-white"
+              <Button
+                className="w-full"
                 onClick={handleSubmit}
               >
                 提交评估

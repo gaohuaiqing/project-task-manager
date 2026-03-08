@@ -494,7 +494,7 @@ export function ProjectTimelineView({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Calendar className="w-4 h-4 text-muted-foreground" />
-          <h3 className="text-sm font-medium text-white">项目时间线</h3>
+          <h3 className="text-sm font-medium text-foreground">项目时间线</h3>
         </div>
 
         {/* 缩放控制 */}
@@ -633,7 +633,7 @@ export function ProjectTimelineView({
           <div className="relative group/menu">
             <button className="w-full px-3 py-2 text-left text-sm hover:bg-muted flex items-center justify-between">
               <span className="flex items-center gap-2">
-                <Calendar className="w-3 h-3" />
+                <Calendar className="w-3 h-3 text-foreground" />
                 调整日期
               </span>
               <ChevronRight className="w-3 h-3" />

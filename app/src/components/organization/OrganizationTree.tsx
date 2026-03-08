@@ -96,13 +96,13 @@ function TreeNode({
   const getNodeBgColor = () => {
     switch (nodeType) {
       case 'department':
-        return isSelected ? 'bg-amber-500/20 border-amber-500/50' : 'hover:bg-slate-700/50';
+        return isSelected ? 'bg-amber-500/20 border-amber-500/50' : 'hover:bg-accent/50';
       case 'tech_group':
-        return isSelected ? 'bg-blue-500/20 border-blue-500/50' : 'hover:bg-slate-700/50';
+        return isSelected ? 'bg-blue-500/20 border-blue-500/50' : 'hover:bg-accent/50';
       case 'member':
-        return isSelected ? 'bg-slate-700 border-slate-600' : 'hover:bg-slate-700/50';
+        return isSelected ? 'bg-secondary border-border' : 'hover:bg-accent/50';
     }
-    return 'hover:bg-slate-700/50';
+    return 'hover:bg-accent/50';
   };
 
   // 计算部门或技术组的人数
@@ -203,12 +203,12 @@ function TreeNode({
         {hasChildren ? (
           <button
             onClick={handleExpand}
-            className="p-0.5 hover:bg-slate-600 rounded transition-colors"
+            className="p-0.5 hover:bg-accent rounded transition-colors"
           >
             {isExpanded ? (
-              <ChevronDown className="w-3 h-3 text-slate-400" />
+              <ChevronDown className="w-3 h-3 text-muted-foreground" />
             ) : (
-              <ChevronRight className="w-3 h-3 text-slate-400" />
+              <ChevronRight className="w-3 h-3 text-muted-foreground" />
             )}
           </button>
         ) : (
@@ -219,12 +219,12 @@ function TreeNode({
         <div onClick={handleClick} className="cursor-pointer flex-1 min-w-0">
           <div className="flex items-center gap-2">
             {getNodeIcon()}
-            <span className="text-sm text-white truncate">
+            <span className="text-sm text-foreground truncate">
               {getNodeLabel()}
             </span>
             {/* 角色标签 */}
             {getRoleLabel() && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">
+              <span className="text-xs px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground">
                 {getRoleLabel()}
               </span>
             )}
@@ -237,19 +237,19 @@ function TreeNode({
             {onNodeEdit && (
               <button
                 onClick={handleEdit}
-                className="p-1 hover:bg-slate-600 rounded transition-colors"
+                className="p-1 hover:bg-accent rounded transition-colors"
                 title="编辑"
               >
-                <Edit3 className="w-3.5 h-3.5 text-slate-400 hover:text-white" />
+                <Edit3 className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
               </button>
             )}
             {onNodeDelete && (
               <button
                 onClick={handleDelete}
-                className="p-1 hover:bg-slate-600 rounded transition-colors"
+                className="p-1 hover:bg-accent rounded transition-colors"
                 title="删除"
               >
-                <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-red-400" />
+                <Trash2 className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
               </button>
             )}
           </div>
@@ -260,10 +260,10 @@ function TreeNode({
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               onClick={handleResetPassword}
-              className="p-1 hover:bg-slate-600 rounded transition-colors"
+              className="p-1 hover:bg-accent rounded transition-colors"
               title="重置密码"
             >
-              <KeyRound className="w-3.5 h-3.5 text-slate-400 hover:text-amber-400" />
+              <KeyRound className="w-3.5 h-3.5 text-muted-foreground hover:text-amber-400" />
             </button>
           </div>
         )}

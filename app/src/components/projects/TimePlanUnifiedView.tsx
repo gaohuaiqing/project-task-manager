@@ -114,7 +114,7 @@ export function TimePlanUnifiedView({
     <div className="flex items-center gap-4 text-xs">
       <div className="flex items-center gap-2">
         <Badge variant="outline" className="text-xs">
-          <Calendar className="w-3 h-3 mr-1" />
+          <Calendar className="w-3 h-3 mr-1 text-foreground" />
           里程碑: {stats.totalMilestones}
         </Badge>
         {stats.completedMilestones > 0 && (
@@ -172,7 +172,7 @@ export function TimePlanUnifiedView({
             <div className="h-full p-6 border-r border-border">
               <div className="flex items-center gap-2 mb-4">
                 <Calendar className="w-4 h-4 text-primary" />
-                <h4 className="text-sm font-semibold text-white">里程碑时间线</h4>
+                <h4 className="text-sm font-semibold text-foreground">里程碑时间线</h4>
                 {!readonly && (
                   <span className="text-xs text-muted-foreground ml-2">
                     💡 点击时间线添加里程碑，拖拽节点调整日期

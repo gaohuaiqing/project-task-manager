@@ -319,7 +319,7 @@ function ProtectedApp() {
       />
 
       {/* 主内容区 */}
-      <main className={`pt-16 min-h-screen transition-all duration-300 ${sidebarCollapsed ? 'pl-16' : 'pl-64'}`}>
+      <main className={`mt-16 min-h-[calc(100vh-4rem)] transition-all duration-300 ${sidebarCollapsed ? 'pl-16' : 'pl-64'}`}>
         <div className="p-6">
           {isLoading ? (
             <div className="flex items-center justify-center min-h-[60vh]">

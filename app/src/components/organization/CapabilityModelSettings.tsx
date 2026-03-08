@@ -291,7 +291,7 @@ export function CapabilityModelSettings({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-card border-border text-white max-w-5xl max-h-[90vh] p-0 flex flex-col">
+      <DialogContent className="bg-card border-border text-foreground max-w-5xl max-h-[90vh] p-0 flex flex-col">
         <DialogHeader className="px-6 pt-6 pb-4">
           <DialogTitle className="flex items-center gap-2">
             <Layers className="w-5 h-5" />

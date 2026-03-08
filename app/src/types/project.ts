@@ -226,7 +226,7 @@ export interface ProjectFormData {
   /** 计划结束日期 */
   plannedEndDate?: string;
   /** 成员 ID 列表 */
-  memberIds?: number[];
+  memberIds?: string[];
   /** 里程碑列表 */
   milestones?: Omit<ProjectMilestone, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>[];
   /** WBS任务列表（甘特图数据） */

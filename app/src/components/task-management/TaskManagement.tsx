@@ -897,7 +897,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
         <DialogContent className="bg-card border-border max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <Plus className="w-5 h-5" />
               新建任务
             </DialogTitle>
@@ -906,7 +906,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-white">所属项目</Label>
+                <Label className="text-foreground">所属项目</Label>
                 <Select
                   value={newTask.projectId || ''}
                   onValueChange={(value) => setNewTask(prev => ({ ...prev, projectId: value }))}
@@ -925,7 +925,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
               </div>
 
               <div className="space-y-2">
-                <Label className="text-white">负责人</Label>
+                <Label className="text-foreground">负责人</Label>
                 {user?.role === 'engineer' ? (
                   // 工程师只能分配给自己
                   <Input
@@ -946,7 +946,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
             </div>
             
             <div className="space-y-2">
-              <Label className="text-white">任务描述</Label>
+              <Label className="text-foreground">任务描述</Label>
               <Textarea
                 placeholder="输入任务描述..."
                 value={newTask.title}
@@ -956,7 +956,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white">前置任务（可选）</Label>
+              <Label className="text-foreground">前置任务（可选）</Label>
               <Select
                   value={newTask.predecessor || ''}
                   onValueChange={(value) => setNewTask(prev => ({ ...prev, predecessor: value }))}
@@ -977,7 +977,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-white">计划开始日期</Label>
+                <Label className="text-foreground">计划开始日期</Label>
                 <Input
                   type="date"
                   value={newTask.plannedStartDate}
@@ -987,7 +987,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
               </div>
 
               <div className="space-y-2">
-                <Label className="text-white">计划结束日期</Label>
+                <Label className="text-foreground">计划结束日期</Label>
                 <Input
                   type="date"
                   value={newTask.plannedEndDate}
@@ -998,7 +998,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white">优先级</Label>
+              <Label className="text-foreground">优先级</Label>
               <div className="flex gap-2">
                 {(['low', 'medium', 'high'] as const).map(p => (
                   <Button
@@ -1044,7 +1044,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="bg-card border-border max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <Edit3 className="w-5 h-5" />
               编辑任务
             </DialogTitle>
@@ -1053,7 +1053,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
           {editingTask && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label className="text-white">任务描述</Label>
+                <Label className="text-foreground">任务描述</Label>
                 <Textarea
                   value={editingTask.title}
                   onChange={(e) => setEditingTask(prev => prev ? { ...prev, title: e.target.value } : null)}
@@ -1062,7 +1062,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
               </div>
 
               <div className="space-y-2">
-                <Label className="text-white">前置任务</Label>
+                <Label className="text-foreground">前置任务</Label>
                 <Select
                   value={editingTask.predecessor || ''}
                   onValueChange={(value) => setEditingTask(prev => prev ? { ...prev, predecessor: value || undefined } : null)}
@@ -1083,7 +1083,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-white">计划开始日期</Label>
+                  <Label className="text-foreground">计划开始日期</Label>
                   <Input
                     type="date"
                     value={editingTask.plannedStartDate}
@@ -1093,7 +1093,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-white">计划结束日期</Label>
+                  <Label className="text-foreground">计划结束日期</Label>
                   <Input
                     type="date"
                     value={editingTask.plannedEndDate}
@@ -1104,7 +1104,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
               </div>
 
               <div className="space-y-2">
-                <Label className="text-white">进度 ({editingTask.progress}%)</Label>
+                <Label className="text-foreground">进度 ({editingTask.progress}%)</Label>
                 <Input
                   type="range"
                   min={0}
@@ -1155,7 +1155,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
       <Dialog open={isApprovalDialogOpen} onOpenChange={setIsApprovalDialogOpen}>
         <DialogContent className="bg-card border-border max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <FileCheck className="w-5 h-5 text-amber-400" />
               审批任务
             </DialogTitle>
@@ -1174,7 +1174,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
               </div>
               
               <div className="space-y-2">
-                <Label className="text-white">审批意见</Label>
+                <Label className="text-foreground">审批意见</Label>
                 <Textarea
                   placeholder="请输入审批意见（可选）..."
                   value={approvalComment}
@@ -1209,7 +1209,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
       <Dialog open={isForceRefreshDialogOpen} onOpenChange={setIsForceRefreshDialogOpen}>
         <DialogContent className="bg-card border-border max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-orange-400" />
               强行刷新任务计划
             </DialogTitle>
@@ -1225,7 +1225,7 @@ export function TaskManagement({ members, projects, tasks: initialTasks = [] }: 
               </div>
               
               <div className="space-y-2">
-                <Label className="text-white">变更说明 <span className="text-red-400">*</span></Label>
+                <Label className="text-foreground">变更说明 <span className="text-red-400">*</span></Label>
                 <Textarea
                   placeholder="请输入变更说明（必填）..."
                   value={forceRefreshDescription}

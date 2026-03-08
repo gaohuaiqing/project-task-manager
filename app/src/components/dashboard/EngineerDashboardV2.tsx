@@ -383,7 +383,7 @@ export function EngineerDashboardV2({
         <div className="h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent" />
 
         <CardHeader className="pb-4">
-          <CardTitle className="text-lg font-semibold text-white tracking-tight">
+          <CardTitle className="text-lg font-semibold text-foreground tracking-tight">
             欢迎回来，{member.name}
           </CardTitle>
         </CardHeader>
@@ -484,7 +484,7 @@ export function EngineerDashboardV2({
       {memberProjects.length > 0 && (
         <Card className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur-xl border border-white/10 rounded-apple-card overflow-hidden">
           <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-semibold text-white tracking-tight">
+            <CardTitle className="text-lg font-semibold text-foreground tracking-tight">
               参与的项目
             </CardTitle>
           </CardHeader>
@@ -558,7 +558,7 @@ function TaskDetailDialog({ task, open, onClose }: TaskDetailDialogProps) {
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-apple-modal">
         <DialogHeader>
-          <DialogTitle className="text-lg font-semibold text-white tracking-tight">
+          <DialogTitle className="text-lg font-semibold text-foreground tracking-tight">
             任务详情
           </DialogTitle>
         </DialogHeader>

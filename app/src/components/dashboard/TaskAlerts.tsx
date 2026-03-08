@@ -79,7 +79,7 @@ export function TaskAlerts({ tasks, members }: TaskAlertsProps) {
             <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mb-4">
               <CheckCircle2 className="w-8 h-8 text-green-400" />
             </div>
-            <h3 className="text-lg font-semibold text-white mb-2">暂无任务提醒</h3>
+            <h3 className="text-lg font-semibold text-foreground mb-2">暂无任务提醒</h3>
             <p className="text-sm text-muted-foreground">
               所有任务状态正常，无需特别关注
             </p>
@@ -94,7 +94,7 @@ export function TaskAlerts({ tasks, members }: TaskAlertsProps) {
       <Card className="bg-card/50 border-border">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-lg text-white">任务提醒</CardTitle>
+            <CardTitle className="text-lg text-foreground">任务提醒</CardTitle>
             <Badge variant="outline" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
               {totalAlerts} 项提醒
             </Badge>
@@ -105,7 +105,7 @@ export function TaskAlerts({ tasks, members }: TaskAlertsProps) {
             <div className="space-y-3">
               <div className="flex items-center gap-2 mb-3">
                 <FileCheck className="w-5 h-5 text-blue-400" />
-                <h4 className="text-base font-semibold text-white">待审批任务</h4>
+                <h4 className="text-base font-semibold text-foreground">待审批任务</h4>
                 <Badge variant="outline" className="bg-blue-500/20 text-blue-400 border-blue-500/30 ml-auto">
                   {alerts.pendingApproval.length}
                 </Badge>
@@ -164,7 +164,7 @@ export function TaskAlerts({ tasks, members }: TaskAlertsProps) {
             <div className="space-y-3">
               <div className="flex items-center gap-2 mb-3">
                 <Clock className="w-5 h-5 text-yellow-400" />
-                <h4 className="text-base font-semibold text-white">即将延期任务</h4>
+                <h4 className="text-base font-semibold text-foreground">即将延期任务</h4>
                 <Badge variant="outline" className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 ml-auto">
                   {alerts.nearDeadline.length}
                 </Badge>
@@ -231,7 +231,7 @@ export function TaskAlerts({ tasks, members }: TaskAlertsProps) {
             <div className="space-y-3">
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle className="w-5 h-5 text-red-400" />
-                <h4 className="text-base font-semibold text-white">已延期任务</h4>
+                <h4 className="text-base font-semibold text-foreground">已延期任务</h4>
                 <Badge variant="outline" className="bg-red-500/20 text-red-400 border-red-500/30 ml-auto">
                   {alerts.delayed.length}
                 </Badge>
@@ -296,7 +296,7 @@ export function TaskAlerts({ tasks, members }: TaskAlertsProps) {
       <Dialog open={isDetailDialogOpen} onOpenChange={setIsDetailDialogOpen}>
         <DialogContent className="bg-card/95 backdrop-blur-sm border-border max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <FileText className="w-5 h-5 text-primary" />
               任务详情
             </DialogTitle>

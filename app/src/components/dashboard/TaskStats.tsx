@@ -211,7 +211,7 @@ export function TaskStats({ tasks }: TaskStatsProps) {
       {/* 项目进度 */}
       <Card className="bg-card/50 border-border">
         <CardHeader>
-          <CardTitle className="text-base font-semibold text-white">项目进度概览</CardTitle>
+          <CardTitle className="text-base font-semibold text-foreground">项目进度概览</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -259,7 +259,7 @@ export function TaskStats({ tasks }: TaskStatsProps) {
         {/* 任务类型分布 */}
         <Card className="bg-card/50 border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold text-white">任务类型分布</CardTitle>
+            <CardTitle className="text-base font-semibold text-foreground">任务类型分布</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={180}>
@@ -287,7 +287,7 @@ export function TaskStats({ tasks }: TaskStatsProps) {
         {/* 优先级分布 */}
         <Card className="bg-card/50 border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold text-white">优先级分布</CardTitle>
+            <CardTitle className="text-base font-semibold text-foreground">优先级分布</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={180}>
@@ -309,7 +309,7 @@ export function TaskStats({ tasks }: TaskStatsProps) {
         {/* 任务状态分布 */}
         <Card className="bg-card/50 border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold text-white">任务状态分布</CardTitle>
+            <CardTitle className="text-base font-semibold text-foreground">任务状态分布</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4 pt-2">

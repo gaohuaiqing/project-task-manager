@@ -127,7 +127,7 @@ export function validateProjectDescription(description: string): ValidationResul
 /**
  * 项目成员验证规则
  */
-export function validateProjectMembers(memberIds: number[]): ValidationResult {
+export function validateProjectMembers(memberIds: string[]): ValidationResult {
   if (!memberIds || memberIds.length === 0) {
     return { valid: false, error: '请至少选择一个项目成员' };
   }

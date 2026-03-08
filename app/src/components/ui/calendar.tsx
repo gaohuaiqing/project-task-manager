@@ -52,15 +52,15 @@ function MonthYearSelector({
         value={currentMonth.toString()}
         onValueChange={(value) => onMonthChange(parseInt(value))}
       >
-        <SelectTrigger className="w-[80px] h-9 bg-slate-700 border-slate-600 text-white text-sm">
+        <SelectTrigger className="w-[80px] h-9 bg-secondary border-border text-foreground text-sm">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="bg-slate-800 border-slate-700 max-h-[200px]">
+        <SelectContent className="bg-popover border-border max-h-[200px]">
           {months.map((month, index) => (
             <SelectItem
               key={index}
               value={index.toString()}
-              className="text-white hover:bg-slate-700 focus:bg-slate-700 cursor-pointer"
+              className="text-foreground hover:bg-accent focus:bg-accent cursor-pointer"
             >
               {month}
             </SelectItem>
@@ -72,15 +72,15 @@ function MonthYearSelector({
         value={currentYearValue.toString()}
         onValueChange={(value) => onYearChange(parseInt(value))}
       >
-        <SelectTrigger className="w-[100px] h-9 bg-slate-700 border-slate-600 text-white text-sm">
+        <SelectTrigger className="w-[100px] h-9 bg-secondary border-border text-foreground text-sm">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="bg-slate-800 border-slate-700 max-h-[200px]">
+        <SelectContent className="bg-popover border-border max-h-[200px]">
           {years.map((year) => (
             <SelectItem
               key={year}
               value={year.toString()}
-              className="text-white hover:bg-slate-700 focus:bg-slate-700 cursor-pointer"
+              className="text-foreground hover:bg-accent focus:bg-accent cursor-pointer"
             >
               {year}年
             </SelectItem>
@@ -129,7 +129,7 @@ function CustomNav({
       <Button
         variant="ghost"
         size="icon"
-        className="h-9 w-9 text-slate-400 hover:text-white hover:bg-slate-700 flex-shrink-0"
+        className="h-9 w-9 text-foreground hover:text-accent-foreground hover:bg-accent flex-shrink-0"
         onClick={onPreviousClick}
         disabled={!previousMonth}
       >
@@ -147,7 +147,7 @@ function CustomNav({
       <Button
         variant="ghost"
         size="icon"
-        className="h-9 w-9 text-slate-400 hover:text-white hover:bg-slate-700 flex-shrink-0"
+        className="h-9 w-9 text-foreground hover:text-accent-foreground hover:bg-accent flex-shrink-0"
         onClick={onNextClick}
         disabled={!nextMonth}
       >

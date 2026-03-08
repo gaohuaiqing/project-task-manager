@@ -79,7 +79,6 @@ export interface ServerMessage<T = unknown> {
  */
 export type ServerMessageType =
   | 'auth_success'
-  | 'data_sync'
   | 'data_update_ack'
   | 'global_data_updated'
   | 'sync_response'
@@ -207,7 +206,6 @@ export function isValidServerMessage(value: unknown): value is ServerMessage {
 
   const validTypes: ServerMessageType[] = [
     'auth_success',
-    'data_sync',
     'data_update_ack',
     'global_data_updated',
     'sync_response',

@@ -232,7 +232,7 @@ export function formDataToNewProject(formData: {
   projectType: string;
   plannedStartDate?: string;
   plannedEndDate?: string;
-  memberIds?: number[];
+  memberIds?: string[];
   milestones?: any[];
 }): Partial<NewProject> {
   return {

@@ -335,7 +335,7 @@ export function AddMemberDialog({ isOpen, onClose, onSuccess }: AddMemberDialogP
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="bg-card border-border text-white max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="bg-card border-border text-foreground max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="w-5 h-5" />
@@ -360,7 +360,7 @@ export function AddMemberDialog({ isOpen, onClose, onSuccess }: AddMemberDialogP
             <div className="grid grid-cols-2 gap-4">
               {/* 工号输入 */}
               <div className="space-y-2">
-                <Label htmlFor="employeeId" className="text-white">
+                <Label htmlFor="employeeId" className="text-foreground">
                   工号 <span className="text-red-400">*</span>
                 </Label>
                 <Input
@@ -382,7 +382,7 @@ export function AddMemberDialog({ isOpen, onClose, onSuccess }: AddMemberDialogP
 
               {/* 姓名输入 */}
               <div className="space-y-2">
-                <Label htmlFor="name" className="text-white">
+                <Label htmlFor="name" className="text-foreground">
                   姓名 <span className="text-red-400">*</span>
                 </Label>
                 <Input
@@ -405,7 +405,7 @@ export function AddMemberDialog({ isOpen, onClose, onSuccess }: AddMemberDialogP
             <div className="grid grid-cols-2 gap-4">
               {/* 角色选择 */}
               <div className="space-y-2">
-                <Label htmlFor="role" className="text-white">
+                <Label htmlFor="role" className="text-foreground">
                   角色 <span className="text-red-400">*</span>
                 </Label>
                 <Select
@@ -436,7 +436,7 @@ export function AddMemberDialog({ isOpen, onClose, onSuccess }: AddMemberDialogP
 
               {/* 职级选择 */}
               <div className="space-y-2">
-                <Label htmlFor="level" className="text-white">
+                <Label htmlFor="level" className="text-foreground">
                   职级 <span className="text-red-400">*</span>
                 </Label>
                 <Select
@@ -477,7 +477,7 @@ export function AddMemberDialog({ isOpen, onClose, onSuccess }: AddMemberDialogP
                 取消
               </Button>
               <Button
-                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
+                className="flex-1"
                 onClick={handleSubmit}
                 disabled={isSubmitting}
               >
@@ -586,7 +586,7 @@ export function AddMemberDialog({ isOpen, onClose, onSuccess }: AddMemberDialogP
                 完成
               </Button>
               <Button
-                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
+                className="flex-1"
                 onClick={resetForm}
               >
                 继续添加

@@ -62,11 +62,11 @@ class BackendMonitor {
       this.config = { ...this.config, ...config };
     }
 
-    // ❌ 移除自动初始化
-    // 不再在构造函数中自动调用 init()
-    // 改为由 ServiceManager 统一管理
+    // ✅ 恢复自动初始化
+    // 确保单例在创建时立即开始工作
+    this.init();
 
-    console.log('[BackendMonitor] 已创建，等待手动初始化');
+    console.log('[BackendMonitor] 已创建并自动初始化');
   }
 
   /**

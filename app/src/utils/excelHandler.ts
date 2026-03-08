@@ -5,9 +5,10 @@
  * 1. 将组织架构数据导出为 xlsx 文件
  * 2. 从 xlsx 文件导入组织架构数据
  * 3. 数据验证和错误处理
+ *
+ * ✅ 优化：使用动态导入 XLSX 库，减少初始 bundle 大小
  */
 
-import * as XLSX from 'xlsx';
 import type {
   OrganizationStructure,
   Department,
@@ -21,13 +22,27 @@ import { getDefaultCapabilityValues } from '@/types/organization';
 import { findNodeById } from '@/utils/organizationManager';
 
 // ================================================================
+// 动态导入 XLSX 库（减少初始 bundle 大小）
+// ================================================================
+
+/**
+ * 动态导入 XLSX 库
+ * 只在需要时加载，减少约 300KB 的初始 bundle 大小
+ */
+async function getXLSX() {
+  const XLSX = await import('xlsx');
+  return XLSX;
+}
+
+// ================================================================
 // 导出功能
 // ================================================================
 
 /**
  * 导出组织架构为 Excel 文件（人员列表格式）
  */
-export function exportOrganizationToExcel(org: OrganizationStructure): Blob {
+export async function exportOrganizationToExcel(org: OrganizationStructure): Promise<Blob> {
+  const XLSX = await getXLSX();
   const wb = XLSX.utils.book_new();
 
   // 生成人员列表格式数据
@@ -45,11 +60,11 @@ export function exportOrganizationToExcel(org: OrganizationStructure): Blob {
 /**
  * 下载 Excel 文件
  */
-export function downloadOrganizationExcel(org: OrganizationStructure): void {
+export async function downloadOrganizationExcel(org: OrganizationStructure): Promise<void> {
   console.log('[downloadOrganizationExcel] 开始导出，组织数据:', org);
 
   try {
-    const blob = exportOrganizationToExcel(org);
+    const blob = await exportOrganizationToExcel(org);
     console.log('[downloadOrganizationExcel] Blob 创建成功，大小:', blob.size);
 
     const url = URL.createObjectURL(blob);
@@ -381,6 +396,7 @@ export async function importOrganizationFromExcel(file: File): Promise<{
   org?: OrganizationStructure;
   errors?: string[];
 }> {
+  const XLSX = await getXLSX();
   const errors: string[] = [];
 
   try {

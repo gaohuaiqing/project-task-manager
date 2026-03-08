@@ -24,18 +24,42 @@ console.log('精确度: 秒级');
 console.log('说明: 此时间戳代表代码修改完成并开始构建的时间点');
 console.log('='.repeat(60) + '\n');
 
-// 热更新时间插件
+// 热更新时间插件 - 每次热更新时发送最新时间
 const hmrTimePlugin: Plugin = {
   name: 'hmr-time-plugin',
+  handleHotUpdate({ server }) {
+    // 每次热更新时发送最新时间
+    server.ws.send({
+      type: 'custom',
+      event: 'hmr-time',
+      data: {
+        time: formatLocalTime(new Date()),
+        type: 'update'
+      }
+    });
+    return [];
+  },
   configureServer(server) {
-    server.ws.on('update', () => {
-      // 热更新时不修改构建时间，而是在前端通过其他方式处理
+    // 服务器启动后，发送初始时间给所有已连接的客户端
+    server.httpServer?.once('listening', () => {
+      setTimeout(() => {
+        server.ws.send({
+          type: 'custom',
+          event: 'hmr-time',
+          data: {
+            time: formatLocalTime(new Date()),
+            type: 'init'
+          }
+        });
+      }, 100);
     });
   }
 };
 
 export default defineConfig({
-  base: './',
+  // 明确指定根目录（因为 vite 从项目根目录运行）
+  root: path.resolve(__dirname),
+  base: '/',
   plugins: [react(), hmrTimePlugin],
   define: {
     __BUILD_TIME__: JSON.stringify(BUILD_START_TIME),
@@ -65,8 +89,8 @@ export default defineConfig({
   // 开发服务器优化
   server: {
     host: '0.0.0.0',      // 监听所有网络接口
-    port: 5173,           // 明确指定端口
-    strictPort: false,    // 端口被占用时自动尝试其他端口
+    port: 5173,           // 固定使用 5173 端口
+    strictPort: true,     // 端口被占用时失败（不自动尝试其他端口）
     hmr: {
       overlay: true,
     },

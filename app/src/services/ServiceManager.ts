@@ -9,7 +9,6 @@
  * 4. 防止内存泄漏
  */
 
-import { dataSyncService } from './DataSyncService';
 import { CacheManager } from './CacheManager';
 import { backendMonitor } from './BackendMonitor';
 import { wsService } from './WebSocketService';
@@ -45,11 +44,7 @@ class ServiceManager {
     this.registerCleanup(() => backendMonitor.destroy());
     console.log('[ServiceManager] ✅ BackendMonitor 已注册清理');
 
-    // 3. 初始化数据同步服务
-    this.registerCleanup(() => dataSyncService.destroy());
-    console.log('[ServiceManager] ✅ DataSyncService 已注册清理');
-
-    // 4. WebSocket 服务清理
+    // 3. WebSocket 服务清理
     this.registerCleanup(() => {
       if (wsService.isConnected()) {
         wsService.disconnect();

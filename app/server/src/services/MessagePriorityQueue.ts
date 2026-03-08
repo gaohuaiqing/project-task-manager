@@ -73,7 +73,6 @@ const TYPE_PRIORITY_MAP: Record<string, MessagePriority> = {
   // 普通消息
   'global_data_updated': 'normal',
   'data_update_ack': 'normal',
-  'data_sync': 'normal',
   'sync_response': 'normal',
 
   // 低优先级

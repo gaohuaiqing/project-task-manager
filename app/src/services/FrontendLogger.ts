@@ -21,12 +21,19 @@ export interface LogEntry {
 }
 
 class FrontendLogger {
-  private isEnabled: boolean = true;
+  // 🚨 紧急修复：默认禁用前端日志，避免后端服务崩溃
+  // 可通过 window.ENABLE_FRONTEND_LOGS = true 临时启用调试
+  private isEnabled: boolean = false;
+
   private sessionId: string | null = null;
   private buffer: LogEntry[] = [];
-  private maxBufferSize: number = 100;
-  private flushInterval: number = 5000; // 5秒
+  private maxBufferSize: number = 20; // 🔧 优化：从 100 降低到 20，减少日志量
+  private flushInterval: number = 60000; // 🔧 紧急修复：增加到 60 秒，减少发送频率
   private flushTimer: ReturnType<typeof setInterval> | null = null;
+  private enableConsoleIntercept: boolean = false; // 🔧 优化：禁用 console 拦截，避免日志爆炸
+
+  // 🚨 紧急模式标志
+  private emergencyMode: boolean = false;
 
   // 保存原始console方法
   private originalConsole = {
@@ -38,6 +45,19 @@ class FrontendLogger {
   };
 
   constructor() {
+    // 检查是否有全局标志启用日志（用于调试）
+    if (typeof window !== 'undefined' && (window as any).ENABLE_FRONTEND_LOGS === true) {
+      this.isEnabled = true;
+      console.warn('[FrontendLogger] ⚠️ 前端日志已手动启用（调试模式）');
+    }
+
+    // 检查是否处于紧急模式（后端不可用）
+    if (typeof window !== 'undefined' && (window as any).BACKEND_UNAVAILABLE === true) {
+      this.emergencyMode = true;
+      this.isEnabled = false;
+      console.warn('[FrontendLogger] 🚨 紧急模式：后端不可用，日志已禁用');
+    }
+
     // 优化：使用 requestIdleCallback 或微任务初始化
     if (typeof window !== 'undefined') {
       const initLogger = () => {
@@ -66,13 +86,16 @@ class FrontendLogger {
     // 生成会话ID
     this.sessionId = this.generateSessionId();
 
-    // 拦截console输出 - 捕获所有控制台日志
-    this.interceptConsole();
+    // 🔧 优化：默认禁用 console 拦截，避免日志爆炸
+    // 如需启用，将 enableConsoleIntercept 设置为 true
+    if (this.enableConsoleIntercept) {
+      this.interceptConsole();
+    }
 
-    // 捕获全局错误
+    // 捕获全局错误（保留，这些是重要错误）
     this.setupGlobalErrorHandlers();
 
-    // 捕获性能指标
+    // 捕获性能指标（保留，性能监控有价值）
     this.setupPerformanceMonitoring();
 
     // 定期刷新缓冲区
@@ -87,7 +110,9 @@ class FrontendLogger {
     this.addToBuffer({
       level: 'INFO',
       type: 'FRONTEND',
-      message: '前端日志服务已启动，console拦截已启用'
+      message: this.enableConsoleIntercept
+        ? '前端日志服务已启动，console拦截已启用'
+        : '前端日志服务已启动，console拦截已禁用（优化模式）'
     });
   }
 
@@ -308,9 +333,28 @@ class FrontendLogger {
 
   /**
    * 添加日志到缓冲区
+   * 🔧 优化：添加级别过滤，只记录 ERROR 和 WARN
+   */
+  /**
+   * 添加日志到缓冲区
+   * 🚨 紧急优化：仅在紧急模式外记录日志
    */
   private addToBuffer(entry: LogEntry) {
-    if (!this.isEnabled) return;
+    if (!this.isEnabled || this.emergencyMode) return;
+
+    // 🔧 优化：只记录 ERROR 和 WARN 级别的日志
+    // INFO 和 DEBUG 级别太多，会导致日志爆炸
+    if (entry.level !== 'ERROR' && entry.level !== 'WARN') {
+      return;
+    }
+
+    // 🚨 紧急修复：如果检测到大量日志，自动进入紧急模式
+    if (this.buffer.length > 50) {
+      console.warn('[FrontendLogger] 🚨 检测到日志积压，启用紧急模式');
+      this.emergencyMode = true;
+      this.buffer = [];  // 清空缓冲区
+      return;
+    }
 
     // 添加时间戳和会话ID
     entry.timestamp = Date.now();
@@ -427,22 +471,48 @@ class FrontendLogger {
 
   /**
    * 刷新缓冲区到后端（异步）
+   * 🚨 紧急修复：增加后端健康检查和降级处理
    */
   private async flush(): Promise<void> {
-    if (this.buffer.length === 0) return;
+    // 🚨 紧急模式或已禁用，不发送
+    if (this.buffer.length === 0 || !this.isEnabled || this.emergencyMode) return;
 
     const logsToSend = [...this.buffer];
     this.buffer = [];
 
     try {
-      await fetch('http://localhost:3001/api/logs', {
+      const response = await fetch('http://localhost:3001/api/logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ logs: logsToSend }),
-        keepalive: true // 确保页面卸载时也能发送
+        keepalive: true,
+        signal: AbortSignal.timeout(5000) // 🚨 添加 5 秒超时
       });
+
+      // 🚨 检查响应状态
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      // 🚨 如果记录率过低，启用紧急模式
+      if (result.recorded / result.received < 0.5) {
+        console.warn('[FrontendLogger] 🚨 日志记录率过低，启用紧急模式');
+        this.emergencyMode = true;
+      }
+
+      console.log(`[FrontendLogger] ✅ 发送成功: ${result.recorded}/${result.received}`);
     } catch (error) {
       console.error('[FrontendLogger] 发送日志失败:', error);
+
+      // 🚨 发送失败，启用紧急模式
+      if (!this.emergencyMode) {
+        this.emergencyMode = true;
+        (window as any).BACKEND_UNAVAILABLE = true;
+        console.warn('[FrontendLogger] 🚨 后端不可用，已启用紧急模式');
+      }
+
       // 发送失败，重新加入缓冲区（但限制重试次数）
       if (this.buffer.length < this.maxBufferSize) {
         this.buffer.unshift(...logsToSend.slice(0, 10)); // 只重试前10条

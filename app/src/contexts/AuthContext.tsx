@@ -9,7 +9,6 @@ import {
 } from '@/utils/syncEvents';
 import { validateEmployeeId } from '@/utils/employeeValidation';
 import { validatePasswordStrength, validateStrongPassword } from '@/utils/passwordValidation';
-import { dataSyncService } from '@/services/DataSyncService';
 import { getDeviceId } from '@/utils/deviceId';
 import { useNotification } from '@/hooks/useNotification';
 import { frontendLogger } from '@/services/FrontendLogger';
@@ -333,10 +332,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (message.type === 'session_terminated') {
         warning('会话终止', message.data.message);
         logout();
-      } else if (message.type === 'data_sync') {
-        const { dataType, data } = message.data;
-        localStorage.setItem(dataType, JSON.stringify(data));
       }
+      // data_sync 消息类型已移除（原 DataSyncService）
     });
 
     return () => {
@@ -442,26 +439,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: userData.name,
         };
 
+        // ✅ 保存用户信息到 localStorage，确保刷新页面后可以恢复登录状态
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(loginUser));
         setUser(loginUser);
         setSession(session);
         // isAdmin 会自动基于 user.role 计算
-
-        // 优化：后台异步刷新数据，不阻塞登录流程
-        // 使用 queueMicrotask 确保在下一个微任务中执行，优先级高于 setTimeout
-        if (USE_BACKEND) {
-          queueMicrotask(() => {
-            dataSyncService.refreshFromServer().catch((error: Error) => {
-              console.warn('[AuthProvider] 后台数据刷新失败（不影响登录）:', error.message);
-            });
-          });
-        }
 
         syncLoginState(loginUser, session);
 
         // 记录登录日志到前端日志服务
         await frontendLogger.logAuth('用户登录成功', loginUser.id, loginUser.name);
 
-        dataSyncService.startSync();
         return true;
       } else {
         // 本地验证失败
@@ -811,39 +799,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('[AuthProvider] 会话已延长');
   };
 
-  // ✅ 关键修改完成：AuthContext.tsx 已更新
-  // 现在 isAdmin 是计算值，adminLogin 标记为废弃但保留向后兼容
-  // 统一登录流程已完成，用户不再需要手动选择模式
+  // ✅ 优化：使用 useMemo 缓存 user 对象，稳定引用
+  const memoizedUser = useMemo(() => user, [user?.id, user?.role, user?.name]);
+
+  // ✅ 优化：使用 useMemo 缓存 Context value，防止不必要的重渲染
+  const authContextValue = useMemo(() => ({
+    user: memoizedUser,
+    get isAdmin() {
+      // ✅ 计算值：基于 user.role === 'admin'
+      return memoizedUser?.role === 'admin';
+    },
+    isAuthenticated: !!memoizedUser,
+    login,
+    adminLogin, // 标记为废弃但保留向后兼容
+    logout,
+    updateUserRole,
+    updateUserProfile,
+    changePassword,
+    register,
+    getAllUsers,
+    adminUpdateUser,
+    adminResetPassword,
+    adminDeleteUser,
+    adminCreateUser,
+    validateEmployeeId: validateEmployeeIdFn,
+    isEmployeeIdExists: isEmployeeIdExistsFn,
+    isBackendConnected,
+    validateSession,
+    forceLogoutAllDevices,
+    getSessionInfo,
+    extendSession,
+  }), [
+    memoizedUser,
+    login,
+    adminLogin,
+    logout,
+    updateUserRole,
+    updateUserProfile,
+    changePassword,
+    register,
+    getAllUsers,
+    adminUpdateUser,
+    adminResetPassword,
+    adminDeleteUser,
+    adminCreateUser,
+    validateEmployeeIdFn,
+    isEmployeeIdExistsFn,
+    isBackendConnected,
+    validateSession,
+    forceLogoutAllDevices,
+    getSessionInfo,
+    extendSession
+  ]);
+
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        get isAdmin() {
-          // ✅ 计算值：基于 user.role === 'admin'
-          return user?.role === 'admin';
-        },
-        isAuthenticated: !!user,
-        login,
-        adminLogin, // 标记为废弃但保留向后兼容
-        logout,
-        updateUserRole,
-        updateUserProfile,
-        changePassword,
-        register,
-        getAllUsers,
-        adminUpdateUser,
-        adminResetPassword,
-        adminDeleteUser,
-        adminCreateUser,
-        validateEmployeeId: validateEmployeeIdFn,
-        isEmployeeIdExists: isEmployeeIdExistsFn,
-        isBackendConnected,
-        validateSession,
-        forceLogoutAllDevices,
-        getSessionInfo,
-        extendSession,
-      }}
-    >
+    <AuthContext.Provider value={authContextValue}>
       {children}
     </AuthContext.Provider>
   );

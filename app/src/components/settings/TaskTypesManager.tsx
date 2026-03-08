@@ -109,7 +109,7 @@ export function TaskTypesManager({
   return (
     <Card className="bg-card border-border h-full">
       <CardHeader>
-        <CardTitle className="text-lg font-semibold text-white flex items-center gap-2">
+        <CardTitle className="text-lg font-semibold text-foreground flex items-center gap-2">
           <ListTodo className="w-5 h-5 text-orange-400" />
           任务类型设置
         </CardTitle>
@@ -119,7 +119,7 @@ export function TaskTypesManager({
         {/* 添加新类型 */}
         <div className="flex items-end gap-4">
           <div className="flex-1 space-y-2">
-            <Label className="text-white">类型名称</Label>
+            <Label className="text-foreground">类型名称</Label>
             <Input
               placeholder="输入任务类型名称..."
               value={newTypeName}
@@ -130,7 +130,7 @@ export function TaskTypesManager({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-white flex items-center gap-1">
+            <Label className="text-foreground flex items-center gap-1">
               <Palette className="w-4 h-4" />
               颜色
             </Label>
@@ -164,7 +164,7 @@ export function TaskTypesManager({
 
         {/* 类型列表 */}
         <div className="space-y-2">
-          <Label className="text-white">现有任务类型</Label>
+          <Label className="text-foreground">现有任务类型</Label>
           <div className="flex flex-wrap gap-2">
             {taskTypes.map((type) => (
               <Badge

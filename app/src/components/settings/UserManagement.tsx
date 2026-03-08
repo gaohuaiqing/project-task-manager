@@ -357,7 +357,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
     <>
       <Card className="bg-card border-border">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg font-semibold text-white flex items-center gap-2">
+          <CardTitle className="text-lg font-semibold text-foreground flex items-center gap-2">
             <Users className="w-5 h-5 text-blue-400" />
             用户管理
           </CardTitle>
@@ -395,7 +395,6 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
             </Select>
             <Button
               size="sm"
-              className="bg-blue-500 hover:bg-blue-600 text-white"
               onClick={openAddDialog}
             >
               <UserPlus className="w-4 h-4 mr-1" />
@@ -481,7 +480,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent className="bg-card border-border max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <UserPlus className="w-5 h-5" />
               增加成员
             </DialogTitle>
@@ -504,7 +503,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
             {!createdUserInfo ? (
               <>
                 <div className="space-y-2">
-                  <Label className="text-white flex items-center gap-1">
+                  <Label className="text-foreground flex items-center gap-1">
                     姓名
                     <span className="text-red-400">*</span>
                   </Label>
@@ -517,7 +516,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-white flex items-center gap-1">
+                  <Label className="text-foreground flex items-center gap-1">
                     <IdCard className="w-4 h-4" />
                     工号
                     <span className="text-red-400">*</span>
@@ -541,7 +540,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-white">角色</Label>
+                  <Label className="text-foreground">角色</Label>
                   <Select value={addRole} onValueChange={(value: UserRole) => setAddRole(value)}>
                     <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
                       <SelectValue placeholder="选择角色" />
@@ -579,7 +578,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
                     取消
                   </Button>
                   <Button
-                    className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
+                    className="flex-1"
                     onClick={handleAddUser}
                     disabled={isLoading || !addName.trim() || !addEmployeeId.trim() || !!employeeIdError}
                   >
@@ -637,7 +636,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
                 </p>
 
                 <Button
-                  className="w-full bg-blue-500 hover:bg-blue-600 text-white"
+                  className="w-full"
                   onClick={() => setIsAddDialogOpen(false)}
                 >
                   完成
@@ -652,7 +651,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="bg-card border-border max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <Edit3 className="w-5 h-5" />
               编辑用户
             </DialogTitle>
@@ -673,7 +672,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
             )}
 
             <div className="space-y-2">
-              <Label className="text-white flex items-center gap-1">
+              <Label className="text-foreground flex items-center gap-1">
                 <User className="w-4 h-4" />
                 姓名
               </Label>
@@ -685,7 +684,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white flex items-center gap-1">
+              <Label className="text-foreground flex items-center gap-1">
                 <IdCard className="w-4 h-4" />
                 工号
               </Label>
@@ -698,7 +697,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white flex items-center gap-1">
+              <Label className="text-foreground flex items-center gap-1">
                 <ShieldCheck className="w-4 h-4" />
                 角色
               </Label>
@@ -754,7 +753,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
       <Dialog open={isResetPasswordDialogOpen} onOpenChange={setIsResetPasswordDialogOpen}>
         <DialogContent className="bg-card border-border max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <Lock className="w-5 h-5" />
               重置密码
             </DialogTitle>
@@ -781,7 +780,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white">新密码</Label>
+              <Label className="text-foreground">新密码</Label>
               <Input
                 type="password"
                 placeholder="请输入新密码（至少6位）"
@@ -792,7 +791,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white">确认新密码</Label>
+              <Label className="text-foreground">确认新密码</Label>
               <Input
                 type="password"
                 placeholder="请再次输入新密码"
@@ -827,7 +826,7 @@ export function UserManagement({ users, onRefresh }: UserManagementProps) {
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent className="bg-card border-border max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
+            <DialogTitle className="text-foreground flex items-center gap-2">
               <Trash2 className="w-5 h-5 text-red-400" />
               删除用户
             </DialogTitle>

@@ -145,12 +145,12 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+        <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
           <Users className="w-5 h-5 text-blue-400" />
           {teamName} - 团队能力概览
         </h3>
         <div className="flex items-center gap-3">
-          <Badge variant="secondary" className="bg-slate-700 text-slate-300">
+          <Badge variant="secondary" className="bg-secondary text-secondary-foreground border-border">
             {members.length} 名成员
           </Badge>
           <Badge className={cn("text-sm", getLevelColor(overallLevel.color))}>
@@ -160,9 +160,9 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="bg-slate-800/30 border-slate-700">
+        <Card className="bg-card/50 backdrop-blur-sm border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-white flex items-center gap-2">
+            <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
               <Target className="w-4 h-4 text-purple-400" />
               团队能力雷达图
             </CardTitle>
@@ -176,9 +176,9 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-800/30 border-slate-700">
+        <Card className="bg-card/50 backdrop-blur-sm border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-white flex items-center gap-2">
+            <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-cyan-400" />
               能力维度详情
             </CardTitle>
@@ -195,14 +195,14 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
                   <div key={key} className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-white">{dimensionInfo.name}</span>
+                        <span className="text-sm font-medium text-foreground">{dimensionInfo.name}</span>
                         <Badge className={cn("text-xs", getLevelColor(levelInfo.color))}>
                           {levelInfo.label}
                         </Badge>
                       </div>
-                      <span className="text-sm font-semibold text-white">{value.toFixed(1)}/10</span>
+                      <span className="text-sm font-semibold text-foreground">{value.toFixed(1)}/10</span>
                     </div>
-                    <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                    <div className="h-2 bg-secondary rounded-full overflow-hidden">
                       <div 
                         className={cn(
                           "h-full bg-gradient-to-r rounded-full transition-all duration-500",
@@ -226,9 +226,9 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
       </div>
 
       {showIndividualMembers && members.length > 0 && (
-        <Card className="bg-slate-800/30 border-slate-700">
+        <Card className="bg-card/50 backdrop-blur-sm border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-white flex items-center gap-2">
+            <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
               <Award className="w-4 h-4 text-yellow-400" />
               成员能力一览
             </CardTitle>
@@ -237,14 +237,14 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-slate-700">
-                    <th className="text-left py-2 px-3 text-xs font-medium text-slate-400">成员</th>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">成员</th>
                     {capabilityKeys.map((key) => (
-                      <th key={key} className="text-center py-2 px-3 text-xs font-medium text-slate-400">
+                      <th key={key} className="text-center py-2 px-3 text-xs font-medium text-muted-foreground">
                         {CAPABILITY_DIMENSIONS[key].name}
                       </th>
                     ))}
-                    <th className="text-center py-2 px-3 text-xs font-medium text-slate-400">综合</th>
+                    <th className="text-center py-2 px-3 text-xs font-medium text-muted-foreground">综合</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -253,13 +253,13 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
                     const memberLevel = getLevelInfo(Math.round(memberOverall));
 
                     return (
-                      <tr key={member.id} className="border-b border-slate-700/50 hover:bg-slate-700/20">
+                      <tr key={member.id} className="border-b border-border/50 hover:bg-accent/50">
                         <td className="py-2 px-3">
                           <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-slate-600 flex items-center justify-center text-xs text-white">
+                            <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center text-xs text-foreground">
                               {member.name.slice(0, 1)}
                             </div>
-                            <span className="text-sm text-white">{member.name}</span>
+                            <span className="text-sm text-foreground">{member.name}</span>
                           </div>
                         </td>
                         {capabilityKeys.map((key) => {
@@ -270,7 +270,7 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
                               <div className="flex items-center justify-center gap-1">
                                 <div 
                                   className={cn(
-                                    "w-12 h-1.5 rounded-full overflow-hidden bg-slate-600"
+                                    "w-12 h-1.5 rounded-full overflow-hidden bg-muted"
                                   )}
                                 >
                                   <div 
@@ -285,7 +285,7 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
                                     style={{ width: `${(value / 10) * 100}%` }}
                                   />
                                 </div>
-                                <span className="text-xs text-slate-300">{value}</span>
+                                <span className="text-xs text-foreground/80">{value}</span>
                               </div>
                             </td>
                           );
@@ -307,7 +307,7 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
 
       <Card className="bg-slate-800/30 border-slate-700">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold text-white flex items-center gap-2">
+          <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-green-400" />
             能力分布统计
           </CardTitle>
@@ -319,8 +319,8 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
               const dist = capabilityDistribution[key];
 
               return (
-                <div key={key} className="p-3 rounded-lg bg-slate-700/30 border border-slate-600">
-                  <h4 className="text-sm font-medium text-white mb-2">{dimensionInfo.name}</h4>
+                <div key={key} className="p-3 rounded-lg bg-secondary/30 border border-border">
+                  <h4 className="text-sm font-medium text-foreground mb-2">{dimensionInfo.name}</h4>
                   <div className="space-y-1">
                     {Object.entries(CAPABILITY_LEVELS).reverse().map(([levelKey, level]) => {
                       const count = dist[level.label] || 0;
@@ -328,9 +328,9 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
 
                       return (
                         <div key={levelKey} className="flex items-center justify-between">
-                          <span className="text-xs text-slate-400">{level.label}</span>
+                          <span className="text-xs text-muted-foreground">{level.label}</span>
                           <div className="flex items-center gap-1">
-                            <div className="w-16 h-1.5 bg-slate-600 rounded-full overflow-hidden">
+                            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
                               <div 
                                 className={cn(
                                   "h-full rounded-full",
@@ -343,7 +343,7 @@ const TeamCapabilityView: React.FC<TeamCapabilityViewProps> = ({
                                 style={{ width: `${percentage}%` }}
                               />
                             </div>
-                            <span className="text-xs text-slate-300 w-4 text-right">{count}</span>
+                            <span className="text-xs text-foreground/80 w-4 text-right">{count}</span>
                           </div>
                         </div>
                       );

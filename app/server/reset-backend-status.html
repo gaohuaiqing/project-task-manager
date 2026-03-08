@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>重置后端状态</title>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <h1>重置后端状态</h1>
+    <p>正在清理 localStorage 中的离线状态...</p>
+    <script>
+        // 清除后端离线状态
+        localStorage.removeItem('backend_offline_status');
+        localStorage.removeItem('backend_status_cache');
+        localStorage.removeItem('ws_reconnect_attempts');
+        localStorage.removeItem('ws_last_disconnect_time');
+        
+        // 清除所有前端日志缓存
+        Object.keys(localStorage).forEach(key => {
+            if (key.startsWith('frontend_log_') || key.startsWith('log_')) {
+                localStorage.removeItem(key);
+            }
+        });
+        
+        console.log('✅ 已清除所有后端状态缓存');
+        
+        // 测试后端连接
+        fetch('http://localhost:3001/health')
+            .then(response => response.json())
+            .then(data => {
+                console.log('✅ 后端服务正常:', data);
+                document.body.innerHTML += '<p style="color: green;">✅ 后端服务连接正常！</p>';
+                document.body.innerHTML += '<p>状态: ' + JSON.stringify(data) + '</p>';
+                document.body.innerHTML += '<p><a href="http://localhost:5173" target="_blank">打开应用</a></p>';
+            })
+            .catch(error => {
+                console.error('❌ 后端连接失败:', error);
+                document.body.innerHTML += '<p style="color: red;">❌ 后端连接失败</p>';
+                document.body.innerHTML += '<p>错误: ' + error.message + '</p>';
+            });
+    </script>
+</body>
+</html>

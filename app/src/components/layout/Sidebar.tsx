@@ -158,13 +158,13 @@ export function Sidebar({
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group",
                 isActive
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-nav-active text-nav-active-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               )}
             >
               <Icon className={cn(
                 "w-5 h-5 flex-shrink-0",
-                isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-accent-foreground"
+                isActive ? "text-nav-active-foreground" : "text-muted-foreground group-hover:text-accent-foreground"
               )} />
               {!collapsed && (
                 <span className="text-sm font-medium">{item.label}</span>
@@ -183,13 +183,13 @@ export function Sidebar({
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group",
               isInSettings
-                ? "bg-primary text-primary-foreground"
+                ? "bg-nav-active text-nav-active-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             )}
           >
             <Settings className={cn(
               "w-5 h-5 flex-shrink-0",
-              isInSettings ? "text-primary-foreground" : "text-muted-foreground group-hover:text-accent-foreground"
+              isInSettings ? "text-nav-active-foreground" : "text-muted-foreground group-hover:text-accent-foreground"
             )} />
             {!collapsed && (
               <>
@@ -219,13 +219,13 @@ export function Sidebar({
                     className={cn(
                       "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-sm",
                       isSubActive
-                        ? "bg-secondary text-secondary-foreground"
+                        ? "bg-nav-active text-nav-active-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     )}
                   >
                     <SubIcon className={cn(
                       "w-4 h-4 flex-shrink-0",
-                      isSubActive ? "text-secondary-foreground" : "text-muted-foreground"
+                      isSubActive ? "text-nav-active-foreground" : "text-muted-foreground"
                     )} />
                     <span className="font-medium">{subItem.label}</span>
                     {isSubActive && (

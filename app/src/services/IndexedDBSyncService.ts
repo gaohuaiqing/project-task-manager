@@ -1,270 +1,269 @@
 /**
- * IndexedDB 跨浏览器数据同步服务
+ * IndexedDB 同步服务
  *
- * 使用 IndexedDB 实现跨浏览器数据共享
- * IndexedDB 在同一台电脑的所有浏览器中共享数据
+ * 职责：
+ * 1. 提供跨浏览器数据持久化
+ * 2. 支持 localStorage 数据备份到 IndexedDB
+ * 3. 用于离线场景和数据恢复
  */
 
-import { getDeviceId } from '@/utils/deviceId';
+import { frontendLogger } from './FrontendLogger';
 
-const DB_NAME = 'TaskManagerSyncDB';
+const DB_NAME = 'ProjectTaskManager';
 const DB_VERSION = 1;
 const STORE_NAME = 'sync_data';
 
-interface SyncDataRecord {
+// ================================================================
+// 类型定义
+// ================================================================
+
+interface SyncDataEntry<T = unknown> {
   key: string;
-  data: any;
+  data: T;
   timestamp: number;
-  deviceId: string;
 }
 
-class IndexedDBSyncService {
-  private db: IDBDatabase | null = null;
-  private deviceId: string;
-  private initialized: boolean = false;
-  private listeners: Map<string, Set<(data: any) => void>> = new Map();
+// ================================================================
+// IndexedDBSyncService 类
+// ================================================================
 
-  constructor() {
-    this.deviceId = getDeviceId();
-  }
+class IndexedDBSyncServiceClass {
+  private db: IDBDatabase | null = null;
+  private isInitialized: boolean = false;
+  private initPromise: Promise<void> | null = null;
 
   /**
    * 初始化 IndexedDB
    */
-  async init(): Promise<boolean> {
-    if (this.initialized) return true;
-
-    // 检查浏览器是否支持 IndexedDB
-    if (!window.indexedDB) {
-      console.warn('[IndexedDBSync] 浏览器不支持 IndexedDB');
-      return false;
+  async init(): Promise<void> {
+    if (this.isInitialized) {
+      return;
     }
 
-    return new Promise((resolve) => {
-      try {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
+    if (this.initPromise) {
+      return this.initPromise;
+    }
 
-        request.onerror = () => {
-          console.error('[IndexedDBSync] 打开数据库失败:', request.error);
-          // resolve(false) 而不是 reject，让调用者能够处理失败情况
-          resolve(false);
-        };
+    this.initPromise = this._init();
 
-        request.onblocked = () => {
-          console.warn('[IndexedDBSync] 数据库打开被阻塞，可能有其他实例正在使用');
-        };
-
-        request.onsuccess = () => {
-          this.db = request.result;
-          this.initialized = true;
-          console.log('[IndexedDBSync] 数据库初始化成功');
-
-          // 监听数据库错误事件
-          this.db.onerror = (event) => {
-            console.error('[IndexedDBSync] 数据库错误:', event);
-          };
-
-          this.startPolling();
-          resolve(true);
-        };
-
-        request.onupgradeneeded = (event) => {
-          try {
-            const db = (event.target as IDBOpenDBRequest).result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-              const store = db.createObjectStore(STORE_NAME, { keyPath: 'key' });
-              store.createIndex('timestamp', 'timestamp', { unique: false });
-            }
-          } catch (error) {
-            console.error('[IndexedDBSync] 升级数据库失败:', error);
-          }
-        };
-      } catch (error) {
-        console.error('[IndexedDBSync] 初始化异常:', error);
-        resolve(false);
-      }
-    });
+    try {
+      await this.initPromise;
+      this.isInitialized = true;
+      frontendLogger.logSystem('IndexedDB 同步服务初始化成功');
+    } catch (error) {
+      console.error('[IndexedDBSyncService] 初始化失败:', error);
+      throw error;
+    } finally {
+      this.initPromise = null;
+    }
   }
 
   /**
-   * 保存数据到 IndexedDB（跨浏览器共享）
+   * 内部初始化方法
    */
-  async saveData(key: string, data: any): Promise<boolean> {
-    if (!this.db) {
-      await this.init();
-    }
-
+  private async _init(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([STORE_NAME], 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
-
-      const record: SyncDataRecord = {
-        key,
-        data,
-        timestamp: Date.now(),
-        deviceId: this.deviceId
-      };
-
-      const request = store.put(record);
-
-      request.onsuccess = () => {
-        console.log('[IndexedDBSync] 数据已保存:', key);
-        resolve(true);
-      };
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onerror = () => {
-        console.error('[IndexedDBSync] 保存数据失败:', request.error);
-        reject(false);
+        reject(new Error(`无法打开 IndexedDB: ${request.error}`));
+      };
+
+      request.onsuccess = () => {
+        this.db = request.result;
+        resolve();
+      };
+
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+
+        // 创建对象存储
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          const store = db.createObjectStore(STORE_NAME, { keyPath: 'key' });
+          store.createIndex('timestamp', 'timestamp', { unique: false });
+        }
       };
     });
   }
 
   /**
-   * 从 IndexedDB 读取数据
+   * 保存数据到 IndexedDB
    */
-  async getData(key: string): Promise<any | null> {
+  async saveData<T>(key: string, data: T): Promise<void> {
     if (!this.db) {
       await this.init();
     }
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([STORE_NAME], 'readonly');
+      if (!this.db) {
+        reject(new Error('IndexedDB 未初始化'));
+        return;
+      }
+
+      const transaction = this.db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+
+      const entry: SyncDataEntry<T> = {
+        key,
+        data,
+        timestamp: Date.now()
+      };
+
+      const request = store.put(entry);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 从 IndexedDB 获取数据
+   */
+  async getData<T>(key: string): Promise<T | null> {
+    if (!this.db) {
+      await this.init();
+    }
+
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('IndexedDB 未初始化'));
+        return;
+      }
+
+      const transaction = this.db.transaction([STORE_NAME], 'readonly');
       const store = transaction.objectStore(STORE_NAME);
       const request = store.get(key);
 
       request.onsuccess = () => {
-        const record = request.result as SyncDataRecord | undefined;
-        if (record && record.data) {
-          resolve(record.data);
-        } else {
-          resolve(null);
-        }
+        const result = request.result as SyncDataEntry<T> | undefined;
+        resolve(result?.data ?? null);
       };
 
-      request.onerror = () => {
-        console.error('[IndexedDBSync] 读取数据失败:', request.error);
-        reject(null);
-      };
+      request.onerror = () => reject(request.error);
     });
   }
 
   /**
-   * 监听数据变化（通过轮询实现）
+   * 删除数据
    */
-  onDataChange(key: string, callback: (data: any) => void): () => void {
-    if (!this.listeners.has(key)) {
-      this.listeners.set(key, new Set());
+  async deleteData(key: string): Promise<void> {
+    if (!this.db) {
+      await this.init();
     }
-    this.listeners.get(key)!.add(callback);
-    console.log('[IndexedDBSync] 添加监听器:', key);
 
-    // 返回取消监听的函数
-    return () => {
-      const listeners = this.listeners.get(key);
-      if (listeners) {
-        listeners.delete(callback);
-        if (listeners.size === 0) {
-          this.listeners.delete(key);
-        }
-      }
-    };
-  }
-
-  /**
-   * 启动轮询检查数据变化
-   */
-  private startPolling(): void {
-    const POLL_INTERVAL = 3000; // 增加到3秒，减少Chrome中的性能压力
-
-    // 使用 setTimeout 代替 setInterval 以避免累积
-    const poll = () => {
-      if (!this.db || this.listeners.size === 0) {
-        setTimeout(poll, POLL_INTERVAL);
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('IndexedDB 未初始化'));
         return;
       }
 
-      try {
-        const transaction = this.db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.openCursor();
+      const transaction = this.db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.delete(key);
 
-        request.onerror = () => {
-          console.warn('[IndexedDBSync] 轮询读取失败:', request.error);
-        };
-
-        request.onsuccess = (event) => {
-          const cursor = (event.target as IDBRequest).result;
-          if (cursor) {
-            const record = cursor.value as SyncDataRecord;
-
-            // 检查是否有监听器
-            const listeners = this.listeners.get(record.key);
-            if (listeners && listeners.size > 0) {
-              // 通知所有监听器
-              listeners.forEach(callback => {
-                try {
-                  callback(record.data);
-                } catch (error) {
-                  console.error('[IndexedDBSync] 监听器错误:', error);
-                }
-              });
-            }
-
-            cursor.continue();
-          }
-        };
-
-        transaction.onerror = () => {
-          console.warn('[IndexedDBSync] 事务失败');
-        };
-      } catch (error) {
-        console.error('[IndexedDBSync] 轮询异常:', error);
-      }
-
-      setTimeout(poll, POLL_INTERVAL);
-    };
-
-    setTimeout(poll, POLL_INTERVAL);
-    console.log('[IndexedDBSync] 启动轮询检查');
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
   }
 
   /**
-   * 清理过期数据（超过1小时的数据）
+   * 清空所有数据
    */
-  async cleanupOldData(): Promise<void> {
-    if (!this.db) return;
+  async clear(): Promise<void> {
+    if (!this.db) {
+      await this.init();
+    }
 
-    const ONE_HOUR = 60 * 60 * 1000;
-    const now = Date.now();
-    const cutoffTime = now - ONE_HOUR;
-
-    const transaction = this.db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const index = store.index('timestamp');
-    const request = index.openCursor(IDBKeyRange.upperBound(cutoffTime));
-
-    request.onsuccess = (event) => {
-      const cursor = (event.target as IDBRequest).result;
-      if (cursor) {
-        cursor.delete();
-        console.log('[IndexedDBSync] 清理过期数据:', cursor.value.key);
-        cursor.continue();
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('IndexedDB 未初始化'));
+        return;
       }
-    };
+
+      const transaction = this.db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.clear();
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 获取所有键
+   */
+  async getAllKeys(): Promise<string[]> {
+    if (!this.db) {
+      await this.init();
+    }
+
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('IndexedDB 未初始化'));
+        return;
+      }
+
+      const transaction = this.db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.getAllKeys();
+
+      request.onsuccess = () => {
+        resolve(request.result as string[]);
+      };
+
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 检查服务是否已初始化
+   */
+  isReady(): boolean {
+    return this.isInitialized && this.db !== null;
   }
 
   /**
    * 关闭数据库连接
    */
-  close(): void {
+  async close(): Promise<void> {
     if (this.db) {
       this.db.close();
       this.db = null;
-      this.initialized = false;
-      console.log('[IndexedDBSync] 数据库已关闭');
+      this.isInitialized = false;
     }
   }
 }
 
-export const indexedDBSyncService = new IndexedDBSyncService();
-export default indexedDBSyncService;
+// ================================================================
+// 导出单例
+// ================================================================
+
+export const indexedDBSyncService = new IndexedDBSyncServiceClass();
+
+// ================================================================
+// 便捷函数
+// ================================================================
+
+export async function initIndexedDBSync(): Promise<void> {
+  return indexedDBSyncService.init();
+}
+
+export async function saveToIndexedDB<T>(key: string, data: T): Promise<void> {
+  return indexedDBSyncService.saveData(key, data);
+}
+
+export async function getFromIndexedDB<T>(key: string): Promise<T | null> {
+  return indexedDBSyncService.getData<T>(key);
+}
+
+export async function deleteFromIndexedDB(key: string): Promise<void> {
+  return indexedDBSyncService.deleteData(key);
+}
+
+export async function clearIndexedDB(): Promise<void> {
+  return indexedDBSyncService.clear();
+}
+
+export function isIndexedDBReady(): boolean {
+  return indexedDBSyncService.isReady();
+}

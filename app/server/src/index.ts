@@ -7,7 +7,6 @@ import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
 import bcrypt from 'bcrypt';
 import { SessionManager } from './services/SessionManager.js';
-import { DataSyncService } from './services/DataSyncService.js';
 import { databaseService } from './services/DatabaseService.js';
 import { globalDataManager } from './services/GlobalDataManager.js';
 import { redisCacheService } from './services/RedisCacheService.js';
@@ -20,11 +19,11 @@ import { initSessionCleanup } from './services/initSessionCleanup.js';
 import { initSoftDelete } from './services/initSoftDelete.js';
 import { initJsonValidation } from './services/initJsonValidation.js';
 import { initLogPartitioning } from './services/initLogPartitioning.js';
+import { initLogAutoCleanup } from './services/initLogAutoCleanup.js';
 import dataRoutes, { setBroadcastFunction, setSessionManager } from './routes/dataRoutes.js';
 import permissionRoutes from './routes/permissionRoutes.js';
 // import organizationRoutes from './routes/organizationRoutes.js'; // 文件不存在，已注释
 import projectExtendedRoutes, { setSessionManager as setProjectSessionManager } from './routes/projectExtendedRoutes.js';
-import projectTypesRouter from './routes/projectTypes.js';
 import type { ClientMessage, ServerMessage, Session, User } from './types/index.js';
 
 // ================================================================
@@ -179,9 +178,6 @@ app.use('/api', dataRoutes);
 // 注册权限配置路由
 app.use('/api/permissions', permissionRoutes);
 
-// 注册项目类型路由
-app.use('/api/project-types', projectTypesRouter);
-
 // 注册组织架构路由
 // app.use('/api/organization', organizationRoutes); // 文件不存在，已注释
 
@@ -200,13 +196,6 @@ setSessionManager(sessionManager);
 
 // 注入 sessionManager 到 projectExtendedRoutes
 setProjectSessionManager(sessionManager);
-
-const dataSyncService = new DataSyncService();
-
-// 设置数据同步服务的广播回调
-dataSyncService.setBroadcastCallback((username, message) => {
-  broadcastToUser(username, message);
-});
 
 // ================================================================
 // WebSocket 连接管理（LRU 缓存 + 心跳机制）
@@ -693,71 +682,6 @@ app.get('/api/session/status/:sessionId', async (req, res) => {
   }
 });
 
-app.post('/api/sync', async (req, res) => {
-  const { sessionId, dataType, data } = req.body;
-  
-  try {
-    const session = await sessionManager.getSession(sessionId);
-    if (!session) {
-      return res.status(401).json({ success: false, message: '会话无效' });
-    }
-    
-    dataSyncService.updateData(session.username, dataType, data, sessionId);
-    
-    res.json({ success: true, timestamp: Date.now() });
-  } catch (error) {
-    console.error('[API] 同步数据失败:', error);
-    res.status(500).json({ success: false, message: '同步数据失败' });
-  }
-});
-
-app.post('/api/sync/force', async (req, res) => {
-  const { sessionId, dataType } = req.body;
-  
-  try {
-    const session = await sessionManager.getSession(sessionId);
-    if (!session) {
-      return res.status(401).json({ success: false, message: '会话无效' });
-    }
-    
-    if (dataType) {
-      const data = dataSyncService.getData(session.username, dataType);
-      if (data) {
-        dataSyncService.updateData(session.username, dataType, data, sessionId);
-      }
-    } else {
-      dataSyncService.forceSyncAllData(session.username);
-    }
-    
-    res.json({ success: true, timestamp: Date.now() });
-  } catch (error) {
-    console.error('[API] 强制同步数据失败:', error);
-    res.status(500).json({ success: false, message: '强制同步数据失败' });
-  }
-});
-
-app.get('/api/sync/status/:username', (req, res) => {
-  const { username } = req.params;
-  const stats = dataSyncService.getStats();
-  const cacheStatus = dataSyncService.getCacheStatus();
-  const userCacheStatus = cacheStatus.find(item => item.username === username);
-  
-  res.json({
-    success: true,
-    status: {
-      userCacheStatus,
-      globalStats: stats,
-      totalCacheUsers: cacheStatus.length
-    }
-  });
-});
-
-app.get('/api/data/:username/:dataType', (req, res) => {
-  const { username, dataType } = req.params;
-  const data = dataSyncService.getData(username, dataType);
-  res.json({ data });
-});
-
 // ================================================================
 // 全局数据管理 API
 // ================================================================
@@ -1123,12 +1047,25 @@ wss.on('connection', (ws, req) => {
   console.log(`[WebSocket] 新连接: ${clientId} from ${clientIp}, 当前连接数: ${clients.size}/${MAX_WS_CONNECTIONS}`);
 
   // 记录WebSocket连接日志
-  systemLogger.info(`WebSocket新连接`, { clientId, clientIp, connectionCount: clients.size });
+  void systemLogger.info(`WebSocket新连接`, { clientId, clientIp, connectionCount: clients.size });
 
-  // 启动心跳检测定时器并保存引用
+  // 🔧 优化：立即初始化客户端数据，避免 heartbeatInterval 设置前发生错误时无法清理
+  const clientData: WebSocketClientData = {
+    ws,
+    sessionId: '',
+    username: '',
+    ip: clientIp,
+    lastSeen: Date.now(),
+  };
+
+  // 🔧 立即添加到 clients Map，确保后续清理逻辑能正常工作
+  clients.set(clientId, clientData);
+
+  // 🔧 启动心跳检测定时器并保存引用到客户端数据中
   const heartbeatInterval = setInterval(() => {
     const client = clients.get(clientId);
     if (!client) {
+      // 客户端已被清理，停止定时器
       clearInterval(heartbeatInterval);
       return;
     }
@@ -1138,9 +1075,9 @@ wss.on('connection', (ws, req) => {
 
     // 检查是否超时
     if (inactiveTime > CONNECTION_TIMEOUT) {
-      console.warn(`[WebSocket] 连接超时: ${clientId}, 用户: ${client.username}, 不活跃时间: ${inactiveTime}ms`);
+      console.warn(`[WebSocket] 连接超时: ${clientId}, 用户: ${client.username || '(未认证)'}, 不活跃时间: ${inactiveTime}ms`);
       ws.terminate();
-      clearInterval(heartbeatInterval);
+      // 定时器会在 cleanup 函数中被清理
       return;
     }
 
@@ -1149,6 +1086,46 @@ wss.on('connection', (ws, req) => {
       ws.ping();
     }
   }, HEARTBEAT_INTERVAL);
+
+  // 🔧 将定时器引用保存到客户端数据中，确保清理时能正确清除
+  clientData.heartbeatInterval = heartbeatInterval;
+  clients.set(clientId, clientData);
+
+  // 🔧 统一的清理函数，避免重复代码
+  const cleanup = async () => {
+    const client = clients.get(clientId);
+    if (!client) {
+      // 客户端已被清理，直接返回
+      return;
+    }
+
+    console.log(`[WebSocket] 连接关闭: ${clientId}, 用户: ${client.username || '(未认证)'}, 剩余连接: ${clients.size - 1}`);
+
+    // 记录WebSocket断开日志（仅对已认证用户）
+    if (client.username) {
+      void systemLogger.info(
+        `WebSocket连接关闭`,
+        { clientId, username: client.username, connectionCount: clients.size - 1 },
+        client.userId,
+        client.username
+      );
+
+      try {
+        await sessionManager.updateSessionActivity(client.sessionId);
+      } catch (error) {
+        console.error('[WebSocket] 更新会话活动失败:', error);
+      }
+    }
+
+    // 🔧 清理心跳定时器（从客户端数据中获取引用）
+    if (client.heartbeatInterval) {
+      clearInterval(client.heartbeatInterval);
+      client.heartbeatInterval = undefined;
+    }
+
+    // 清理客户端数据
+    clients.delete(clientId);
+  };
 
   ws.on('message', async (message: string) => {
     try {
@@ -1168,58 +1145,11 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', async () => {
-    const client = clients.get(clientId);
-    if (client) {
-      console.log(`[WebSocket] 连接关闭: ${clientId}, 用户: ${client.username}, 剩余连接: ${clients.size - 1}`);
-
-      // 记录WebSocket断开日志
-      await systemLogger.info(
-        `WebSocket连接关闭`,
-        { clientId, username: client.username, connectionCount: clients.size - 1 },
-        client.userId,
-        client.username
-      );
-
-      try {
-        await sessionManager.updateSessionActivity(client.sessionId);
-      } catch (error) {
-        console.error('[WebSocket] 更新会话活动失败:', error);
-      }
-
-      // ✅ 清理心跳定时器（使用本地变量，因为连接可能未认证）
-      clearInterval(heartbeatInterval);
-
-      // ✅ 同时清理客户端数据中保存的定时器引用
-      if (client.heartbeatInterval) {
-        clearInterval(client.heartbeatInterval);
-      }
-
-      clients.delete(clientId);
-    } else {
-      // 如果客户端数据不存在，也要清理心跳定时器
-      clearInterval(heartbeatInterval);
-    }
-  });
-
-  ws.on('error', (error) => {
-    console.error(`[WebSocket] 连接错误: ${clientId}`, error);
-
-    // 🔧 修复内存泄漏：错误发生时也要清理定时器
-    clearInterval(heartbeatInterval);
-
-    const client = clients.get(clientId);
-    if (client?.heartbeatInterval) {
-      clearInterval(client.heartbeatInterval);
-    }
-
-    // 清理客户端数据
-    clients.delete(clientId);
-
-    // 确保连接被关闭
-    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-      ws.terminate();
-    }
+  ws.on('close', cleanup);
+  ws.on('error', () => {
+    console.error(`[WebSocket] 连接错误: ${clientId}`);
+    // 清理会在 close 事件中自动处理
+    void cleanup();
   });
 });
 
@@ -1304,17 +1234,21 @@ async function handleAuth(clientId: string, ws: WebSocket, data: { sessionId?: s
     const userId = session.userId;
     const role = session.role;
 
-    // ✅ 保存心跳定时器引用到客户端数据中
-    clients.set(clientId, {
-      ws,
-      sessionId: session.sessionId,
-      username,
-      ip,
-      userId,
-      role,
-      lastSeen: Date.now(),
-      heartbeatInterval // ✅ 保存定时器引用，确保清理时能正确清除
-    });
+    // 🔧 更新现有客户端数据（保留 heartbeatInterval 引用）
+    const existingClient = clients.get(clientId);
+    if (existingClient) {
+      // 更新认证信息，保留 heartbeatInterval 引用
+      existingClient.sessionId = session.sessionId;
+      existingClient.username = username;
+      existingClient.userId = userId;
+      existingClient.role = role;
+      existingClient.lastSeen = Date.now();
+      // heartbeatInterval 保持不变
+      clients.set(clientId, existingClient);
+    } else {
+      // 理论上不应该到这里，因为连接时已经创建了客户端数据
+      console.error(`[WebSocket] 客户端数据意外丢失: ${clientId}`);
+    }
 
     sendToClient(ws, {
       type: 'auth_success',
@@ -1453,19 +1387,10 @@ async function handleDataUpdate(clientId: string, ws: WebSocket, requestData: an
         sendError(ws, result.message);
       }
     } else {
-      // === 用户私有数据：使用原有的DataSyncService ===
-      dataSyncService.updateData(client.username, dataType, newData);
-
-      // 广播给该用户的其他连接
-      broadcastToUser(client.username, {
-        type: 'data_sync',
-        data: {
-          dataType,
-          data: newData,
-          timestamp: Date.now(),
-          sourceSessionId: client.sessionId
-        }
-      }, client.sessionId);
+      // 用户私有数据更新功能已移除（原 DataSyncService）
+      // 用户私有数据现在通过数据库直接操作
+      console.warn('[WebSocket] 用户私有数据同步功能已移除，请使用全局数据管理器');
+      sendError(ws, '用户私有数据同步功能已移除');
     }
   } catch (error) {
     console.error('[WebSocket] 数据更新失败:', error);
@@ -1492,15 +1417,9 @@ function handleRequestSync(clientId: string, ws: WebSocket, data: { dataType: st
     return;
   }
 
-  const syncData = dataSyncService.getData(client.username, data.dataType);
-  sendToClient(ws, {
-    type: 'sync_response',
-    data: {
-      dataType: data.dataType,
-      data: syncData,
-      timestamp: Date.now()
-    }
-  });
+  // 数据同步功能已移除（原 DataSyncService）
+  console.warn('[WebSocket] 数据同步功能已移除');
+  sendError(ws, '数据同步功能已移除，请使用全局数据管理器');
 }
 
 // 处理全局数据更新（组织架构等）
@@ -1576,15 +1495,10 @@ async function handleDataOperation(
         );
       }
     } else {
-      // 用户私有数据操作
-      if (operationType === 'create' || operationType === 'update') {
-        dataSyncService.updateData(client.username, dataType, data);
-        result = { success: true, data };
-      } else if (operationType === 'delete') {
-        // 删除操作需要特殊处理
-        dataSyncService.updateData(client.username, dataType, []);
-        result = { success: true, data: null };
-      }
+      // 用户私有数据操作功能已移除（原 DataSyncService）
+      console.warn('[WebSocket] 用户私有数据操作功能已移除');
+      sendError(ws, '用户私有数据操作功能已移除，请使用全局数据管理器');
+      return;
     }
 
     // 发送响应（包含操作ID）
@@ -2132,9 +2046,27 @@ async function startServer() {
       console.warn('[服务器] 服务器将继续运行，但日志性能可能受影响');
     }
 
+    // 🚨 紧急修复：初始化日志自动清理机制
+    try {
+      await initLogAutoCleanup();
+    } catch (error: any) {
+      console.error('[服务器] 🚨 日志自动清理初始化失败:', error.message);
+      console.error('[服务器] ⚠️ audit_logs 和 data_versions 表可能无限增长！');
+      console.error('[服务器] 请手动检查并创建清理事件');
+    }
+
     // 执行数据库迁移（项目扩展表）
     const { runMigration002 } = await import('./migrations/run-migration.js');
     await runMigration002();
+
+    // 执行数据库迁移 005（修复 audit_logs 表架构）
+    try {
+      const { runMigration005 } = await import('./migrations/005-fix-audit-logs-schema.js');
+      await runMigration005();
+    } catch (error: any) {
+      console.error('[服务器] ⚠️ audit_logs 表架构迁移失败:', error.message);
+      // 非致命错误，继续启动
+    }
 
     // 初始化 Redis 缓存（必须，失败时终止启动）
     await redisCacheService.init();
@@ -2303,4 +2235,4 @@ process.on('unhandledRejection', (reason, promise) => {
 
 startServer();
 
-export { app, wss, sessionManager, dataSyncService };
+export { app, wss, sessionManager };

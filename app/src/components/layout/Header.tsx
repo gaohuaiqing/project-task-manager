@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, Search, User, Check, Trash2, LogOut, Shield, RefreshCw, Clock } from 'lucide-react';
+import { Bell, Search, User, Check, Trash2, LogOut, Shield, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -17,8 +17,8 @@ import type { Notification } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { ROLE_CONFIG } from '@/types/auth';
 import { ProfileDialog } from '@/components/profile/ProfileDialog';
-import { dataSyncService } from '@/services/DataSyncService';
 import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher';
+import { HmrTimeBadge } from '@/components/layout/HmrTimeBadge';
 
 interface HeaderProps {
   title: string;
@@ -29,21 +29,17 @@ interface HeaderProps {
   onLogout?: () => void;
 }
 
-export function Header({ 
-  title, 
-  notifications, 
-  onMarkAllRead, 
+export function Header({
+  title,
+  notifications,
+  onMarkAllRead,
   onClearNotifications,
   sidebarCollapsed,
   onLogout
 }: HeaderProps) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [hmrTime, setHmrTime] = useState<string | null>(null);
-  const [isHmr, setIsHmr] = useState(false);
-  const { user } = useAuth();
-
+  // 根据 sidebarCollapsed 计算左侧位置和内边距
+  const headerLeftClass = sidebarCollapsed ? 'left-16' : 'left-64';
+  // 工具函数：获取当前时间
   const getCurrentTime = () => new Date().toLocaleString('zh-CN', {
     year: 'numeric',
     month: '2-digit',
@@ -53,31 +49,61 @@ export function Header({
     second: '2-digit'
   });
 
+  // 获取构建时间（用于非开发模式或首次渲染）
+  const getBuildTime = () => {
+    try {
+      return (__BUILD_TIME__ as string) || getCurrentTime();
+    } catch {
+      return getCurrentTime();
+    }
+  };
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [hmrTime, setHmrTime] = useState<string>(getCurrentTime()); // 默认值
+  const [isHmr, setIsHmr] = useState(false);
+  const { user } = useAuth();
+
+  // 调试：在控制台输出当前状态
+  console.log('[Header] 渲染状态:', { hmrTime, isHmr, title });
+
   // 初始化构建时间和热更新检测
   useEffect(() => {
+    const isDev = import.meta.env.DEV;
     console.log('🔍 [Header] 热更新调试信息:');
-    console.log('  - import.meta.env.DEV:', import.meta.env.DEV);
+    console.log('  - import.meta.env.DEV:', isDev);
     console.log('  - import.meta.hot:', import.meta.hot);
-    console.log('  - __BUILD_TIME__:', (__BUILD_TIME__ as any));
+    console.log('  - __BUILD_TIME__:', (__BUILD_TIME__ as string));
 
-    if (import.meta.env.DEV) {
+    if (isDev) {
       console.log('✅ 开发模式检测成功，设置 HMR 状态');
       setIsHmr(true);
       const now = getCurrentTime();
       setHmrTime(now);
-      console.log('  - 设置 hmrTime:', now);
+      console.log('  - 设置初始 hmrTime:', now);
 
       if (import.meta.hot) {
-        console.log('✅ import.meta.hot 存在，监听热更新事件');
+        console.log('✅ import.meta.hot 存在，监听自定义 hmr-time 事件');
+
+        // 监听自定义 HMR 时间事件
+        const handleHmrTime = (data: { time: string; type: string }) => {
+          console.log('🔥 [Header] 收到 HMR 时间事件:', data);
+          setHmrTime(data.time);
+        };
+
+        import.meta.hot.on('hmr-time', handleHmrTime);
+
+        // 同时监听 Vite 的更新事件作为备用
         const handleUpdate = () => {
           const newTime = getCurrentTime();
-          console.log('🔥 [Header] 检测到热更新，更新时间:', newTime);
+          console.log('🔥 [Header] vite:afterUpdate 触发，更新时间:', newTime);
           setHmrTime(newTime);
         };
 
         import.meta.hot.on('vite:afterUpdate', handleUpdate);
 
         return () => {
+          import.meta.hot.off('hmr-time', handleHmrTime);
           import.meta.hot.off('vite:afterUpdate', handleUpdate);
         };
       } else {
@@ -85,22 +111,15 @@ export function Header({
       }
     } else {
       console.warn('⚠️ 非开发模式，HMR 功能未启用');
+      setIsHmr(false);
+      setHmrTime(getBuildTime());
     }
   }, []);
   
   const unreadCount = notifications.filter(n => !n.read).length;
-  
-  // 手动触发同步
-  const handleSync = async () => {
-    setIsSyncing(true);
-    try {
-      await dataSyncService.triggerSync();
-    } catch (error) {
-      console.error('Sync error:', error);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
+
+  // 调试标签
+  const label = isHmr ? '热更新' : '构建';
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -132,49 +151,19 @@ export function Header({
 
   return (
     <>
-      <header 
-        className="h-16 bg-card border-b border-border flex items-center justify-between px-6 z-10"
+      <header
+        className={`fixed top-0 ${headerLeftClass} right-0 h-16 bg-card border-b border-border flex items-center justify-between px-6 z-50 transition-all duration-300`}
       >
-        {/* 左侧：编译时间 */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock className="w-4 h-4 text-blue-400" />
-            <span className="font-mono text-xs">
-              {(() => {
-                console.log('🎨 [Header] 渲染状态:', { isHmr, hmrTime, buildTime: __BUILD_TIME__ });
-                return isHmr ? (
-                  <>
-                    热更新完成: <span className="text-blue-400 font-medium">{hmrTime || new Date().toLocaleString('zh-CN')}</span>
-                  </>
-                ) : (
-                  <>
-                    完整构建完成: <span className="text-blue-400 font-medium">{(__BUILD_TIME__ as any) || '未知'}</span>
-                  </>
-                );
-              })()}
-            </span>
-          </div>
+        {/* 左侧：热更新时间 */}
+        <div className="flex-shrink-0 mr-5">
+          <HmrTimeBadge time={hmrTime} isHmr={isHmr} />
         </div>
 
-        {/* 右侧：同步、通知、用户 */}
-        <div className="flex items-center gap-4">
+        {/* 中间：页面标题 - 已移除 */}
+        <div className="flex-1" />
 
-          {/* 同步按钮 */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="relative text-muted-foreground hover:text-foreground hover:bg-accent"
-            onClick={handleSync}
-            disabled={isSyncing}
-            title="同步数据"
-          >
-            <RefreshCw className={cn(
-              "w-5 h-5",
-              isSyncing && "animate-spin"
-            )} />
-            {/* 同步状态提示 */}
-            <div className="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          </Button>
+        {/* 右侧：通知、用户 */}
+        <div className="flex items-center gap-4">
 
           {/* 主题切换器 */}
           <ThemeSwitcher />

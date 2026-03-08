@@ -145,7 +145,7 @@ function MilestoneItem({
           {/* 日期和状态 */}
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <div className="flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5" />
+              <Calendar className="w-3.5 h-3.5 text-foreground" />
               <span>{formatDate(milestone.plannedDate)}</span>
             </div>
             {daysInfo.text && (
@@ -508,7 +508,7 @@ export function MilestonesTimeline({ milestones, className }: MilestonesTimeline
               {/* 内容 */}
               <div className="flex-1 min-w-0 pb-2">
                 <div className="flex items-center gap-2 mb-1">
-                  <h4 className="text-sm font-medium text-white">
+                  <h4 className="text-sm font-medium text-foreground">
                     {milestone.name}
                   </h4>
                   <Badge variant="outline" className={cn("text-xs", statusConfig.color)}>
@@ -516,7 +516,7 @@ export function MilestonesTimeline({ milestones, className }: MilestonesTimeline
                   </Badge>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Calendar className="w-3 h-3" />
+                  <Calendar className="w-3 h-3 text-foreground" />
                   <span>{formatDate(milestone.plannedDate)}</span>
                 </div>
                 {milestone.description && (

@@ -32,7 +32,7 @@ export interface ClientMessage {
 }
 
 export interface ServerMessage {
-  type: 'auth_success' | 'data_sync' | 'data_update_ack' | 'global_data_updated' | 'sync_response' | 'session_terminated' | 'heartbeat_ack' | 'ping' | 'error' | 'data_conflict' | 'data_operation_response' | 'wbs_node_changed';
+  type: 'auth_success' | 'data_update_ack' | 'global_data_updated' | 'sync_response' | 'session_terminated' | 'heartbeat_ack' | 'ping' | 'error' | 'data_conflict' | 'data_operation_response' | 'wbs_node_changed';
   data: any;
 }
 

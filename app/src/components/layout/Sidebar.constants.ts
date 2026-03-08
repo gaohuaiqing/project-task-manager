@@ -52,7 +52,6 @@ export const SETTINGS_SUB_ITEMS: NavItem[] = [
   { id: 'settings-profile', label: '个人信息', icon: UserCircle },
   { id: 'settings-holidays', label: '节假日设置', icon: CalendarDays },
   { id: 'settings-task-types', label: '任务类型设置', icon: ListTodo },
-  { id: 'settings-project-types', label: '项目类型设置', icon: Tags },
   { id: 'settings-permissions', label: '权限配置', icon: Shield },
   { id: 'settings-organization', label: '组织及人员设置', icon: Building2 },
   { id: 'settings-logs', label: '事件日志', icon: FileText },
@@ -70,7 +69,6 @@ export const SETTINGS_PERMISSIONS: Record<string, PermissionChecker> = {
   'settings-profile': () => true, // 对所有用户可见
   'settings-holidays': (user) => user?.role !== 'engineer', // 工程师不可见
   'settings-task-types': (user) => user?.role !== 'engineer', // 工程师不可见
-  'settings-project-types': (user) => user?.role !== 'engineer', // 工程师不可见
   'settings-permissions': (_user, isAdmin) => isAdmin, // 仅管理员可见
   'settings-organization': (user) => {
     // 组织及人员设置：工程师不可见

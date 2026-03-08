@@ -851,7 +851,7 @@ export function OrganizationDetailPanelWithDialogs(props: OrganizationDetailPane
       />
       {/* 添加子部门对话框 */}
       <Dialog open={addDialogOpen === 'department'} onOpenChange={handleDialogClose}>
-        <DialogContent className="bg-card border-border text-white max-w-lg">
+        <DialogContent className="bg-card border-border text-foreground max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Building2 className="w-5 h-5" />
@@ -949,7 +949,7 @@ export function OrganizationDetailPanelWithDialogs(props: OrganizationDetailPane
 
       {/* 添加技术组对话框 */}
       <Dialog open={addDialogOpen === 'tech_group'} onOpenChange={handleDialogClose}>
-        <DialogContent className="bg-card border-border text-white max-w-lg">
+        <DialogContent className="bg-card border-border text-foreground max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Users className="w-5 h-5" />
@@ -1047,7 +1047,7 @@ export function OrganizationDetailPanelWithDialogs(props: OrganizationDetailPane
 
       {/* 添加成员对话框 */}
       <Dialog open={addDialogOpen === 'member'} onOpenChange={handleDialogClose}>
-        <DialogContent className="bg-card border-border text-white max-w-lg">
+        <DialogContent className="bg-card border-border text-foreground max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <User className="w-5 h-5" />

@@ -37,28 +37,35 @@
     --card-foreground: 0 0% 13%;
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 13%;
-    --primary: 0 0% 13%;
+    /* Primary 颜色：银色略深 - 优雅高级质感 */
+    --primary: 0 0% 35%;
     --primary-foreground: 0 0% 100%;
     --secondary: 0 0% 97%;
     --secondary-foreground: 0 0% 13%;
     --muted: 0 0% 97%;
-    --muted-foreground: 0 0% 60%;
+    --muted-foreground: 0 0% 45%;
     --accent: 0 0% 97%;
     --accent-foreground: 0 0% 13%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 88%;
-    --input: 0 0% 88%;
-    --ring: 211 98% 52%;
+    --border: 0 0% 75%;
+    --input: 0 0% 75%;
+    --ring: 0 0% 35%;
     --radius: 0.75rem; /* 苹果风格圆角 - 12px */
     --sidebar-background: 0 0% 97%;
     --sidebar-foreground: 0 0% 13%;
-    --sidebar-primary: 0 0% 13%;
+    --sidebar-primary: 0 0% 35%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 0 0% 97%;
     --sidebar-accent-foreground: 0 0% 13%;
     --sidebar-border: 0 0% 88%;
-    --sidebar-ring: 211 98% 52%;
+    --sidebar-ring: 0 0% 35%;
+
+    /* Apple 风格激活状态 */
+    --sidebar-active: 0 0% 90%;
+    --sidebar-active-foreground: 0 0% 13%;
+    --nav-active: 0 0% 90%;
+    --nav-active-foreground: 0 0% 13%;
 
     /* 苹果风格动画时长 */
     --duration-instant: 100ms;
@@ -83,7 +90,8 @@
     --card-foreground: 0 0% 100%;
     --popover: 200 5% 11.5%;
     --popover-foreground: 0 0% 100%;
-    --primary: 210 10% 18%;
+    /* Primary 颜色：银色略深 - 深色主题 */
+    --primary: 0 0% 55%;
     --primary-foreground: 0 0% 100%;
     --secondary: 210 10% 23%;
     --secondary-foreground: 0 0% 100%;
@@ -95,42 +103,21 @@
     --destructive-foreground: 0 0% 100%;
     --border: 210 10% 23%;
     --input: 210 10% 23%;
-    --ring: 217 90% 60%;
+    --ring: 0 0% 55%;
     --sidebar-background: 200 5% 11.5%;
     --sidebar-foreground: 0 0% 100%;
-    --sidebar-primary: 210 10% 18%;
+    --sidebar-primary: 0 0% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 210 10% 23%;
     --sidebar-accent-foreground: 0 0% 100%;
     --sidebar-border: 210 10% 23%;
-    --sidebar-ring: 217 90% 60%;
-  }
+    --sidebar-ring: 0 0% 55%;
 
-  /* 日期输入框样式 */
-  input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1);
-    cursor: pointer;
-    opacity: 0.7;
-    transition: opacity var(--duration-fast) var(--ease-apple);
-  }
-
-  input[type="date"]::-webkit-calendar-picker-indicator:hover {
-    opacity: 1;
-  }
-
-  input[type="date"]::-moz-calendar-picker-indicator {
-    filter: invert(1);
-    cursor: pointer;
-    opacity: 0.7;
-    transition: opacity var(--duration-fast) var(--ease-apple);
-  }
-
-  input[type="date"]::-moz-calendar-picker-indicator:hover {
-    opacity: 1;
-  }
-
-  input[type="date"]::-ms-clear {
-    display: none;
+    /* Apple 风格激活状态 - 深色主题 */
+    --sidebar-active: 210 10% 25%;
+    --sidebar-active-foreground: 0 0% 100%;
+    --nav-active: 210 10% 25%;
+    --nav-active-foreground: 0 0% 100%;
   }
 }
 
@@ -144,63 +131,157 @@
     /* 平滑的字体渲染 */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* 优化文本渲染 */
+    text-rendering: optimizeLegibility;
+    /* 字体特性优化 */
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    font-variant-ligatures: common-ligatures;
   }
 
   body {
-    @apply bg-background text-foreground;
-    /* 苹果系统字体优先 */
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-                 "Inter", "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
-    font-feature-settings: "kern" 1;
-    /* 优化文本渲染 */
-    text-rendering: optimizeLegibility;
+    @apply bg-background text-foreground font-sans text-apple-body;
     /* 防止文本高亮时的背景色 */
     -webkit-tap-highlight-color: transparent;
+    /* 确保字体继承 */
+    font-synthesis: none;
   }
 
-  /* 标题样式 */
+  /* 标题样式 - 使用 Apple 字体系统 */
   h1, h2, h3, h4, h5, h6 {
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    color: hsl(var(--foreground));
+    @apply font-semibold;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   h1 {
-    font-size: 32px;
-    line-height: 40px;
-    letter-spacing: -0.02em;
+    @apply text-apple-large-title;
   }
 
   h2 {
-    font-size: 28px;
-    line-height: 36px;
-    letter-spacing: -0.015em;
+    @apply text-apple-title1;
   }
 
   h3 {
-    font-size: 24px;
-    line-height: 32px;
-    letter-spacing: -0.01em;
+    @apply text-apple-title2;
   }
 
   h4 {
-    font-size: 20px;
-    line-height: 28px;
-    letter-spacing: -0.005em;
+    @apply text-apple-title3;
+  }
+
+  h5 {
+    @apply text-apple-headline;
+  }
+
+  h6 {
+    @apply text-apple-subheadline;
   }
 
   /* 按钮基础样式 */
   button {
-    font-family: inherit;
-    font-weight: 600;
+    @apply font-medium;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
 
   /* 输入框基础样式 */
   input, textarea, select {
-    font-family: inherit;
+    @apply font-sans text-apple-callout;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 日期输入框增强样式 */
+  input[type="date"] {
+    color-scheme: light;
+    position: relative;
+  }
+
+  /* 浅色主题下的日历图标 - 确保可见性 */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.4) brightness(0.8) contrast(1);
+    cursor: pointer;
+    opacity: 1;
+    transition: all var(--duration-fast) var(--ease-apple);
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator:hover {
+    filter: invert(0.3) brightness(0.7) contrast(1);
+  }
+
+  input[type="date"]::-moz-calendar-picker-indicator {
+    filter: invert(0.4) brightness(0.8) contrast(1);
+    cursor: pointer;
+    opacity: 1;
+    transition: all var(--duration-fast) var(--ease-apple);
+  }
+
+  input[type="date"]::-moz-calendar-picker-indicator:hover {
+    filter: invert(0.3) brightness(0.7) contrast(1);
+  }
+
+  /* 深色主题下的日期输入框 */
+  .dark input[type="date"] {
+    color-scheme: dark !important;
+    color: hsl(var(--foreground)) !important;
+  }
+
+  /* 确保日期输入框的值在深色主题下可见 */
+  .dark input[type="date"]::-webkit-datetime-edit {
+    color: hsl(var(--foreground)) !important;
+  }
+
+  .dark input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+    color: hsl(var(--foreground)) !important;
+  }
+
+  /* 增强日历图标的可见性 - 深色主题 - 使用更强的滤镜 */
+  .dark input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: brightness(0) invert(1) !important;
+    opacity: 1 !important;
+    cursor: pointer !important;
+    background-color: transparent !important;
+  }
+
+  .dark input[type="date"]::-webkit-calendar-picker-indicator:hover {
+    filter: brightness(0) invert(1) brightness(1.2) !important;
+    opacity: 1 !important;
+  }
+
+  /* Firefox 日期输入框图标 - 深色主题 - 使用更强的滤镜 */
+  .dark input[type="date"]::-moz-calendar-picker-indicator {
+    filter: brightness(0) invert(1) !important;
+    opacity: 1 !important;
+    cursor: pointer !important;
+    background-color: transparent !important;
+  }
+
+  .dark input[type="date"]::-moz-calendar-picker-indicator:hover {
+    filter: brightness(0) invert(1) brightness(1.2) !important;
+    opacity: 1 !important;
+  }
+
+  /* 全局文本优化 */
+  p, span, div, li, td, th {
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* 小文本优化 */
+  small, .text-xs, .text-sm {
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   /* 链接样式 */
@@ -700,6 +781,28 @@
 
 /* ==================== 响应式和无障碍 ==================== */
 
+/* 全局字体渲染优化 */
+*,
+*::before,
+*::after {
+  font-synthesis: none;
+}
+
+/* 确保所有文本元素使用优化渲染 */
+h1, h2, h3, h4, h5, h6, p, span, div, li, a, button, input, textarea, select {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* 高 DPI 屏幕优化 */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
 /* 减少动画偏好 */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -725,4 +828,70 @@
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
+}
+
+/* ==================== HMR 热更新特效 ==================== */
+
+/* 等宽数字支持 - 防止时间变化时文字跳动 */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  -webkit-font-feature-settings: "tnum";
+  -moz-font-feature-settings: "tnum";
+}
+
+/* 热更新闪光动画 */
+@keyframes hmr-flash {
+  0% {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+/* 热更新脉冲光晕 */
+@keyframes hmr-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px hsl(var(--system-green) / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 15px hsl(var(--system-green) / 0.6);
+  }
+}
+
+/* 热更新成功动画 */
+@keyframes hmr-success {
+  0% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.1);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+  75% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-hmr-flash {
+  animation: hmr-flash 0.8s ease-out;
+}
+
+.animate-hmr-glow {
+  animation: hmr-glow 2s ease-in-out infinite;
+}
+
+.animate-hmr-success {
+  animation: hmr-success 0.5s var(--ease-spring);
 }

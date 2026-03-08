@@ -243,24 +243,38 @@ export function ProjectList({
 
   return (
     <div className={cn("space-y-4", className)}>
-      {/* 工具栏 */}
+      {/* 顶部标题栏 - 设计文档第79-82行 */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold tracking-tight">项目管理</h1>
+        {canCreate && (
+          <Button
+            className="shadow-sm"
+            onClick={onCreateProject}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            新建项目
+          </Button>
+        )}
+      </div>
+
+      {/* 筛选工具栏 */}
       <div className="flex items-center gap-3">
         {/* 搜索框 */}
-        <div className="relative flex-1 max-w-md">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             type="text"
             placeholder="搜索项目名称、编码或描述..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 bg-card border-border text-white"
+            className="pl-10 bg-card border-border text-foreground"
           />
         </div>
 
         {/* 筛选按钮 */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="border-border text-muted-foreground hover:text-white">
+            <Button variant="outline" className="border-border text-muted-foreground hover:text-foreground">
               <Filter className="w-4 h-4 mr-2" />
               筛选
               {Object.values(statusFilter).filter(Boolean).length < 5 && (
@@ -278,7 +292,7 @@ export function ProjectList({
                 key={filter.status}
                 checked={statusFilter[filter.status]}
                 onCheckedChange={() => toggleStatusFilter(filter.status)}
-                className="text-white"
+                className="text-foreground"
               >
                 <span className={cn("w-2 h-2 rounded-full mr-2", filter.dotColor)} />
                 <span className={filter.colorClass}>{filter.label}</span>
@@ -312,7 +326,7 @@ export function ProjectList({
         {/* 排序按钮 */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="border-border text-muted-foreground hover:text-white">
+            <Button variant="outline" className="border-border text-muted-foreground hover:text-foreground">
               <ArrowUpDown className="w-4 h-4 mr-2" />
               排序
             </Button>
@@ -321,28 +335,28 @@ export function ProjectList({
             <DropdownMenuCheckboxItem
               checked={sortBy === 'name'}
               onCheckedChange={() => toggleSort('name')}
-              className="text-white"
+              className="text-foreground"
             >
               按名称排序
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={sortBy === 'progress'}
               onCheckedChange={() => toggleSort('progress')}
-              className="text-white"
+              className="text-foreground"
             >
               按进度排序
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={sortBy === 'plannedEndDate'}
               onCheckedChange={() => toggleSort('plannedEndDate')}
-              className="text-white"
+              className="text-foreground"
             >
               按截止日期排序
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={sortBy === 'createdAt'}
               onCheckedChange={() => toggleSort('createdAt')}
-              className="text-white"
+              className="text-foreground"
             >
               按创建时间排序
             </DropdownMenuCheckboxItem>
@@ -350,7 +364,7 @@ export function ProjectList({
             <DropdownMenuCheckboxItem
               checked={sortOrder === 'asc'}
               onCheckedChange={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-              className="text-white"
+              className="text-foreground"
             >
               {sortOrder === 'asc' ? '升序' : '降序'}
             </DropdownMenuCheckboxItem>
@@ -358,41 +372,28 @@ export function ProjectList({
         </DropdownMenu>
 
         {/* 视图切换 */}
-        <div className="flex items-center border border-border rounded-md">
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "h-8 px-2 rounded-none",
-              viewMode === 'grid' ? "bg-muted" : "hover:bg-muted/50"
-            )}
-            onClick={() => setViewMode('grid')}
-          >
-            <Grid3x3 className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "h-8 px-2 rounded-none",
-              viewMode === 'list' ? "bg-muted" : "hover:bg-muted/50"
-            )}
-            onClick={() => setViewMode('list')}
-          >
-            <List className="w-4 h-4" />
-          </Button>
-        </div>
-
-        {/* 新建项目按钮 */}
-        {canCreate && (
-          <Button
-            className="bg-primary hover:bg-secondary text-white ml-auto"
-            onClick={onCreateProject}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            新建项目
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "h-8 px-2",
+            viewMode === 'grid' ? "bg-muted" : "hover:bg-muted/50"
+          )}
+          onClick={() => setViewMode('grid')}
+        >
+          <Grid3x3 className="w-4 h-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "h-8 px-2",
+            viewMode === 'list' ? "bg-muted" : "hover:bg-muted/50"
+          )}
+          onClick={() => setViewMode('list')}
+        >
+          <List className="w-4 h-4" />
+        </Button>
       </div>
 
       {/* 统计信息 */}
@@ -474,7 +475,7 @@ export function ProjectList({
                 onClick={() => setCurrentPage(page)}
                 className={cn(
                   'w-8 h-8',
-                  page === currentPage ? 'bg-primary text-white' : 'bg-transparent'
+                  page === currentPage ? 'bg-primary text-primary-foreground' : 'bg-transparent'
                 )}
               >
                 {page}
@@ -578,7 +579,7 @@ function ProjectListView({
                 onClick={() => onProjectClick?.(project)}
               >
                 <td className="px-4 py-3 text-sm text-muted-foreground">{project.code}</td>
-                <td className="px-4 py-3 text-sm font-medium text-white">{project.name}</td>
+                <td className="px-4 py-3 text-sm font-medium text-foreground">{project.name}</td>
                 <td className="px-4 py-3">
                   <span className={cn("inline-flex items-center px-2 py-0.5 rounded text-xs border", status.color)}>
                     {status.label}
