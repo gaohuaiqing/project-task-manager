@@ -62,7 +62,7 @@ export function useTimelineDrag(options: UseTimelineDragOptions) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 记录点击时间，用于区分单击和双击
-  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastClickTaskRef = useRef<string | null>(null);
 
   /**

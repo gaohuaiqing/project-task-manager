@@ -18,6 +18,8 @@ import { AlertCircle, Calendar, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ResizableDialogContent } from './ResizableDialogContent';
 import { TimePlanUnifiedView } from './TimePlanUnifiedView';
+import { MultiTimelineView } from './MultiTimelineView';
+import type { Timeline } from '@/types/timeline';
 import {
   createFullMilestone,
   createFullWbsTask,
@@ -26,6 +28,16 @@ import {
 } from '@/utils/timePlanHelpers';
 import type { ProjectMilestone } from '@/types/project';
 import type { WbsTask } from '@/types/wbs';
+import {
+  mergeToTimelines,
+  timelinesToMilestones,
+  timelinesToWbsTasks,
+} from '@/utils/timelineAdapters';
+import {
+  detectDataFormat,
+  autoMigrateToNewFormat,
+  createDefaultTimelines,
+} from '@/utils/timelineMigration';
 
 export interface ProjectTimePlanDialogProps {
   /** 是否打开对话框 */
@@ -54,6 +66,8 @@ export interface ProjectTimePlanDialogProps {
   projectId?: string | number;
   /** 成员ID（用于创建新任务） */
   memberId?: string;
+  /** 是否使用新的多时间轴视图 */
+  useMultiTimelineView?: boolean;
 }
 
 /**
@@ -73,10 +87,12 @@ export function ProjectTimePlanDialog({
   readonly = false,
   projectId = 'new',
   memberId = '',
+  useMultiTimelineView = true,
 }: ProjectTimePlanDialogProps) {
   // ==================== 状态管理 ====================
   const [localMilestones, setLocalMilestones] = useState<ProjectMilestone[]>(initialMilestones);
   const [localTasks, setLocalTasks] = useState<WbsTask[]>(initialTasks);
+  const [timelines, setTimelines] = useState<Timeline[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [dialogSize, setDialogSize] = useState({ width: 900, height: 700 });
@@ -86,21 +102,53 @@ export function ProjectTimePlanDialog({
     setLocalMilestones(initialMilestones);
     setLocalTasks(initialTasks);
     setHasUnsavedChanges(false);
-  }, [initialMilestones, initialTasks, open]);
+
+    // 自动迁移到时间轴格式（如果使用新视图）
+    if (useMultiTimelineView) {
+      const migrated = mergeToTimelines(
+        initialMilestones,
+        initialTasks,
+        {
+          separateMilestones: false, // 混合显示
+          groupByMember: false,
+        }
+      );
+      setTimelines(migrated.length > 0 ? migrated : createDefaultTimelines());
+    }
+  }, [initialMilestones, initialTasks, open, useMultiTimelineView]);
 
   // ==================== 检测数据变更 ====================
   useEffect(() => {
-    const milestonesChanged = JSON.stringify(localMilestones) !== JSON.stringify(initialMilestones);
-    const tasksChanged = JSON.stringify(localTasks) !== JSON.stringify(initialTasks);
-    setHasUnsavedChanges(milestonesChanged || tasksChanged);
-  }, [localMilestones, localTasks, initialMilestones, initialTasks]);
+    if (useMultiTimelineView) {
+      // 比较时间轴数据
+      const currentData = JSON.stringify({
+        milestones: timelinesToMilestones(timelines),
+        tasks: timelinesToWbsTasks(timelines),
+      });
+      const initialData = JSON.stringify({
+        milestones: initialMilestones,
+        tasks: initialTasks,
+      });
+      setHasUnsavedChanges(currentData !== initialData);
+    } else {
+      // 比较旧格式数据
+      const milestonesChanged = JSON.stringify(localMilestones) !== JSON.stringify(initialMilestones);
+      const tasksChanged = JSON.stringify(localTasks) !== JSON.stringify(initialTasks);
+      setHasUnsavedChanges(milestonesChanged || tasksChanged);
+    }
+  }, [timelines, localMilestones, localTasks, initialMilestones, initialTasks, useMultiTimelineView]);
 
-  // ==================== 处理里程碑变更 ====================
+  // ==================== 处理时间轴变更（新视图） ====================
+  const handleTimelinesChange = useCallback((newTimelines: Timeline[]) => {
+    setTimelines(newTimelines);
+  }, []);
+
+  // ==================== 处理里程碑变更（旧视图） ====================
   const handleMilestonesChange = useCallback((milestones: ProjectMilestone[]) => {
     setLocalMilestones(milestones);
   }, []);
 
-  // ==================== 处理任务变更 ====================
+  // ==================== 处理任务变更（旧视图） ====================
   const handleTasksChange = useCallback((tasks: WbsTask[]) => {
     setLocalTasks(tasks);
   }, []);
@@ -203,18 +251,49 @@ export function ProjectTimePlanDialog({
       return;
     }
 
+    let milestonesToSave: ProjectMilestone[] = localMilestones;
+    let tasksToSave: WbsTask[] = localTasks;
+
+    // 如果使用新视图，转换回旧格式
+    if (useMultiTimelineView) {
+      const legacyData = {
+        milestones: timelinesToMilestones(timelines),
+        tasks: timelinesToWbsTasks(timelines),
+      };
+
+      // 为保存的数据生成ID
+      milestonesToSave = legacyData.milestones.map((m, index) => ({
+        ...m,
+        id: initialMilestones[index]?.id ?? Date.now() + index,
+        projectId: Number(projectId),
+        createdAt: initialMilestones[index]?.createdAt ?? new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })) as ProjectMilestone[];
+
+      tasksToSave = legacyData.tasks.map((t, index) => ({
+        ...t,
+        id: initialTasks[index]?.id ?? `task_${Date.now()}_${index}`,
+        wbsCode: initialTasks[index]?.wbsCode ?? String(index + 1),
+        createdAt: initialTasks[index]?.createdAt ?? new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        level: 0,
+        subtasks: [],
+        isExpanded: true,
+      })) as WbsTask[];
+    }
+
     // 更新父组件数据
-    onMilestonesChange(localMilestones);
-    onTasksChange(localTasks);
+    onMilestonesChange(milestonesToSave);
+    onTasksChange(tasksToSave);
 
     // 调用保存回调
     onSave({
-      milestones: localMilestones,
-      tasks: localTasks,
+      milestones: milestonesToSave,
+      tasks: tasksToSave,
     });
 
     setHasUnsavedChanges(false);
-  }, [localMilestones, localTasks, onMilestonesChange, onTasksChange, onSave, plannedStartDate, plannedEndDate]);
+  }, [timelines, localMilestones, localTasks, initialMilestones, initialTasks, onMilestonesChange, onTasksChange, onSave, plannedStartDate, plannedEndDate, projectId, useMultiTimelineView]);
 
   // ==================== 处理关闭 ====================
   const handleClose = useCallback(() => {
@@ -322,7 +401,19 @@ export function ProjectTimePlanDialog({
                   </p>
                 </div>
               </div>
+            ) : useMultiTimelineView ? (
+              /* 新的多时间轴视图 */
+              <MultiTimelineView
+                timelines={timelines}
+                onTimelinesChange={handleTimelinesChange}
+                onTaskDoubleClick={(task) => {
+                  // 可以打开任务编辑对话框
+                  console.log('编辑任务:', task);
+                }}
+                className="h-full"
+              />
             ) : (
+              /* 旧的统一视图 */
               <TimePlanUnifiedView
                 plannedStartDate={plannedStartDate}
                 plannedEndDate={plannedEndDate}

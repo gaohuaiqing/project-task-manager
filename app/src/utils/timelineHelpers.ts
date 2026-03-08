@@ -11,8 +11,8 @@ import type {
   TimelineTask,
   TimelineConfig,
   TimelineStats,
-  TimeRange,
 } from '@/types/timeline';
+import type { TimeRange } from '@/utils/ganttGeometry';
 import { parseISO, differenceInDays, addDays, format, min, max } from 'date-fns';
 
 // ==================== 统计计算 ====================

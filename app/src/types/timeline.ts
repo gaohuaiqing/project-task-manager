@@ -10,6 +10,8 @@
  * @module types/timeline
  */
 
+import type { TimeRange } from '@/utils/ganttGeometry';
+
 // ==================== 枚举类型 ====================
 
 /**
@@ -192,18 +194,6 @@ export interface DragState {
 }
 
 /**
- * 时间范围
- */
-export interface TimeRange {
-  /** 开始日期 */
-  startDate: string;
-  /** 结束日期 */
-  endDate: string;
-  /** 总天数 */
-  totalDays: number;
-}
-
-/**
  * 时间轴视图配置
  */
 export interface TimelineViewConfig {
@@ -220,6 +210,9 @@ export interface TimelineViewConfig {
   /** 容器高度 */
   containerHeight: number;
 }
+
+// ==================== 导出 TimeRange 以便其他模块使用 ====================
+export type { TimeRange };
 
 // ==================== 编辑器状态 ====================
 
