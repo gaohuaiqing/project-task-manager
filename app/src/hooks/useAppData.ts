@@ -11,9 +11,10 @@
  * - 按用户角色按需加载数据
  * - 工程师角色只加载自己的任务
  * - 管理员加载全量数据
+ * - 使用分页减少首次加载量
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { mySqlDataService } from '@/services/MySqlDataService';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -81,53 +82,39 @@ export function useAppData() {
         const config = user ? getDataLoadConfig(user.role) : getDataLoadConfig('unknown');
         console.log('[useAppData] 用户角色:', user?.role, '加载配置:', config);
 
-        // 根据配置加载数据
-        const dataPromises: Promise<any>[] = [];
-
-        if (config.loadProjects) {
-          dataPromises.push(mySqlDataService.getProjects());
-        } else {
-          dataPromises.push(Promise.resolve([]));
-        }
-
-        if (config.loadMembers) {
-          dataPromises.push(mySqlDataService.getMembers());
-        } else {
-          dataPromises.push(Promise.resolve([]));
-        }
-
-        if (config.loadTasks === 'all') {
-          dataPromises.push(mySqlDataService.getWbsTasks());
-        } else if (config.loadTasks === 'self' && user) {
-          // 工程师：先加载所有任务，然后在客户端过滤
-          // 注意：理想情况下应该由后端 API 支持 assigned_to 参数
-          dataPromises.push(mySqlDataService.getWbsTasks());
-        } else {
-          dataPromises.push(Promise.resolve([]));
-        }
-
-        const [projectsData, membersData, tasksData] = await Promise.all(dataPromises);
+        // 使用优化的初始数据接口一次性获取所有数据
+        const initialData = await mySqlDataService.getInitialData();
 
         if (isMounted) {
-          setMembers(membersData);
-          setProjects(projectsData);
+          let projectsData = initialData.projects || [];
+          let membersData = initialData.members || [];
+          let tasksData = initialData.tasks || [];
 
-          // 工程师角色：过滤出分配给自己的任务
-          let filteredTasks = tasksData;
+          // 根据角色过滤数据
+          if (!config.loadProjects) {
+            projectsData = [];
+          }
+          if (!config.loadMembers) {
+            membersData = [];
+          }
           if (config.loadTasks === 'self' && user) {
-            filteredTasks = tasksData.filter(task => {
+            tasksData = tasksData.filter(task => {
               const assignedTo = task.assignedTo || task.assigned_to;
               const assignees = task.assignees || [];
               return assignedTo === user.id ||
                      (Array.isArray(assignees) && assignees.includes(user.id));
             });
             console.log('[useAppData] 工程师任务过滤:', {
-              总任务数: tasksData.length,
-              我的任务数: filteredTasks.length
+              总任务数: initialData.tasks?.length || 0,
+              我的任务数: tasksData.length
             });
+          } else if (config.loadTasks !== 'all') {
+            tasksData = [];
           }
 
-          setTasks(filteredTasks);
+          setMembers(membersData);
+          setProjects(projectsData);
+          setTasks(tasksData);
           setLastUpdate(new Date());
 
           console.log('[useAppData] 数据加载完成:', {

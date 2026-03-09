@@ -256,7 +256,10 @@ export function formatDragTooltip(result: DragResult, originalStartDate?: string
 
   const formatDate = (date: string) => {
     const d = new Date(date);
-    return `${d.getMonth() + 1}/${d.getDate()}`;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
   // 如果有原始开始日期，计算天数偏移

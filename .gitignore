@@ -37,6 +37,7 @@ lerna-debug.log*
 # 测试报告与覆盖率
 # ========================================
 # 统一测试报告目录
+Test
 Test/reports/
 Test/frontend/coverage/
 Test/backend/coverage/

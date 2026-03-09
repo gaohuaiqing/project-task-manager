@@ -178,14 +178,27 @@ export function useProjectApi(): UseProjectApiReturn {
   // ==================== 项目列表操作 ====================
 
   const fetchProjects = useCallback(async () => {
+    const hookPerfMark = `fetchProjects_hook_${Date.now()}`;
+    performance.mark(`${hookPerfMark}_start`);
+
     setLoading(setProjectsState);
     try {
       const data = await mySqlDataService.getProjects();
+      performance.mark(`${hookPerfMark}_success`);
       setSuccess(setProjectsState, data);
+
+      performance.measure(hookPerfMark, `${hookPerfMark}_start`, `${hookPerfMark}_success`);
+      const duration = performance.getEntriesByName(hookPerfMark)[0]?.duration || 0;
+      console.log(`[Perf] useProjectApi.fetchProjects 完成: ${duration.toFixed(2)}ms`);
     } catch (error) {
+      performance.mark(`${hookPerfMark}_error`);
       const errorMessage = error instanceof Error ? error.message : '获取项目列表失败';
       setError(setProjectsState, errorMessage);
       console.error('[useProjectApi] 获取项目列表失败:', error);
+    } finally {
+      // 清理性能标记
+      performance.clearMarks(hookPerfMark);
+      performance.clearMeasures(hookPerfMark);
     }
   }, []);
 

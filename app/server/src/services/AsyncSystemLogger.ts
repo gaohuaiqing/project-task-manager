@@ -111,7 +111,7 @@ class AsyncLogQueue {
 
   /**
    * 刷新队列到数据库
-   * 🚨 紧急修复：使用日志专用连接池
+   * 🚨 紧急修复：使用日志专用连接池 + 增加数据库初始化检查
    */
   private async flush(): Promise<void> {
     // 如果已经在处理中，跳过
@@ -140,6 +140,14 @@ class AsyncLogQueue {
     }
 
     try {
+      // 🚨 关键修复：检查日志数据库是否已初始化
+      if (!logDatabaseService.checkConnected()) {
+        // 数据库未初始化，将日志重新放回队列
+        this.queue.unshift(...logsToProcess);
+        this.isProcessing = false;
+        return;
+      }
+
       // 🚨 关键修复：使用日志专用连接池
       const connection = await logDatabaseService.getConnection();
 

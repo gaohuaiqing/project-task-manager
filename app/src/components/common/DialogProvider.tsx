@@ -50,23 +50,23 @@ export function ConfirmDialog({
   const cancelText = safeOptions.cancelText || '取消';
 
   const variantStyles = {
-    default: 'bg-primary hover:bg-primary/90 text-white',
-    danger: 'bg-red-500 hover:bg-red-600 text-white',
-    warning: 'bg-amber-500 hover:bg-amber-600 text-white'
+    default: 'bg-primary hover:bg-primary/90 text-primary-foreground',
+    danger: 'bg-red-600 dark:bg-red-500 hover:bg-red-700 dark:hover:bg-red-600 text-white',
+    warning: 'bg-amber-600 dark:bg-amber-500 hover:bg-amber-700 dark:hover:bg-amber-600 text-white'
   };
 
   return (
     <AlertDialog open={isOpen} onOpenChange={(open) => !open && onCancel()}>
-      <AlertDialogContent className="bg-slate-800 border-slate-700">
+      <AlertDialogContent className="bg-card border-border">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-white">{title}</AlertDialogTitle>
-          <AlertDialogDescription className="text-slate-300">
+          <AlertDialogTitle className="text-foreground">{title}</AlertDialogTitle>
+          <AlertDialogDescription className="text-muted-foreground">
             {safeOptions.message}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel asChild>
-            <Button variant="outline" className="border-slate-600 text-white hover:bg-slate-700">
+            <Button variant="outline" className="border-border text-foreground hover:bg-accent">
               {cancelText}
             </Button>
           </AlertDialogCancel>
@@ -124,10 +124,10 @@ export function InputDialog({
 
   return (
     <AlertDialog open={isOpen} onOpenChange={(open) => !open && onCancel()}>
-      <AlertDialogContent className="bg-slate-800 border-slate-700">
+      <AlertDialogContent className="bg-card border-border">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-white">{title}</AlertDialogTitle>
-          <AlertDialogDescription className="text-slate-300">
+          <AlertDialogTitle className="text-foreground">{title}</AlertDialogTitle>
+          <AlertDialogDescription className="text-muted-foreground">
             {safeOptions.message}
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -137,7 +137,7 @@ export function InputDialog({
               value={value}
               onChange={(e) => onValueChange(e.target.value)}
               placeholder={safeOptions.placeholder}
-              className="bg-slate-700 border-slate-600 text-white min-h-[100px]"
+              className="bg-background border-border text-foreground min-h-[100px]"
               autoFocus
             />
           ) : (
@@ -145,17 +145,17 @@ export function InputDialog({
               value={value}
               onChange={(e) => onValueChange(e.target.value)}
               placeholder={safeOptions.placeholder}
-              className="bg-slate-700 border-slate-600 text-white"
+              className="bg-background border-border text-foreground"
               onKeyDown={handleKeyDown}
               autoFocus
             />
           )}
         </div>
         <AlertDialogFooter>
-          <Button variant="outline" onClick={onCancel} className="border-slate-600 text-white hover:bg-slate-700">
+          <Button variant="outline" onClick={onCancel} className="border-border text-foreground hover:bg-accent">
             {cancelText}
           </Button>
-          <Button onClick={onConfirm} className="bg-primary hover:bg-primary/90 text-white">
+          <Button onClick={onConfirm} className="bg-primary hover:bg-primary/90 text-primary-foreground">
             {confirmText}
           </Button>
         </AlertDialogFooter>
@@ -190,10 +190,10 @@ export function CustomAlertDialog({
   const buttonText = safeOptions.button_text || '确定';
 
   const variantConfig = {
-    info: { icon: Info, color: 'text-blue-400', bg: 'bg-blue-500/20' },
-    success: { icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-500/20' },
-    warning: { icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-500/20' },
-    error: { icon: AlertCircle, color: 'text-red-400', bg: 'bg-red-500/20' }
+    info: { icon: Info, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-600/20 dark:bg-blue-400/20' },
+    success: { icon: CheckCircle, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-600/20 dark:bg-green-400/20' },
+    warning: { icon: AlertTriangle, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-600/20 dark:bg-amber-400/20' },
+    error: { icon: AlertCircle, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-600/20 dark:bg-red-400/20' }
   };
 
   const config = variantConfig[safeOptions.variant || 'info'];
@@ -201,28 +201,28 @@ export function CustomAlertDialog({
 
   return (
     <AlertDialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <AlertDialogContent className="bg-slate-800 border-slate-700">
+      <AlertDialogContent className="bg-card border-border">
         <div className="flex items-start gap-4">
           <div className={`p-2 rounded-lg ${config.bg}`}>
             <Icon className={`w-5 h-5 ${config.color}`} />
           </div>
           <div className="flex-1">
             <AlertDialogHeader>
-              <AlertDialogTitle className="text-white">{title}</AlertDialogTitle>
-              <AlertDialogDescription className="text-slate-300">
+              <AlertDialogTitle className="text-foreground">{title}</AlertDialogTitle>
+              <AlertDialogDescription className="text-muted-foreground">
                 {safeOptions.message}
               </AlertDialogDescription>
             </AlertDialogHeader>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="flex justify-end mt-4">
-          <Button onClick={onClose} className="bg-primary hover:bg-primary/90 text-white">
+          <Button onClick={onClose} className="bg-primary hover:bg-primary/90 text-primary-foreground">
             {buttonText}
           </Button>
         </div>

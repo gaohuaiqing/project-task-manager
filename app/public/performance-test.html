@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>性能测试工具 - 项目任务管理系统</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: #333;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    h1 {
+      font-size: 28px;
+      margin-bottom: 10px;
+      color: #667eea;
+    }
+
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .test-section {
+      margin-bottom: 30px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border-left: 4px solid #667eea;
+    }
+
+    .test-section h2 {
+      font-size: 18px;
+      margin-bottom: 15px;
+      color: #333;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      background: #667eea;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    button:hover {
+      background: #5568d3;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    button.secondary {
+      background: #6c757d;
+    }
+
+    button.success {
+      background: #28a745;
+    }
+
+    .results {
+      background: white;
+      padding: 15px;
+      border-radius: 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin-top: 15px;
+    }
+
+    .metric-card {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .metric-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #667eea;
+    }
+
+    .metric-label {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+
+    .status.good {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status.warning {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .status.bad {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .tips {
+      background: #e7f3ff;
+      padding: 15px;
+      border-radius: 6px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .tips h3 {
+      font-size: 14px;
+      margin-bottom: 10px;
+      color: #0066cc;
+    }
+
+    .tips ul {
+      margin-left: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 性能测试工具</h1>
+    <p class="subtitle">项目任务管理系统 - 页面加载性能测试</p>
+
+    <!-- 基础性能测试 -->
+    <div class="test-section">
+      <h2>1. 页面加载性能</h2>
+      <div class="button-group">
+        <button onclick="testPageLoad()">测试页面加载</button>
+        <button class="secondary" onclick="clearResults()">清除结果</button>
+      </div>
+      <div class="results" id="pageLoadResults">点击"测试页面加载"开始测试...</div>
+    </div>
+
+    <!-- 关键指标 -->
+    <div class="test-section">
+      <h2>2. 关键性能指标</h2>
+      <div class="metrics" id="metrics">
+        <div class="metric-card">
+          <div class="metric-value" id="dns">-</div>
+          <div class="metric-label">DNS 查询</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="tcp">-</div>
+          <div class="metric-label">TCP 连接</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="ttfb">-</div>
+          <div class="metric-label">首字节时间</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="domLoad">-</div>
+          <div class="metric-label">DOM 加载</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="windowLoad">-</div>
+          <div class="metric-label">完全加载</div>
+        </div>
+      </div>
+      <div class="button-group" style="margin-top: 15px;">
+        <button class="success" onclick="getCurrentMetrics()">获取当前指标</button>
+      </div>
+    </div>
+
+    <!-- 资源分析 -->
+    <div class="test-section">
+      <h2>3. 资源加载分析</h2>
+      <div class="button-group">
+        <button onclick="analyzeResources()">分析资源</button>
+        <button class="secondary" onclick="findSlowResources()">查找慢资源</button>
+      </div>
+      <div class="results" id="resourceResults">点击按钮开始分析...</div>
+    </div>
+
+    <!-- localStorage 性能 -->
+    <div class="test-section">
+      <h2>4. localStorage 性能</h2>
+      <div class="button-group">
+        <button onclick="testLocalStoragePerformance()">测试 localStorage</button>
+      </div>
+      <div class="results" id="localStorageResults">点击按钮开始测试...</div>
+    </div>
+
+    <!-- 优化建议 -->
+    <div class="tips">
+      <h3>💡 优化建议</h3>
+      <ul>
+        <li><strong>总加载时间 > 3 秒：</strong>需要优化，检查是否有阻塞主线程的操作</li>
+        <li><strong>总加载时间 2-3 秒：</strong>可以接受，但仍有优化空间</li>
+        <li><strong>总加载时间 < 2 秒：</strong>性能良好</li>
+        <li><strong>单个资源 > 1 秒：</strong>考虑使用懒加载或代码分割</li>
+        <li><strong>localStorage 遍历 > 100ms：</strong>需要优化，考虑使用缓存或分批处理</li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    // 测试页面加载性能
+    function testPageLoad() {
+      const results = [];
+      results.push('=== 页面加载性能测试 ===\n');
+      results.push(`测试时间: ${new Date().toLocaleString()}\n\n`);
+
+      if (performance && performance.timing) {
+        const timing = performance.timing;
+        const navigationStart = timing.navigationStart;
+
+        const metrics = {
+          'DNS 查询': timing.domainLookupEnd - timing.domainLookupStart,
+          'TCP 连接': timing.connectEnd - timing.connectStart,
+          '请求响应': timing.responseStart - timing.requestStart,
+          'DOM 解析': timing.domComplete - timing.domLoading,
+          'DOM 内容加载': timing.domContentLoadedEventEnd - navigationStart,
+          '完全加载': timing.loadEventEnd - navigationStart,
+        };
+
+        results.push('各阶段耗时:\n');
+        for (const [name, value] of Object.entries(metrics)) {
+          const status = value < 200 ? '✅' : value < 500 ? '⚠️' : '❌';
+          results.push(`${status} ${name}: ${value.toFixed(2)}ms\n`);
+        }
+
+        results.push('\n总计:\n');
+        const totalTime = timing.loadEventEnd - navigationStart;
+        const totalStatus = totalTime < 2000 ? '✅ 优秀' : totalTime < 3000 ? '⚠️ 良好' : '❌ 需要优化';
+        results.push(`${totalStatus} 总加载时间: ${totalTime.toFixed(2)}ms\n`);
+
+        // 更新指标卡片
+        updateMetricCards(metrics);
+      } else {
+        results.push('⚠️ Performance Timing API 不可用\n');
+      }
+
+      document.getElementById('pageLoadResults').textContent = results.join('');
+    }
+
+    // 更新指标卡片
+    function updateMetricCards(metrics) {
+      const updateCard = (id, value) => {
+        const element = document.getElementById(id);
+        const status = value < 200 ? 'good' : value < 500 ? 'warning' : 'bad';
+        element.textContent = `${value.toFixed(0)}ms`;
+        element.className = `metric-value status ${status}`;
+      };
+
+      updateCard('dns', metrics['DNS 查询']);
+      updateCard('tcp', metrics['TCP 连接']);
+      updateCard('ttfb', metrics['请求响应']);
+      updateCard('domLoad', metrics['DOM 解析']);
+      updateCard('windowLoad', metrics['完全加载']);
+    }
+
+    // 获取当前性能指标
+    function getCurrentMetrics() {
+      if (performance && performance.timing) {
+        const timing = performance.timing;
+        const navigationStart = timing.navigationStart;
+
+        const metrics = {
+          'DNS 查询': timing.domainLookupEnd - timing.domainLookupStart,
+          'TCP 连接': timing.connectEnd - timing.connectStart,
+          '请求响应': timing.responseStart - timing.requestStart,
+          'DOM 解析': timing.domComplete - timing.domLoading,
+          'DOM 内容加载': timing.domContentLoadedEventEnd - navigationStart,
+          '完全加载': timing.loadEventEnd - navigationStart,
+        };
+
+        updateMetricCards(metrics);
+      } else {
+        alert('Performance Timing API 不可用');
+      }
+    }
+
+    // 分析资源
+    function analyzeResources() {
+      const results = [];
+      results.push('=== 资源加载分析 ===\n');
+
+      if (performance && performance.getEntriesByType) {
+        const resources = performance.getEntriesByType('resource');
+
+        results.push(`总资源数: ${resources.length}\n\n`);
+        results.push('资源类型统计:\n');
+
+        const byType = {};
+        resources.forEach(r => {
+          const type = r.initiatorType || 'other';
+          byType[type] = (byType[type] || 0) + 1;
+        });
+
+        for (const [type, count] of Object.entries(byType)) {
+          results.push(`  ${type}: ${count}\n`);
+        }
+
+        results.push('\n总大小: ' +
+          (resources.reduce((sum, r) => sum + (r.transferSize || 0), 0) / 1024).toFixed(2) + ' KB\n');
+      } else {
+        results.push('⚠️ Resource Timing API 不可用\n');
+      }
+
+      document.getElementById('resourceResults').textContent = results.join('');
+    }
+
+    // 查找慢资源
+    function findSlowResources() {
+      const results = [];
+      results.push('=== 最慢的 10 个资源 ===\n\n');
+
+      if (performance && performance.getEntriesByType) {
+        const resources = performance.getEntriesByType('resource')
+          .sort((a, b) => b.duration - a.duration)
+          .slice(0, 10);
+
+        resources.forEach((r, i) => {
+          const name = r.name.split('/').pop() || r.name;
+          const size = (r.transferSize / 1024).toFixed(2);
+          results.push(`${i + 1}. ${name}\n`);
+          results.push(`   耗时: ${r.duration.toFixed(2)}ms | 大小: ${size} KB\n\n`);
+        });
+      } else {
+        results.push('⚠️ Resource Timing API 不可用\n');
+      }
+
+      document.getElementById('resourceResults').textContent = results.join('');
+    }
+
+    // 测试 localStorage 性能
+    function testLocalStoragePerformance() {
+      const results = [];
+      results.push('=== localStorage 性能测试 ===\n\n');
+
+      // 测试读取性能
+      const readStart = performance.now();
+      let count = 0;
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key) {
+          localStorage.getItem(key);
+          count++;
+        }
+      }
+      const readTime = performance.now() - readStart;
+
+      results.push(`遍历 ${count} 个键耗时: ${readTime.toFixed(2)}ms\n`);
+      results.push(`平均每个键: ${(readTime / count).toFixed(3)}ms\n`);
+
+      const readStatus = readTime < 50 ? '✅ 优秀' : readTime < 100 ? '⚠️ 良好' : '❌ 需要优化';
+      results.push(`状态: ${readStatus}\n`);
+
+      // 测试写入性能
+      const writeTestKey = '__performance_test__';
+      const writeStart = performance.now();
+      localStorage.setItem(writeTestKey, JSON.stringify({ test: 'data', timestamp: Date.now() }));
+      const writeTime = performance.now() - writeStart;
+      localStorage.removeItem(writeTestKey);
+
+      results.push(`\n写入测试耗时: ${writeTime.toFixed(2)}ms\n`);
+
+      // 检查 localStorage 大小
+      let totalSize = 0;
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key) {
+          const value = localStorage.getItem(key);
+          totalSize += key.length + (value?.length || 0);
+        }
+      }
+      const sizeMB = (totalSize / 1024 / 1024).toFixed(2);
+      results.push(`总大小: ${sizeMB} MB / ~5 MB (${((totalSize / 5242880) * 100).toFixed(1)}%)\n`);
+
+      document.getElementById('localStorageResults').textContent = results.join('');
+    }
+
+    // 清除结果
+    function clearResults() {
+      document.getElementById('pageLoadResults').textContent = '点击"测试页面加载"开始测试...';
+      document.getElementById('resourceResults').textContent = '点击按钮开始分析...';
+      document.getElementById('localStorageResults').textContent = '点击按钮开始测试...';
+    }
+
+    // 页面加载后自动测试
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        getCurrentMetrics();
+        testPageLoad();
+      }, 1000);
+    });
+  </script>
+</body>
+</html>

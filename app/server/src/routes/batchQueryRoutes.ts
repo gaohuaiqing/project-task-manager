@@ -13,9 +13,23 @@ import express from 'express';
 import { optimizedProjectService } from '../services/OptimizedProjectService.js';
 import { optimizedMemberService } from '../services/OptimizedMemberService.js';
 import { optimizedWbsTaskService } from '../services/OptimizedWbsTaskService.js';
-import { validateSession } from './dataRoutes.js';
 
 const router = express.Router();
+
+// ================================================================
+// 会话验证中间件（本地实现）
+// ================================================================
+function validateSession(req: any, res: any, next: any) {
+  const sessionId = req.headers['x-session-id'] || req.body.sessionId;
+
+  if (!sessionId) {
+    return res.status(401).json({ success: false, message: '缺少会话ID' });
+  }
+
+  // 将 sessionId 附加到 request 对象，供后续使用
+  req.sessionId = sessionId;
+  next();
+}
 
 // ================================================================
 // 项目批量查询

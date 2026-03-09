@@ -56,6 +56,8 @@ export function MultiTimelineView({
     timelines.length > 0 ? timelines[0].config.id : null
   );
   const [scrollLeft, setScrollLeft] = useState(0);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState<TimelineTask | null>(null);
 
   // 计算统计信息
   const stats = useMemo(() => calculateTimelineStats(timelines), [timelines]);
@@ -93,6 +95,77 @@ export function MultiTimelineView({
     onTaskDoubleClick: handleTaskDoubleClickInternal,
     onTaskClick: handleTaskClick,
   });
+
+  /**
+   * 处理键盘事件
+   * Delete 键删除选中的任务
+   */
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 只处理 Delete 键
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // 如果有选中的任务
+        if (selectedTaskId) {
+          // 查找选中的任务
+          const task = findTaskById(timelines, selectedTaskId);
+          if (task) {
+            e.preventDefault();
+            setTaskToDelete(task);
+            setShowDeleteConfirm(true);
+          }
+        }
+      }
+      // Esc 键取消选中
+      if (e.key === 'Escape' && selectedTaskId) {
+        setSelectedTaskId(null);
+      }
+    };
+
+    // 添加事件监听
+    window.addEventListener('keydown', handleKeyDown);
+
+    // 清理函数
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedTaskId, timelines]);
+
+  /**
+   * 处理删除任务
+   */
+  const handleDeleteTask = useCallback((task: TimelineTask) => {
+    const updatedTimelines = timelines.map(timeline => {
+      if (timeline.tasks.some(t => t.id === task.id)) {
+        return {
+          ...timeline,
+          tasks: timeline.tasks.filter(t => t.id !== task.id),
+        };
+      }
+      return timeline;
+    });
+
+    onTimelinesChange(updatedTimelines);
+  }, [timelines, onTimelinesChange]);
+
+  /**
+   * 确认删除任务
+   */
+  const handleConfirmDelete = useCallback(() => {
+    if (taskToDelete) {
+      handleDeleteTask(taskToDelete);
+      setSelectedTaskId(null);
+      setShowDeleteConfirm(false);
+      setTaskToDelete(null);
+    }
+  }, [taskToDelete, handleDeleteTask]);
+
+  /**
+   * 取消删除任务
+   */
+  const handleCancelDelete = useCallback(() => {
+    setShowDeleteConfirm(false);
+    setTaskToDelete(null);
+  }, []);
 
   /**
    * 处理任务变更（拖拽后）
@@ -247,23 +320,6 @@ export function MultiTimelineView({
   }, [timelines, onTimelinesChange]);
 
   /**
-   * 处理删除任务
-   */
-  const handleDeleteTask = useCallback((task: TimelineTask) => {
-    const updatedTimelines = timelines.map(timeline => {
-      if (timeline.tasks.some(t => t.id === task.id)) {
-        return {
-          ...timeline,
-          tasks: timeline.tasks.filter(t => t.id !== task.id),
-        };
-      }
-      return timeline;
-    });
-
-    onTimelinesChange(updatedTimelines);
-  }, [timelines, onTimelinesChange]);
-
-  /**
    * 处理重命名时间轴
    */
   const handleRenameTimeline = useCallback((timeline: Timeline) => {
@@ -345,6 +401,46 @@ export function MultiTimelineView({
       {drag.isDragging && drag.tooltipText && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-lg shadow-lg z-50 pointer-events-none">
           {drag.tooltipText}
+        </div>
+      )}
+
+      {/* 删除确认对话框 */}
+      {showDeleteConfirm && taskToDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center">
+                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                  确认删除任务
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                  确定要删除任务 <span className="font-medium text-gray-900 dark:text-white">"{taskToDelete.title}"</span> 吗？
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-500">
+                  此操作无法撤销
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={handleCancelDelete}
+                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                删除
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

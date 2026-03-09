@@ -6,14 +6,14 @@
  * 简洁、优雅、注重细节
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   AppleButton,
   AppleCard,
   AppleInput,
 } from '@/components/apple-design';
-import { Shield, Eye, EyeOff, Lock } from 'lucide-react';
+import { Shield, Eye, EyeOff, Lock, Loader2 } from 'lucide-react';
 
 /**
  * 苹果风格登录页面
@@ -42,17 +42,52 @@ export function LoginPage() {
     setError('');
     setIsLoading(true);
 
+    const loginStartTime = performance.now();
+
     try {
       const success = await login(username, password);
+      const loginDuration = performance.now() - loginStartTime;
+
       if (!success) {
         setError('账号或密码错误');
+      } else {
+        // 登录成功，记录性能
+        console.log(`[LoginPage] 登录成功，耗时: ${loginDuration.toFixed(2)}ms`);
+
+        // 如果登录耗时超过3秒，给出警告
+        if (loginDuration > 3000) {
+          console.warn('[LoginPage] 登录耗时较长，建议检查网络连接或后端服务');
+        }
       }
     } catch (err) {
       setError('登录失败，请重试');
+      console.error('[LoginPage] 登录异常:', err);
     } finally {
       setIsLoading(false);
     }
   };
+
+  // 性能优化：监控页面加载性能
+  useEffect(() => {
+    const pageLoadTime = performance.now();
+    console.log(`[LoginPage] 页面加载完成，耗时: ${pageLoadTime.toFixed(2)}ms`);
+
+    // 监控首次内容绘制（FCP）
+    if ('PerformanceObserver' in window) {
+      try {
+        const observer = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            if (entry.entryType === 'paint') {
+              console.log(`[LoginPage] ${entry.name}: ${(entry.startTime - pageLoadTime).toFixed(2)}ms`);
+            }
+          }
+        });
+        observer.observe({ entryTypes: ['paint'] });
+      } catch (e) {
+        // PerformanceObserver 不支持，忽略
+      }
+    }
+  }, []);
 
   return (
     <div

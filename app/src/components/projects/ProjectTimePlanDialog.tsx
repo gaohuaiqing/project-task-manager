@@ -6,16 +6,8 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, Calendar, Save } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { ResizableDialogContent } from './ResizableDialogContent';
 import { TimePlanUnifiedView } from './TimePlanUnifiedView';
 import { MultiTimelineView } from './MultiTimelineView';
@@ -324,51 +316,38 @@ export function ProjectTimePlanDialog({
 
   return (
     <>
-      <Dialog
-        open={open}
-        onOpenChange={(newOpen) => {
-          // 只在主动设置为 false 时才处理（即通过按钮触发）
-          if (!newOpen && !hasUnsavedChanges) {
-            onOpenChange(false);
-          } else if (!newOpen && hasUnsavedChanges && !readonly) {
-            // 有未保存更改时，阻止关闭并显示确认对话框
-            setShowCloseConfirm(true);
-          }
-        }}
-        onInteractOutside={(event) => {
-          // 阻止点击外部的默认关闭行为
-          if (hasUnsavedChanges && !readonly) {
-            event.preventDefault();
-          }
-        }}
-        onEscapeKeyDown={(event) => {
-          // 阻止 ESC 键的默认关闭行为
-          if (hasUnsavedChanges && !readonly) {
-            event.preventDefault();
-          }
-        }}
-      >
-        <ResizableDialogContent
-          open={open}
-          storageKey="timePlanDialog"
-          defaultWidth={900}
-          defaultHeight={700}
-          minWidth={700}
-          minHeight={500}
-          maxWidth={1920}
-          maxHeight="95vh"
-          showSizeIndicator={true}
-          onResize={handleDialogResize}
-          draggable={true}
-        >
-          {/* 标题栏 */}
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
-            <div className="flex items-center justify-between">
+      {/* 自定义对话框实现 */}
+      {open && (
+        <>
+          {/* 遮罩层 */}
+          <div
+            className="fixed inset-0 bg-black/50 z-[100]"
+            onClick={handleClose}
+            style={{ pointerEvents: 'auto' }}
+          />
+
+          {/* 可调整大小的对话框 */}
+          <ResizableDialogContent
+            open={open}
+            storageKey="timePlanDialog"
+            defaultWidth={900}
+            defaultHeight={700}
+            minWidth={700}
+            minHeight={500}
+            maxWidth={1920}
+            maxHeight="95vh"
+            showSizeIndicator={true}
+            onResize={handleDialogResize}
+            draggable={true}
+            className="z-[101]"
+          >
+            {/* 标题栏 */}
+            <div className="px-6 pt-6 pb-4 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-primary" />
-                <DialogTitle className="text-lg font-semibold">
+                <h2 className="text-lg font-semibold text-foreground">
                   项目时间计划编辑器
-                </DialogTitle>
+                </h2>
                 {hasUnsavedChanges && (
                   <span className="px-2 py-0.5 text-xs bg-amber-500/20 text-amber-500 rounded-md">
                     未保存
@@ -385,71 +364,71 @@ export function ProjectTimePlanDialog({
                 )}
               </div>
             </div>
-          </DialogHeader>
 
-          {/* 统一视图内容 */}
-          <div className="flex-1 overflow-hidden">
-            {!isValidDates ? (
-              <div className="h-full flex items-center justify-center">
-                <div className="text-center">
-                  <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
-                  <p className="text-sm text-muted-foreground mb-2">
-                    请先在项目表单中设置有效的开始和结束日期
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {dateValidation.error}
-                  </p>
+            {/* 统一视图内容 */}
+            <div className="flex-1 overflow-hidden" style={{ minHeight: 0 }}>
+              {!isValidDates ? (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center">
+                    <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+                    <p className="text-sm text-muted-foreground mb-2">
+                      请先在项目表单中设置有效的开始和结束日期
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {dateValidation.error}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ) : useMultiTimelineView ? (
-              /* 新的多时间轴视图 */
-              <MultiTimelineView
-                timelines={timelines}
-                onTimelinesChange={handleTimelinesChange}
-                onTaskDoubleClick={(task) => {
-                  // 可以打开任务编辑对话框
-                  console.log('编辑任务:', task);
-                }}
-                className="h-full"
-              />
-            ) : (
-              /* 旧的统一视图 */
-              <TimePlanUnifiedView
-                plannedStartDate={plannedStartDate}
-                plannedEndDate={plannedEndDate}
-                milestones={localMilestones}
-                wbsTasks={localTasks}
-                onMilestonesChange={handleMilestonesChange}
-                onTasksChange={handleTasksChange}
-                onProjectDateRangeChange={onProjectDateRangeChange}
-                onAddMilestone={handleAddMilestone}
-                onAddTask={handleAddTask}
-                onAutoArrange={handleAutoArrange}
-                onReset={handleReset}
-                readonly={readonly}
-                projectId={projectId}
-                memberId={memberId}
-                className="h-full"
-              />
-            )}
-          </div>
-
-          {/* 底部按钮 */}
-          <DialogFooter className="px-6 py-4 border-t border-border">
-            <div className="flex justify-between w-full">
-              <Button variant="outline" onClick={handleClose}>
-                取消
-              </Button>
-              {!readonly && (
-                <Button onClick={handleSave} disabled={!hasUnsavedChanges}>
-                  <Save className="w-4 h-4 mr-2" />
-                  保存更改
-                </Button>
+              ) : useMultiTimelineView ? (
+                /* 新的多时间轴视图 */
+                <MultiTimelineView
+                  timelines={timelines}
+                  onTimelinesChange={handleTimelinesChange}
+                  onTaskDoubleClick={(task) => {
+                    // 可以打开任务编辑对话框
+                    console.log('编辑任务:', task);
+                  }}
+                  className="h-full"
+                />
+              ) : (
+                /* 旧的统一视图 */
+                <TimePlanUnifiedView
+                  plannedStartDate={plannedStartDate}
+                  plannedEndDate={plannedEndDate}
+                  milestones={localMilestones}
+                  wbsTasks={localTasks}
+                  onMilestonesChange={handleMilestonesChange}
+                  onTasksChange={handleTasksChange}
+                  onProjectDateRangeChange={onProjectDateRangeChange}
+                  onAddMilestone={handleAddMilestone}
+                  onAddTask={handleAddTask}
+                  onAutoArrange={handleAutoArrange}
+                  onReset={handleReset}
+                  readonly={readonly}
+                  projectId={projectId}
+                  memberId={memberId}
+                  className="h-full"
+                />
               )}
             </div>
-          </DialogFooter>
-        </ResizableDialogContent>
-      </Dialog>
+
+            {/* 底部按钮 */}
+            <div className="px-6 py-4 border-t border-border">
+              <div className="flex justify-between w-full">
+                <Button variant="outline" onClick={handleClose}>
+                  取消
+                </Button>
+                {!readonly && (
+                  <Button onClick={handleSave} disabled={!hasUnsavedChanges}>
+                    <Save className="w-4 h-4 mr-2" />
+                    保存更改
+                  </Button>
+                )}
+              </div>
+            </div>
+          </ResizableDialogContent>
+        </>
+      )}
 
       {/* 关闭确认对话框 */}
       {showCloseConfirm && (

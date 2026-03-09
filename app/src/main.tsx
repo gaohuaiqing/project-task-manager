@@ -7,21 +7,45 @@ import App from './App.tsx'
 // 导入主题提供者
 import { ThemeProvider } from '@/components/theme/ThemeProvider'
 
-// 导入存储迁移脚本（自动执行旧数据迁移到新的缓存系统）
-import '@/utils/storageMigration'
-
-// 导入前端日志服务（必须在最前面引入，以捕获所有日志）
-import '@/services/FrontendLogger'
-
-// 导入服务管理器（代替直接导入 BackendMonitor）
+// 导入服务管理器
 import { serviceManager } from '@/services/ServiceManager'
+
+// 标记 HTML 为已加载（显示内容）
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    document.documentElement.classList.add('loaded');
+  });
+}
+
+// 注意：FrontendLogger 改为延迟加载，避免阻塞初始渲染
+// 它将在 RootApp 组件挂载后异步加载
 
 // 创建根组件包装器
 function RootApp() {
   useEffect(() => {
-    // 初始化所有服务
-    serviceManager.init().catch(error => {
-      console.error('[RootApp] 服务初始化失败:', error);
+    // 异步初始化所有服务（不阻塞渲染）
+    Promise.resolve().then(async () => {
+      // 延迟加载非关键服务（性能优化）
+      if (typeof window !== 'undefined') {
+        // 延迟加载日志服务
+        import('@/services/FrontendLogger').then(() => {
+          console.log('[RootApp] 日志服务已加载');
+        }).catch(error => {
+          console.warn('[RootApp] 日志服务加载失败:', error);
+        });
+
+        // 延迟加载存储迁移
+        import('@/utils/storageMigration').then(() => {
+          console.log('[RootApp] 存储迁移脚本已加载');
+        }).catch(error => {
+          console.warn('[RootApp] 存储迁移脚本加载失败:', error);
+        });
+      }
+
+      // 初始化所有服务
+      await serviceManager.init().catch(error => {
+        console.error('[RootApp] 服务初始化失败:', error);
+      });
     });
 
     // 修复深色主题下日期选择器图标颜色

@@ -106,6 +106,14 @@ export function TimelineItem({
     onDeleteTimeline?.(timeline);
   };
 
+  const handleAddTask = () => {
+    if (onTrackClick) {
+      // 在时间轴的开头添加新任务
+      const startDate = timeRange.startDate;
+      onTrackClick(startDate, timeline.config.id);
+    }
+  };
+
   return (
     <>
       <div className={`flex border-b border-gray-200 ${className}`}>
@@ -164,7 +172,7 @@ export function TimelineItem({
       </div>
 
       {/* 右侧任务轨道 */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden flex">
         <TimelineTrack
           timeline={timeline}
           timeRange={timeRange}
@@ -185,6 +193,20 @@ export function TimelineItem({
           onToggleTaskStatus={onToggleTaskStatus}
           onDeleteTask={onDeleteTask}
         />
+
+        {/* 右侧添加任务按钮 */}
+        <div className="flex-shrink-0 w-24 flex items-center justify-center border-l border-gray-200 bg-gray-50">
+          <button
+            onClick={handleAddTask}
+            className="flex items-center gap-1 px-2 py-1 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+            title="添加任务到此时间轴"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            <span>添加任务</span>
+          </button>
+        </div>
       </div>
 
       {/* 右键菜单 */}

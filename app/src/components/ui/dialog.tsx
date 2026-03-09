@@ -31,6 +31,11 @@ function DialogClose({
 function DialogContent({ className, children, showCloseButton = true, ...props }: React.ComponentProps<typeof DialogPrimitive.Content> & { showCloseButton?: boolean }) {
   return (
     <DialogPortal data-slot="dialog-portal">
+      <DialogPrimitive.Overlay
+        data-slot="dialog-overlay"
+        className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+        style={{ pointerEvents: 'auto' }}
+      />
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
@@ -49,7 +54,15 @@ function DialogContent({ className, children, showCloseButton = true, ...props }
           // 确保不使用 grid，改用 flex
           display: 'flex',
           flexDirection: 'column',
-          maxHeight: '95vh'
+          maxHeight: '95vh',
+          // 确保内容可以接收点击事件
+          pointerEvents: 'auto',
+        }}
+        onPointerDownOutside={(event) => {
+          // 不阻止外部点击，允许关闭对话框
+        }}
+        onInteractOutside={(event) => {
+          // 不阻止外部交互
         }}
         {...props}
       >

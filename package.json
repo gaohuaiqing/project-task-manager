@@ -10,8 +10,8 @@
   "scripts": {
     "===================================": "紧急恢复",
     "dev": "concurrently \"npm:dev:*\" --names \"FRONTEND,BACKEND\"",
-    "dev:frontend": "cd app && node --max-old-space-size=8192 ../node_modules/vite/bin/vite.js --port 5173",
-    "dev:backend": "node --max-old-space-size=8192 ./node_modules/tsx/dist/cli.mjs watch src/index.ts",
+    "dev:frontend": "cd app && node --max-old-space-size=4096 ../node_modules/vite/bin/vite.js --port 5173",
+    "dev:backend": "cd app/server && node --max-old-space-size=4096 ../../node_modules/tsx/dist/cli.mjs watch src/index.ts",
     "dev:frontend:only": "cd app && vite",
     "dev:backend:only": "cd app/server && tsx watch src/index.ts",
     "build": "npm run build:clean && npm run build:all",
@@ -58,6 +58,7 @@
     "docker:logs": "docker-compose logs -f",
     "docker:clean": "docker-compose down -v && docker system prune -f",
     "memory:monitor": "node scripts/memory-monitor.js",
+    "memory:auto": "node scripts/auto-memory-monitor.js",
     "memory:check": "node -e \"console.log(process.memoryUsage())\"",
     "memory:profile": "node --prof --heapsnapshot-signal=2",
     "health:check": "node scripts/health-check.js",

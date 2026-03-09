@@ -190,6 +190,7 @@ class OptimizedProjectService {
 
   /**
    * 执行分页查询
+   * 性能优化: 添加详细的查询时间监控
    */
   private async executePaginatedQuery(
     fieldList: string,
@@ -203,12 +204,15 @@ class OptimizedProjectService {
     data: ProjectListItem[];
     pagination: { page: number; pageSize: number; total: number; totalPages: number };
   }> {
+    const queryStartTime = Date.now();
+
     // 验证分页参数
     const validPage = Math.max(1, page);
     const validPageSize = Math.min(Math.max(1, pageSize), 500);
     const offset = (validPage - 1) * validPageSize;
 
     // 获取总数
+    const countStartTime = Date.now();
     const countSql = `
       SELECT COUNT(*) as total
       FROM projects p
@@ -217,8 +221,10 @@ class OptimizedProjectService {
     `;
     const countResult = await databaseService.query(countSql, params) as { total: number }[];
     const total = countResult[0]?.total || 0;
+    const countDuration = Date.now() - countStartTime;
 
     // 查询数据
+    const dataStartTime = Date.now();
     const sql = `
       SELECT ${fieldList}
       FROM projects p
@@ -229,6 +235,16 @@ class OptimizedProjectService {
     `;
 
     const data = await databaseService.query(sql, params) as ProjectListItem[];
+    const dataDuration = Date.now() - dataStartTime;
+    const totalDuration = Date.now() - queryStartTime;
+
+    // 性能日志
+    console.log(`[Perf] 项目列表查询耗时: ${totalDuration}ms (COUNT: ${countDuration}ms, DATA: ${dataDuration}ms, 返回: ${data.length} 条)`);
+
+    // 如果查询时间超过阈值，记录警告
+    if (totalDuration > 100) {
+      console.warn(`[Perf] ⚠️ 项目列表查询较慢: ${totalDuration}ms，建议检查索引`);
+    }
 
     return {
       data,
@@ -485,6 +501,7 @@ class OptimizedProjectService {
    */
   private fieldToSql(field: string): string {
     const fieldMap: Record<string, string> = {
+      // camelCase 输入
       id: 'p.id',
       code: 'p.code',
       name: 'p.name',
@@ -499,10 +516,30 @@ class OptimizedProjectService {
       createdAt: 'p.created_at',
       updatedAt: 'p.updated_at',
       createdBy: 'p.created_by',
-      createdByName: 'u.name as created_by_name'
+      createdByName: 'u.name as created_by_name',
+      // snake_case 输入（兼容性）
+      created_at: 'p.created_at',
+      updated_at: 'p.updated_at',
+      created_by: 'p.created_by',
+      project_type: 'p.project_type',
+      planned_start_date: 'p.planned_start_date',
+      planned_end_date: 'p.planned_end_date',
+      task_count: 'p.task_count',
+      completed_task_count: 'p.completed_task_count'
     };
 
-    return fieldMap[field] || field;
+    // 如果字段已经在映射中，直接返回
+    if (fieldMap[field]) {
+      return fieldMap[field];
+    }
+
+    // 如果字段包含表别名前缀，直接返回
+    if (field.includes('.')) {
+      return field;
+    }
+
+    // 默认使用 projects 表的别名
+    return `p.${field}`;
   }
 
   /**

@@ -61,6 +61,13 @@ class LogDatabaseService {
   }
 
   /**
+   * 检查连接是否可用
+   */
+  checkConnected(): boolean {
+    return this.pool !== null && this.isConnected;
+  }
+
+  /**
    * 获取日志专用连接
    */
   async getConnection(): Promise<mysql.PoolConnection> {

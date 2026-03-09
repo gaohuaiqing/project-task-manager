@@ -190,11 +190,11 @@ class QueryCacheManager {
       if (memoryData !== undefined) {
         // 空值检测
         if (memoryData === this.NULL_MARKER) {
-          stats?.nullHits++;
+          if (stats) stats.nullHits++;
           return null;
         }
 
-        stats?.hits++;
+        if (stats) stats.hits++;
         this.updateHitRate(cacheType);
         return memoryData as T;
       }
@@ -209,14 +209,14 @@ class QueryCacheManager {
         if (redisData) {
           // 空值检测
           if (redisData.data === this.NULL_MARKER) {
-            stats?.nullHits++;
+            if (stats) stats.nullHits++;
             return null;
           }
 
           // 回写 L2 内存缓存
           memoryCache?.set(key, redisData.data);
 
-          stats?.hits++;
+          if (stats) stats.hits++;
           this.updateHitRate(cacheType);
           return redisData.data;
         }
@@ -226,7 +226,7 @@ class QueryCacheManager {
     }
 
     // 3. 缓存未命中
-    stats?.misses++;
+    if (stats) stats.misses++;
     this.updateHitRate(cacheType);
 
     const latency = Date.now() - startTime;

@@ -10,11 +10,11 @@ import type { LogEntry } from './SystemLogs';
  * 日志级别配置
  */
 export const LOG_LEVELS = [
-  { value: 'ALL', label: '全部', color: 'text-slate-400' },
-  { value: 'ERROR', label: '错误', color: 'text-red-400', bg: 'bg-red-400/10' },
-  { value: 'WARN', label: '警告', color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
-  { value: 'INFO', label: '信息', color: 'text-blue-400', bg: 'bg-blue-400/10' },
-  { value: 'DEBUG', label: '调试', color: 'text-slate-400', bg: 'text-slate-400/10' }
+  { value: 'ALL', label: '全部', color: 'text-muted-foreground' },
+  { value: 'ERROR', label: '错误', color: 'text-red-500 dark:text-red-400', bg: 'bg-red-500/10 dark:bg-red-400/10' },
+  { value: 'WARN', label: '警告', color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-600/10 dark:bg-yellow-400/10' },
+  { value: 'INFO', label: '信息', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-600/10 dark:bg-blue-400/10' },
+  { value: 'DEBUG', label: '调试', color: 'text-muted-foreground', bg: 'bg-muted-foreground/10' }
 ] as const;
 
 /**

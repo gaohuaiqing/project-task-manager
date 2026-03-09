@@ -174,6 +174,235 @@ async function logUserAction(
 // ==================== 项目 API ====================
 
 /**
+ * GET /api/initial-data
+ * 获取初始数据（优化版本 + Redis 缓存 + 分页）
+ * 一次性获取项目、成员和任务，减少网络往返
+ * 支持分页参数：?page=1&pageSize=20
+ */
+router.get('/initial-data', async (req: any, res: any) => {
+  const startTime = Date.now();
+
+  // 分页参数
+  const page = parseInt(req.query.page) || 1;
+  const pageSize = parseInt(req.query.pageSize) || 20;
+  const offset = (page - 1) * pageSize;
+
+  // 缓存键（包含分页信息）
+  const CACHE_KEY = `initial-data:page-${page}:size-${pageSize}`;
+  const CACHE_TTL = 300; // 5分钟缓存
+
+  console.log('[InitialData] 🚀 开始获取初始数据...', { page, pageSize });
+
+  try {
+    // 尝试从 Redis 缓存获取
+    const { redisCacheService } = await import('../services/RedisCacheService.js');
+    const cached = await redisCacheService.get<any>(CACHE_KEY);
+
+    if (cached) {
+      const cacheTime = Date.now() - startTime;
+      console.log(`[InitialData] ✅ 命中缓存! 耗时: ${cacheTime}ms`);
+      console.log(`[InitialData] 📊 缓存数据:`, {
+        项目: cached.data.projects.length,
+        成员: cached.data.members.length,
+        任务: cached.data.tasks.length
+      });
+
+      return res.json({
+        success: true,
+        data: cached.data,
+        meta: {
+          ...cached.meta,
+          cached: true,
+          queryTime: cacheTime
+        }
+      });
+    }
+
+    console.log('[InitialData] 💾 缓存未命中，查询数据库...');
+
+    // 并行查询所有数据（性能优化 + 分页）
+    const timings = {
+      projects: 0,
+      members: 0,
+      tasks: 0,
+      counts: 0
+    };
+
+    // 首先获取总数
+    const [projectCount, memberCount, taskCount] = await Promise.all([
+      databaseService.query('SELECT COUNT(*) as count FROM projects WHERE deleted_at IS NULL'),
+      databaseService.query('SELECT COUNT(*) as count FROM members WHERE deleted_at IS NULL'),
+      databaseService.query('SELECT COUNT(*) as count FROM wbs_tasks WHERE deleted_at IS NULL')
+    ]);
+
+    const totals = {
+      projects: projectCount[0]?.count || 0,
+      members: memberCount[0]?.count || 0,
+      tasks: taskCount[0]?.count || 0
+    };
+
+    timings.counts = Date.now() - startTime;
+
+    const [projects, members, tasks] = await Promise.all([
+      // 优化：分页查询项目
+      (async () => {
+        const t = Date.now();
+        const result = await databaseService.query(`
+          SELECT
+            p.id,
+            p.code,
+            p.name,
+            p.description,
+            p.status,
+            p.project_type as projectType,
+            p.planned_start_date as plannedStartDate,
+            p.planned_end_date as plannedEndDate,
+            p.progress,
+            p.task_count as taskCount,
+            p.completed_task_count as completedTaskCount,
+            p.created_at as createdAt,
+            p.updated_at as updatedAt,
+            p.created_by as createdBy,
+            u.name as created_by_name
+          FROM projects p
+          LEFT JOIN users u ON p.created_by = u.id
+          WHERE p.deleted_at IS NULL
+          ORDER BY p.created_at DESC
+          LIMIT ? OFFSET ?
+        `, [pageSize, offset]);
+        timings.projects = Date.now() - t;
+        console.log(`[InitialData] ✅ 项目查询完成: ${result.length} 条, 耗时 ${timings.projects}ms`);
+        return result;
+      })(),
+      // 优化：分页查询成员
+      (async () => {
+        const t = Date.now();
+        const result = await databaseService.query(`
+          SELECT
+            m.id,
+            m.name,
+            m.employee_id as employeeId,
+            m.department,
+            m.position,
+            m.email,
+            m.phone,
+            m.status,
+            m.created_at as createdAt,
+            m.updated_at as updatedAt,
+            u.role,
+            u.username
+          FROM members m
+          LEFT JOIN users u ON m.name = u.name
+          WHERE m.deleted_at IS NULL
+          ORDER BY m.department, m.name
+          LIMIT ? OFFSET ?
+        `, [pageSize, offset]);
+        timings.members = Date.now() - t;
+        console.log(`[InitialData] ✅ 成员查询完成: ${result.length} 条, 耗时 ${timings.members}ms`);
+        return result;
+      })(),
+      // 优化：分页查询任务
+      (async () => {
+        const t = Date.now();
+        const result = await databaseService.query(`
+          SELECT
+            t.id,
+            t.project_id as projectId,
+            t.parent_id as parentId,
+            t.task_code as taskCode,
+            t.task_name as taskName,
+            t.description,
+            t.task_type as taskType,
+            t.status,
+            t.priority,
+            t.estimated_hours as estimatedHours,
+            t.actual_hours as actualHours,
+            t.progress,
+            t.planned_start_date as plannedStartDate,
+            t.planned_end_date as plannedEndDate,
+            t.assignee_id as assigneeId,
+            t.assignee_name as assigneeName,
+            t.created_at as createdAt,
+            t.updated_at as updatedAt
+          FROM wbs_tasks t
+          WHERE t.deleted_at IS NULL
+          ORDER BY t.project_id, t.task_code
+          LIMIT ? OFFSET ?
+        `, [pageSize, offset]);
+        timings.tasks = Date.now() - t;
+        console.log(`[InitialData] ✅ 任务查询完成: ${result.length} 条, 耗时 ${timings.tasks}ms`);
+        return result;
+      })()
+    ]);
+
+    const queryTime = Date.now() - startTime;
+
+    console.log(`[InitialData] 📊 数据加载完成:`, {
+      项目: `${projects.length}/${totals.projects} 条 (${timings.projects}ms)`,
+      成员: `${members.length}/${totals.members} 条 (${timings.members}ms)`,
+      任务: `${tasks.length}/${totals.tasks} 条 (${timings.tasks}ms)`,
+      总耗时: `${queryTime}ms`,
+      并行耗时: `${Math.max(timings.projects, timings.members, timings.tasks)}ms`
+    });
+
+    // 性能警告
+    if (queryTime > 1000) {
+      console.warn(`[InitialData] ⚠️ 查询时间过长: ${queryTime}ms > 1000ms`);
+    }
+
+    // 构建响应数据
+    const responseData = {
+      projects,
+      members,
+      tasks
+    };
+
+    const responseMeta = {
+      pagination: {
+        page,
+        pageSize,
+        totals,
+        hasMore: {
+          projects: offset + projects.length < totals.projects,
+          members: offset + members.length < totals.members,
+          tasks: offset + tasks.length < totals.tasks
+        }
+      },
+      count: {
+        projects: projects.length,
+        members: members.length,
+        tasks: tasks.length
+      },
+      queryTime,
+      timings
+    };
+
+    // 写入缓存（异步，不阻塞响应）
+    redisCacheService.set(CACHE_KEY, { data: responseData, meta: responseMeta }, CACHE_TTL)
+      .then(() => console.log('[InitialData] 💾 数据已缓存'))
+      .catch(err => console.warn('[InitialData] ⚠️ 缓存写入失败:', err.message));
+
+    res.json({
+      success: true,
+      data: responseData,
+      meta: {
+        ...responseMeta,
+        cached: false
+      }
+    });
+  } catch (error) {
+    const queryTime = Date.now() - startTime;
+    console.error('[InitialData] ❌ 获取初始数据失败:', error);
+    console.error(`[InitialData] 失败前耗时: ${queryTime}ms`);
+    res.status(500).json({
+      success: false,
+      message: '获取初始数据失败',
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
  * GET /api/projects/clear-cache
  * 清除项目缓存（调试用）
  */

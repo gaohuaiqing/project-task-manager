@@ -434,21 +434,130 @@ export function getMigrationReport(): {
 }
 
 // ================================================================
-// 自动执行迁移（优化：使用 requestIdleCallback 避免阻塞）
+// 自动执行迁移（优化：完全异步化，分批处理避免阻塞）
 // ================================================================
 
-if (typeof window !== 'undefined' && !isMigrationComplete()) {
-  // 优先使用 requestIdleCallback 在浏览器空闲时执行
-  if ('requestIdleCallback' in window) {
-    requestIdleCallback(() => {
-      console.log('[StorageMigration] 检测到未迁移的存储，开始自动迁移...');
-      runMigration();
-    }, { timeout: 5000 });
-  } else {
-    // 降级方案：使用较短延迟
-    setTimeout(() => {
-      console.log('[StorageMigration] 检测到未迁移的存储，开始自动迁移...');
-      runMigration();
-    }, 100);
+/**
+ * 分批处理迁移，避免长时间阻塞主线程
+ */
+function runMigrationBatched(): void {
+  if (isMigrationComplete()) {
+    return;
   }
+
+  console.log('[StorageMigration] 检测到未迁移的存储，开始分批自动迁移...');
+
+  // 收集所有 localStorage 键（只做一次遍历）
+  const allKeys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key) allKeys.push(key);
+  }
+
+  console.log(`[StorageMigration] 发现 ${allKeys.length} 个存储键，开始分批处理...`);
+
+  const BATCH_SIZE = 5; // 每批处理 5 个键
+  let currentIndex = 0;
+  let migrated = 0;
+  let deleted = 0;
+
+  function processBatch() {
+    const batch = allKeys.slice(currentIndex, currentIndex + BATCH_SIZE);
+
+    for (const oldKey of batch) {
+      try {
+        // 跳过已迁移的标记
+        if (oldKey === MIGRATION_COMPLETE_KEY || oldKey === 'storage_migration_date') {
+          continue;
+        }
+
+        // 跳过已使用新命名规范的键
+        if (oldKey.startsWith(CACHE_PREFIX)) {
+          continue;
+        }
+
+        // 跳过跨标签页同步事件键
+        if (oldKey.startsWith('sync_event_') ||
+            oldKey.startsWith('cross_tab_') ||
+            oldKey.startsWith('force_') ||
+            oldKey === 'auth_logout' ||
+            oldKey === 'session_terminated') {
+          continue;
+        }
+
+        // 查找匹配的迁移规则
+        const rule = findMatchingRule(oldKey);
+
+        if (!rule) {
+          continue; // 未匹配到规则，保留
+        }
+
+        // 处理测试数据
+        if (rule.isTestData) {
+          localStorage.removeItem(oldKey);
+          deleted++;
+          continue;
+        }
+
+        // 处理不迁移的键（直接删除）
+        if (rule.migrate === false) {
+          localStorage.removeItem(oldKey);
+          deleted++;
+          continue;
+        }
+
+        // 执行迁移
+        const newKey = typeof rule.newKey === 'function'
+          ? rule.newKey(oldKey)
+          : rule.newKey;
+
+        const value = localStorage.getItem(oldKey);
+
+        try {
+          const data = JSON.parse(value!);
+          CacheManager.set(newKey, data, { ttl: 60 * 60 * 1000 });
+          localStorage.removeItem(oldKey);
+          migrated++;
+        } catch {
+          // 数据不是 JSON，直接迁移字符串
+          CacheManager.set(newKey, value!, { ttl: 60 * 60 * 1000 });
+          localStorage.removeItem(oldKey);
+          migrated++;
+        }
+
+      } catch (error) {
+        console.error(`[StorageMigration] 处理键失败: ${oldKey}`, error);
+      }
+    }
+
+    currentIndex += BATCH_SIZE;
+
+    // 继续下一批
+    if (currentIndex < allKeys.length) {
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => processBatch(), { timeout: 1000 });
+      } else {
+        setTimeout(processBatch, 0);
+      }
+    } else {
+      // 完成迁移
+      markMigrationComplete();
+      console.log(`[StorageMigration] 分批迁移完成: 迁移 ${migrated} 个，删除 ${deleted} 个`);
+    }
+  }
+
+  // 开始处理第一批
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(() => processBatch(), { timeout: 1000 });
+  } else {
+    setTimeout(processBatch, 100);
+  }
+}
+
+// 自动执行迁移（使用分批处理版本）
+if (typeof window !== 'undefined') {
+  // 延迟执行，确保不阻塞首次渲染
+  setTimeout(() => {
+    runMigrationBatched();
+  }, 2000); // 2 秒后开始迁移
 }

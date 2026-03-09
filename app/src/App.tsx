@@ -12,7 +12,7 @@
  * - 统计详情 → StatsDetailDialog 组件
  */
 
-import { useState, useCallback, lazy, Suspense } from 'react';
+import { useState, useCallback, lazy, Suspense, useMemo } from 'react';
 import React from 'react';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { LoginPage } from '@/components/auth/LoginPage';
@@ -25,6 +25,7 @@ import { ProjectOverview } from '@/components/dashboard/ProjectOverview';
 import { TaskStats } from '@/components/dashboard/TaskStats';
 import { TaskAlerts } from '@/components/dashboard/TaskAlerts';
 import { StatsDetailDialog, type StatsData } from '@/components/dashboard/StatsDetailDialog';
+import { ProjectListSkeleton } from '@/components/projects/ProjectListSkeleton';
 import { VersionConflictDialog, useVersionConflict } from '@/components/shared/VersionConflictDialog';
 import { CheckSquare, FolderKanban, Users, TrendingUp, Shield } from 'lucide-react';
 import { useAppData } from '@/hooks/useAppData';
@@ -39,7 +40,7 @@ import {
 // ================================================================
 // 懒加载组件
 // ================================================================
-const ProjectManager = lazy(() => import('@/components/projects/ProjectManager'));
+const ProjectManager = lazy(() => import('@/components/projects/ProjectManagerOptimized'));
 const SmartAssignment = lazy(() => import('@/components/task-assignment/SmartAssignment')
   .then(m => ({ default: m.SmartAssignment })));
 const TaskManagement = lazy(() => import('@/components/task-management/TaskManagement')
@@ -119,12 +120,18 @@ function ProtectedApp() {
     setIsDetailDialogOpen(true);
   }, []);
 
-  // 计算统计数据
-  const totalTasks = tasks.length;
-  const inProgressProjects = projects.filter((p: any) => p.status === 'in_progress').length;
-  const avgSaturation = members.length > 0
-    ? Math.round(members.reduce((acc: number, m: any) => acc + (m.saturation || 0), 0) / members.length)
-    : 0;
+  // 计算统计数据（使用 useMemo 优化性能）
+  const totalTasks = useMemo(() => tasks.length, [tasks.length]);
+  const inProgressProjects = useMemo(
+    () => projects.filter((p: any) => p.status === 'in_progress').length,
+    [projects]
+  );
+  const avgSaturation = useMemo(
+    () => members.length > 0
+      ? Math.round(members.reduce((acc: number, m: any) => acc + (m.saturation || 0), 0) / members.length)
+      : 0,
+    [members]
+  );
 
   // 事件处理函数
   const handleTotalTasksClick = useCallback(() => {
@@ -322,12 +329,7 @@ function ProtectedApp() {
       <main className={`mt-16 min-h-[calc(100vh-4rem)] transition-all duration-300 ${sidebarCollapsed ? 'pl-16' : 'pl-64'}`}>
         <div className="p-6">
           {isLoading ? (
-            <div className="flex items-center justify-center min-h-[60vh]">
-              <div className="text-center">
-                <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4" />
-                <p className="text-muted-foreground">加载中...</p>
-              </div>
-            </div>
+            <ProjectListSkeleton count={5} animated={true} />
           ) : (
             renderContent()
           )}

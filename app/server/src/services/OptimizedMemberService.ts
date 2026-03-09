@@ -470,13 +470,25 @@ class OptimizedMemberService {
   // ================================================================
 
   /**
-   * 解析JSON字段
+   * 解析JSON字段（带错误处理）
    */
   private parseJsonFields(row: any): any {
+    const safeParse = (value: any, defaultValue: any) => {
+      if (!value || value === 'null' || value === '') {
+        return defaultValue;
+      }
+      try {
+        return JSON.parse(value);
+      } catch (error) {
+        console.warn(`[MemberService] JSON 解析失败: ${value}`, error);
+        return defaultValue;
+      }
+    };
+
     return {
       ...row,
-      skills: row.skills ? JSON.parse(row.skills) : [],
-      capabilities: row.capabilities ? JSON.parse(row.capabilities) : {}
+      skills: safeParse(row.skills, []),
+      capabilities: safeParse(row.capabilities, {})
     };
   }
 

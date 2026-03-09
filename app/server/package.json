@@ -14,6 +14,7 @@
     "migrate:down": "tsx scripts/migrate.ts down",
     "migrate:status": "tsx scripts/migrate.ts status",
     "db:init": "tsx scripts/migrate.ts up",
+    "db:apply-indexes": "tsx scripts/apply-performance-indexes.ts",
     "log:monitor": "tsx src/scripts/log-monitor.ts",
     "log:clean": "tsx src/scripts/clean-logs.ts"
   },

@@ -10,7 +10,6 @@
  */
 
 import { CacheManager } from './CacheManager';
-import { backendMonitor } from './BackendMonitor';
 import { wsService } from './WebSocketService';
 
 type ServiceCleanup = () => void | Promise<void>;
@@ -40,11 +39,7 @@ class ServiceManager {
       console.error('[ServiceManager] ❌ CacheManager 初始化失败:', error);
     }
 
-    // 2. 初始化后端监控（延迟初始化，避免阻塞）
-    this.registerCleanup(() => backendMonitor.destroy());
-    console.log('[ServiceManager] ✅ BackendMonitor 已注册清理');
-
-    // 3. WebSocket 服务清理
+    // 2. WebSocket 服务清理
     this.registerCleanup(() => {
       if (wsService.isConnected()) {
         wsService.disconnect();

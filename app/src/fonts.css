@@ -8,8 +8,8 @@
 
 /* ==================== 字体导入 ==================== */
 
-/* Inter 作为跨平台回退字体 */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* Inter 字体通过 index.html 中的 <link> 标签加载 */
+/* 使用 font-display: swap 策略避免阻塞渲染 */
 
 /* ==================== CSS 字体变量 ==================== */
 

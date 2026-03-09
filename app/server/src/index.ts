@@ -24,6 +24,8 @@ import dataRoutes, { setBroadcastFunction, setSessionManager } from './routes/da
 import permissionRoutes from './routes/permissionRoutes.js';
 // import organizationRoutes from './routes/organizationRoutes.js'; // 文件不存在，已注释
 import projectExtendedRoutes, { setSessionManager as setProjectSessionManager } from './routes/projectExtendedRoutes.js';
+import batchQueryRoutes from './routes/batchQueryRoutes.js'; // 批量查询优化
+import { warmupCacheOnStartup } from './scripts/cache-warmup.js'; // 缓存预热
 import type { ClientMessage, ServerMessage, Session, User } from './types/index.js';
 
 // ================================================================
@@ -177,6 +179,9 @@ app.use('/api', dataRoutes);
 
 // 注册权限配置路由
 app.use('/api/permissions', permissionRoutes);
+
+// 注册批量查询优化路由
+app.use('/api', batchQueryRoutes);
 
 // 注册组织架构路由
 // app.use('/api/organization', organizationRoutes); // 文件不存在，已注释
@@ -2076,6 +2081,11 @@ async function startServer() {
       console.log(`[服务器] ✅ 运行在 http://${HOST}:${PORT}`);
       console.log(`[WebSocket] ✅ 运行在 ws://${HOST}:${PORT}`);
 
+      // 启动缓存预热（延迟执行，不阻塞服务器启动）
+      warmupCacheOnStartup().catch((error) => {
+        console.error('[服务器] ⚠️ 缓存预热失败:', error);
+      });
+
       // 🔧 内存监控：每 5 分钟输出内存使用情况
       const MEMORY_MONITOR_INTERVAL = 5 * 60 * 1000; // 5 分钟
       const MEMORY_WARNING_THRESHOLD = 0.8; // 80% 内存使用率警告阈值
@@ -2215,22 +2225,48 @@ async function gracefulShutdown(signal: string): Promise<void> {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// 处理未捕获的异常
+// 处理未捕获的异常（致命错误）
 process.on('uncaughtException', (error) => {
-  console.error('[服务器] 未捕获的异常:', error);
+  console.error('[服务器] ❌ 未捕获的异常:', error);
+
+  // 对于某些可恢复的错误，不退出进程
+  const isRecoverable = (
+    error.message.includes('EADDRINUSE') ||
+    error.message.includes('ECONNREFUSED') ||
+    error.message.includes('ETIMEDOUT')
+  );
+
+  if (isRecoverable) {
+    console.warn('[服务器] ⚠️ 可恢复错误，服务继续运行');
+    return;
+  }
+
+  // 致命错误，记录后退出
   asyncSystemLogger.error('未捕获的异常', { error: error.message, stack: error.stack })
     .then(() => {
+      console.error('[服务器] 致命错误，准备退出...');
+      // 给日志时间写入
+      setTimeout(() => process.exit(1), 1000);
+    })
+    .catch(() => {
+      // 日志写入失败，直接退出
       process.exit(1);
     });
 });
 
-// 处理未处理的 Promise 拒绝
+// 处理未处理的 Promise 拒绝（不退出进程）
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[服务器] 未处理的 Promise 拒绝:', reason);
-  asyncSystemLogger.error('未处理的 Promise 拒绝', { reason })
-    .then(() => {
-      // 不立即退出，让当前请求完成
-    });
+  console.error('[服务器] ⚠️ 未处理的 Promise 拒绝:', reason);
+
+  // 记录到日志系统（异步，不阻塞）
+  asyncSystemLogger.error('未处理的 Promise 拒绝', {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined
+  }).catch((err) => {
+    console.error('[服务器] 日志写入失败:', err);
+  });
+
+  // 不退出进程，让服务继续运行
 });
 
 startServer();

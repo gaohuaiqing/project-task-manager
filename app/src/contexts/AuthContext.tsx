@@ -70,6 +70,35 @@ const USERS_STORAGE_KEY = 'app_users';
 const CURRENT_USER_KEY = 'currentUser';
 const ADMIN_KEY = 'isAdmin';
 
+// ================================================================
+// 优化：使用缓存减少 localStorage 读取次数
+// ================================================================
+
+const authStorageCache = new Map<string, string | null>();
+
+/**
+ * 优化的 localStorage.getItem，使用缓存减少重复读取
+ */
+function getCachedItem(key: string): string | null {
+  if (authStorageCache.has(key)) {
+    return authStorageCache.get(key)!;
+  }
+  const value = localStorage.getItem(key);
+  authStorageCache.set(key, value);
+  return value;
+}
+
+/**
+ * 清除缓存（在写入后调用）
+ */
+function invalidateCache(key?: string): void {
+  if (key) {
+    authStorageCache.delete(key);
+  } else {
+    authStorageCache.clear();
+  }
+}
+
 /**
  * 生成不可预测的会话ID
  * 使用 crypto.randomUUID() 确保会话ID的随机性和不可预测性
@@ -162,9 +191,10 @@ const saveUsers = (users: Record<string, UserData>) => {
 };
 
 const getInitialAuthState = () => {
-  const savedUser = localStorage.getItem(CURRENT_USER_KEY);
-  const savedIsAdmin = localStorage.getItem(ADMIN_KEY);
-  const savedSession = localStorage.getItem(SESSION_STORAGE_KEY);
+  // 优化：使用缓存的 getItem 减少读取次数
+  const savedUser = getCachedItem(CURRENT_USER_KEY);
+  const savedIsAdmin = getCachedItem(ADMIN_KEY);
+  const savedSession = getCachedItem(SESSION_STORAGE_KEY);
 
   if (savedUser && savedSession) {
     try {
@@ -186,6 +216,10 @@ const getInitialAuthState = () => {
         localStorage.removeItem(`auth_session_${username}`);
         localStorage.removeItem(`active_session_${username}`);
         localStorage.removeItem(`cross_browser_session_${username}`);
+        // 清除缓存
+        invalidateCache(CURRENT_USER_KEY);
+        invalidateCache(ADMIN_KEY);
+        invalidateCache(SESSION_STORAGE_KEY);
         return {
           user: null,
           isAdmin: false,
@@ -196,6 +230,10 @@ const getInitialAuthState = () => {
       localStorage.removeItem(CURRENT_USER_KEY);
       localStorage.removeItem(ADMIN_KEY);
       localStorage.removeItem(SESSION_STORAGE_KEY);
+      // 清除缓存
+      invalidateCache(CURRENT_USER_KEY);
+      invalidateCache(ADMIN_KEY);
+      invalidateCache(SESSION_STORAGE_KEY);
       return {
         user: null,
         isAdmin: false,
@@ -350,113 +388,150 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('[AuthProvider] login 开始, username:', username);
 
     try {
-      const users = getStoredUsers();
-      const userData = users[username];
+      // 性能优化：优先使用后端验证，移除前端bcrypt验证（避免双重计算）
+      // 后端已经做了完整的密码验证，前端只需要处理结果
+      const deviceId = getDeviceId();
 
-      if (userData && await bcrypt.compare(password, userData.password)) {
-        const deviceId = getDeviceId();
+      // 注意：不再检查后端活动会话，允许多个浏览器同时登录
+      // 只检查本地活动会话（同一浏览器的其他标签页）
+      const activeSession = getActiveSession(username);
+      if (activeSession && activeSession.deviceId !== deviceId) {
+        const currentTime = Date.now();
+        const sessionAge = currentTime - activeSession.lastAccessed;
+        if (sessionAge < SESSION_TIMEOUT) {
+          console.warn('[AuthProvider] 检测到同一浏览器的其他会话');
+          return false;
+        }
+      }
 
-        // 注意：不再检查后端活动会话，允许多个浏览器同时登录
-        // 只检查本地活动会话（同一浏览器的其他标签页）
-        const activeSession = getActiveSession(username);
-        if (activeSession && activeSession.deviceId !== deviceId) {
-          const currentTime = Date.now();
-          const sessionAge = currentTime - activeSession.lastAccessed;
-          if (sessionAge < SESSION_TIMEOUT) {
+      // 清理所有旧会话数据（无论是否同一设备）
+      terminateSession(username);
+
+      let session: AuthSession;
+      let userData: UserData | undefined;
+
+      // 尝试连接后端服务
+      if (USE_BACKEND) {
+        try {
+          const response = await fetch('http://localhost:3001/api/login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              username,
+              password,
+              ip: 'local',
+              deviceId,
+              sourceDeviceInfo: navigator.userAgent
+            })
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            // 后端登录成功
+            setIsBackendConnected(true);
+            console.log('[AuthProvider] 后端登录成功');
+
+            // 生成新的会话ID以防止会话固定攻击
+            const newSessionId = generateSecureSessionId();
+
+            // 从本地获取用户角色和名称（后端返回的session中有role）
+            const users = getStoredUsers();
+            userData = users[username];
+
+            session = {
+              userId: `user_${Date.now()}`,
+              username,
+              sessionId: newSessionId,
+              createdAt: result.session.createdAt,
+              lastAccessed: result.session.createdAt,
+              deviceId
+            };
+          } else {
+            // 后端返回验证失败（密码错误、用户不存在等）
+            console.warn('[AuthProvider] 后端验证失败:', result.message);
+            error(result.message || '用户名或密码错误');
             return false;
           }
-        }
+        } catch (error) {
+          // 网络错误或后端服务不可用
+          console.error('[AuthProvider] 后端连接失败:', error);
 
-        // 清理所有旧会话数据（无论是否同一设备）
-        terminateSession(username);
+          // 降级方案：尝试本地验证
+          const users = getStoredUsers();
+          userData = users[username];
 
-        let session: AuthSession;
-
-        // 尝试连接后端服务
-        if (USE_BACKEND) {
-          try {
-            const response = await fetch('http://localhost:3001/api/login', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                username,
-                password,
-                ip: 'local',
-                deviceId,
-                sourceDeviceInfo: navigator.userAgent
-              })
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-              // 后端登录成功
-              setIsBackendConnected(true);
-              // 生成新的会话ID以防止会话固定攻击
-              const newSessionId = generateSecureSessionId();
-              session = {
-                userId: `user_${Date.now()}`,
-                username,
-                sessionId: newSessionId,
-                createdAt: result.session.createdAt,
-                lastAccessed: result.session.createdAt,
-                deviceId
-              };
-            } else {
-              // 后端返回验证失败（密码错误、用户不存在等）
-              console.warn('[AuthProvider] 后端验证失败，回退到本地会话:', result.message);
-              // 回退到本地会话
-              session = createSession(`user_${Date.now()}`, username);
-              session.deviceId = deviceId;
-            }
-          } catch (error) {
-            // 网络错误或后端服务不可用
-            console.warn('[AuthProvider] 后端连接失败，使用本地会话:', error);
-            // 回退到本地会话（仅在无法连接后端时）
-            session = createSession(`user_${Date.now()}`, username);
-            session.deviceId = deviceId;
+          if (!userData) {
+            error('用户不存在');
+            return false;
           }
-        } else {
-          // 使用本地会话
+
+          // 本地密码验证
+          if (!await bcrypt.compare(password, userData.password)) {
+            error('用户名或密码错误');
+            return false;
+          }
+
+          console.warn('[AuthProvider] 后端不可用，使用本地会话');
           session = createSession(`user_${Date.now()}`, username);
           session.deviceId = deviceId;
         }
-
-        // 清除旧的会话数据，但保留用户列表
-        localStorage.removeItem(CURRENT_USER_KEY);
-        localStorage.removeItem(SESSION_STORAGE_KEY);
-        localStorage.removeItem(ADMIN_KEY);
-
-        setCurrentSession(session);
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-
-        const loginUser: User = {
-          id: session.userId,
-          username,
-          role: userData.role,
-          name: userData.name,
-        };
-
-        // ✅ 保存用户信息到 localStorage，确保刷新页面后可以恢复登录状态
-        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(loginUser));
-        setUser(loginUser);
-        setSession(session);
-        // isAdmin 会自动基于 user.role 计算
-
-        syncLoginState(loginUser, session);
-
-        // 记录登录日志到前端日志服务
-        await frontendLogger.logAuth('用户登录成功', loginUser.id, loginUser.name);
-
-        return true;
       } else {
-        // 本地验证失败
-        console.warn('[AuthProvider] 用户名或密码错误');
-        error('用户名或密码错误');
-        return false;
+        // 离线模式：使用本地验证
+        const users = getStoredUsers();
+        userData = users[username];
+
+        if (!userData) {
+          error('用户不存在');
+          return false;
+        }
+
+        if (!await bcrypt.compare(password, userData.password)) {
+          error('用户名或密码错误');
+          return false;
+        }
+
+        session = createSession(`user_${Date.now()}`, username);
+        session.deviceId = deviceId;
       }
+
+      // 清除旧的会话数据，但保留用户列表
+      localStorage.removeItem(CURRENT_USER_KEY);
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+      localStorage.removeItem(ADMIN_KEY);
+
+      setCurrentSession(session);
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+
+      if (!userData) {
+        const users = getStoredUsers();
+        userData = users[username];
+      }
+
+      const loginUser: User = {
+        id: session.userId,
+        username,
+        role: userData?.role || 'engineer',
+        name: userData?.name || username,
+      };
+
+      // ✅ 保存用户信息到 localStorage，确保刷新页面后可以恢复登录状态
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(loginUser));
+
+      setUser(loginUser);
+      setSession(session);
+      // isAdmin 会自动基于 user.role 计算
+
+      syncLoginState(loginUser, session);
+
+      // 记录登录日志（异步，不阻塞）
+      void frontendLogger.logAuth('用户登录成功', loginUser.id, loginUser.name);
+
+      console.log('[AuthProvider] 登录完成');
+
+      return true;
     } catch (err) {
       // 后端连接失败或其他错误
       console.error('[AuthProvider] 登录异常:', err);

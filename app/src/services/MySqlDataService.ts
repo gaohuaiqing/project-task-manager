@@ -14,6 +14,7 @@ import { wsService } from './WebSocketService';
 import { CACHE_TTL, CACHE_KEY_PREFIX, generateCacheKey, createCacheEntry, isCacheEntryValid, updateCacheEntryAccess } from './CacheConfig';
 import { eventService, emitDataChanged } from './EventService';
 import { memberService } from './MemberService';
+import { requestDedup } from '@/utils/RequestDeduplication';
 import type {
   Project,
   ProjectMember,
@@ -136,17 +137,40 @@ class MySqlDataService {
 
   // 获取当前会话ID
   private getSessionId(): string | null {
-    const activeUserKey = Object.keys(localStorage).find(key => key.startsWith('active_session_'));
-    if (!activeUserKey) return null;
-
-    try {
-      const sessionData = localStorage.getItem(activeUserKey);
-      if (!sessionData) return null;
-      const session = JSON.parse(sessionData);
-      return session.sessionId || null;
-    } catch {
-      return null;
+    // 首先尝试从 auth_session 获取（AuthContext 的主要存储位置）
+    const authSessionData = localStorage.getItem('auth_session');
+    if (authSessionData) {
+      try {
+        const session = JSON.parse(authSessionData);
+        if (session.sessionId) {
+          console.log('[MySqlDataService] 从 auth_session 获取会话ID:', session.sessionId);
+          return session.sessionId;
+        }
+      } catch (error) {
+        console.error('[MySqlDataService] 解析 auth_session 失败:', error);
+      }
     }
+
+    // 降级方案：从 active_session_ 开头的键获取
+    const activeUserKey = Object.keys(localStorage).find(key => key.startsWith('active_session_'));
+    if (activeUserKey) {
+      try {
+        const sessionData = localStorage.getItem(activeUserKey);
+        if (sessionData) {
+          const session = JSON.parse(sessionData);
+          if (session.sessionId) {
+            console.log('[MySqlDataService] 从 active_session_ 获取会话ID:', session.sessionId);
+            return session.sessionId;
+          }
+        }
+      } catch (error) {
+        console.error('[MySqlDataService] 解析 active_session_ 失败:', error);
+      }
+    }
+
+    // 未找到会话ID
+    console.warn('[MySqlDataService] 未找到会话ID，当前 localStorage keys:', Object.keys(localStorage));
+    return null;
   }
 
   // 获取带有认证的请求头
@@ -165,23 +189,45 @@ class MySqlDataService {
 
   /**
    * 获取所有项目
+   * 性能优化: 添加性能监控
    */
   async getProjects(): Promise<Project[]> {
+    const perfMark = `getProjects_${Date.now()}`;
+    performance.mark(`${perfMark}_start`);
+
     const cached = this.getFromCache<Project[]>('projects');
     if (cached) {
-      console.log('[MySqlDataService] 从缓存获取项目列表');
+      performance.mark(`${perfMark}_cache_hit`);
+      performance.measure(perfMark, `${perfMark}_start`, `${perfMark}_cache_hit`);
+      const duration = performance.getEntriesByName(perfMark)[0]?.duration || 0;
+      console.log(`[Perf] 项目列表缓存命中: ${duration.toFixed(2)}ms`);
       return cached.data;
     }
 
     try {
+      performance.mark(`${perfMark}_fetch_start`);
       const response = await fetch('http://localhost:3001/api/projects', {
         headers: this.getAuthHeaders()
       });
+      performance.mark(`${perfMark}_fetch_end`);
+
       const result: ApiResponse<Project[]> = await response.json();
 
       if (result.success && result.data) {
+        performance.mark(`${perfMark}_cache_set`);
         this.setCache('projects', result.data);
-        console.log('[MySqlDataService] 从服务器获取项目列表:', result.data.length, '个项目');
+        console.log(`[Perf] 项目列表加载完成: ${result.data.length} 个项目`);
+
+        performance.measure(perfMark, `${perfMark}_start`, `${perfMark}_cache_set`);
+        const totalDuration = performance.getEntriesByName(perfMark)[0]?.duration || 0;
+        const fetchDuration = performance.getEntriesByName(`${perfMark}_fetch`)[0]?.duration || 0;
+
+        console.log(`[Perf] 总耗时: ${totalDuration.toFixed(2)}ms (网络: ${fetchDuration.toFixed(2)}ms)`);
+
+        // 清理性能标记
+        performance.clearMarks(perfMark);
+        performance.clearMeasures(perfMark);
+
         return result.data;
       }
 
@@ -192,6 +238,109 @@ class MySqlDataService {
       const cached = this.getFromCache<Project[]>('projects');
       return cached?.data || [];
     }
+  }
+
+  /**
+   * 获取初始数据（优化版本 + 分页 + 请求去重）
+   * 性能优化: 使用专用的 /api/initial-data 端点一次性获取所有数据
+   * 支持分页: firstLoad 只获取前 20 条数据
+   * 请求去重: 防止短时间内重复请求
+   */
+  async getInitialData(options: { page?: number; pageSize?: number } = {}): Promise<{
+    projects: Project[];
+    members: Member[];
+    tasks?: WbsTask[];
+    pagination?: any;
+  }> {
+    const perfMark = `getInitialData_${Date.now()}`;
+    performance.mark(`${perfMark}_start`);
+
+    const { page = 1, pageSize = 20 } = options;
+    const cacheKey = `initial-data:${page}:${pageSize}`;
+
+    // 使用请求去重
+    return requestDedup.fetch(
+      cacheKey,
+      async () => {
+        try {
+          performance.mark(`${perfMark}_fetch_start`);
+
+          // 使用优化的初始数据端点（带分页）
+          const url = new URL('http://localhost:3001/api/initial-data');
+          if (page > 1 || pageSize !== 20) {
+            url.searchParams.set('page', page.toString());
+            url.searchParams.set('pageSize', pageSize.toString());
+          }
+
+          const response = await fetch(url.toString(), {
+            method: 'GET',
+            headers: this.getAuthHeaders()
+          });
+
+          performance.mark(`${perfMark}_fetch_end`);
+          const result: any = await response.json();
+
+          if (result.success && result.data) {
+            const projects = result.data.projects || [];
+            const members = result.data.members || [];
+            const tasks = result.data.tasks || [];
+
+            // 更新缓存
+            this.setCache('projects', projects);
+            this.setCache('members', members);
+            if (tasks.length > 0) {
+              this.setCache('wbs_tasks', tasks);
+            }
+
+            performance.mark(`${perfMark}_complete`);
+            performance.measure(perfMark, `${perfMark}_start`, `${perfMark}_complete`);
+
+            const totalDuration = performance.getEntriesByName(perfMark)[0]?.duration || 0;
+            const fetchDuration = performance.getEntriesByName(`${perfMark}_fetch`)[0]?.duration || 0;
+
+            const isCached = result.meta?.cached || false;
+            const cacheIndicator = isCached ? '🎯 缓存命中' : '💾 数据库查询';
+
+            console.log(`[Perf] 🚀 初始数据加载完成 (${cacheIndicator}):`);
+            console.log(`[Perf] - 项目: ${projects.length} 个`);
+            console.log(`[Perf] - 成员: ${members.length} 个`);
+            console.log(`[Perf] - 任务: ${tasks.length} 个`);
+            console.log(`[Perf] - 总耗时: ${totalDuration.toFixed(2)}ms (网络: ${fetchDuration.toFixed(2)}ms)`);
+
+            if (result.meta?.pagination) {
+              console.log(`[Perf] - 分页: 第 ${result.meta.pagination.page} 页, 每页 ${result.meta.pagination.pageSize} 条`);
+              console.log(`[Perf] - 总数: 项目 ${result.meta.pagination.totals.projects}, 成员 ${result.meta.pagination.totals.members}, 任务 ${result.meta.pagination.totals.tasks}`);
+            }
+
+            // 清理性能标记
+            performance.clearMarks(perfMark);
+            performance.clearMeasures(perfMark);
+
+            return {
+              projects,
+              members,
+              tasks,
+              pagination: result.meta?.pagination
+            };
+          }
+
+          // 降级到单独查询
+          console.warn('[MySqlDataService] 初始数据查询失败，降级到单独查询');
+          const projects = await this.getProjects();
+          return { projects, members: [], tasks: [] };
+        } catch (error) {
+          console.error('[MySqlDataService] 获取初始数据失败:', error);
+          // 降级到单独查询
+          const projects = await this.getProjects();
+          return { projects, members: [], tasks: [] };
+        }
+      },
+      {
+        cache: true,    // 使用缓存
+        retry: 2,       // 失败重试 2 次
+        retryDelay: 1000
+      }
+    );
   }
 
   /**
@@ -659,11 +808,23 @@ class MySqlDataService {
     }
   ): Promise<Project> {
     try {
-      const response = await fetch(`http://localhost:3001/api/projects/${projectId}/full`, {
+      console.log('[MySqlDataService] 开始批量更新项目', { projectId, data });
+
+      // 添加超时保护（30秒）
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('网络请求超时（30秒）')), 30000)
+      );
+
+      // 使用 Promise.race 防止请求卡住
+      const fetchPromise = fetch(`http://localhost:3001/api/projects/${projectId}/full`, {
         method: 'PUT',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(data)
       });
+
+      const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
+
+      console.log('[MySqlDataService] 收到响应', { status: response.status, ok: response.ok });
 
       const result: ApiResponse<Project> = await response.json();
 
@@ -671,6 +832,7 @@ class MySqlDataService {
         this.invalidateCache('projects');
         this.invalidateCache(`project_members_${projectId}`);
         this.invalidateCache(`project_milestones_${projectId}`);
+        console.log('[MySqlDataService] 批量更新项目成功');
         return result.data;
       }
 

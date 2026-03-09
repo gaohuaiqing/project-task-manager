@@ -223,8 +223,8 @@ export function ResizableDialogContent({
 
   // ==================== 拖拽处理（调整大小）====================
   const handleMouseDown = useCallback((direction: HandleDirection) => (e: React.MouseEvent) => {
+    // 只阻止默认行为，不阻止事件冒泡
     e.preventDefault();
-    e.stopPropagation();
 
     setIsResizing(true);
     setDragDirection(direction);
@@ -246,8 +246,11 @@ export function ResizableDialogContent({
   const handleMoveStart = useCallback((e: React.MouseEvent) => {
     if (!draggable) return;
 
+    // 只在左键点击时启用拖动
+    if (e.button !== 0) return;
+
+    // 只阻止默认行为，不阻止事件冒泡
     e.preventDefault();
-    e.stopPropagation();
 
     setIsMoving(true);
     setShowIndicator(false);
@@ -349,6 +352,13 @@ export function ResizableDialogContent({
   }, [defaultWidth, defaultHeight, constrainSize, storageKey, onResize, onMove, calculateDefaultPosition]);
 
   // ==================== 尺寸和位置样式 ====================
+  // 从 className 中提取 z-index，如果没有则使用默认值
+  const getZIndexFromClassName = (className: string | undefined): number => {
+    if (!className) return 9999;
+    const match = className.match(/z-\[(\d+)\]/);
+    return match ? parseInt(match[1], 10) : 9999;
+  };
+
   const contentStyle: React.CSSProperties = {
     width: size.width,
     height: size.height,
@@ -359,9 +369,10 @@ export function ResizableDialogContent({
     top: position.y,
     transform: 'none',
     margin: 0,
-    // 关键修复：设置高 z-index，确保在新建项目对话框之上
-    // 标准 Dialog 使用 z-50，所以这里使用 z-[100] 确保在上层
-    zIndex: 100,
+    // 从 className 中提取 z-index，确保正确的层级
+    zIndex: getZIndexFromClassName(className),
+    // 确保能够接收点击事件
+    pointerEvents: 'auto',
   };
 
   return (
@@ -372,7 +383,7 @@ export function ResizableDialogContent({
           <div
             ref={containerRef}
             className={cn(
-              'rounded-lg border bg-card shadow-lg overflow-hidden transition-shadow duration-200',
+              'rounded-lg border bg-card shadow-lg overflow-hidden transition-shadow duration-200 flex flex-col',
               (isResizing || isMoving) && 'shadow-2xl ring-2 ring-primary/50',
               className
             )}
@@ -386,13 +397,17 @@ export function ResizableDialogContent({
                   "hover:bg-muted/70 transition-colors select-none"
                 )}
                 onMouseDown={handleMoveStart}
+                onDragStart={(e) => e.preventDefault()}
                 title="拖动可移动对话框"
               >
                 <Move className="w-4 h-4 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">按住此处拖动对话框</span>
               </div>
             )}
-            {children}
+            {/* 内容区域 */}
+            <div className="flex-1 overflow-auto">
+              {children}
+            </div>
 
             {/* 拖拽手柄（调整大小） */}
             {!isResizing && !isMoving && (
@@ -411,7 +426,7 @@ export function ResizableDialogContent({
 
           {/* 尺寸指示器 */}
           {showSizeIndicator && showIndicator && (
-            <div className="fixed top-4 right-4 z-[100] bg-primary text-primary-foreground px-3 py-2 rounded-lg shadow-lg text-sm font-medium">
+            <div className="fixed top-4 right-4 z-[10000] bg-primary text-primary-foreground px-3 py-2 rounded-lg shadow-lg text-sm font-medium pointer-events-none">
               {indicatorSize.width} × {indicatorSize.height}
             </div>
           )}
@@ -419,8 +434,8 @@ export function ResizableDialogContent({
           {/* 重置按钮 */}
           <button
             className={cn(
-              'absolute -top-10 right-0 bg-primary text-primary-foreground px-3 py-1.5 rounded-t-lg text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity z-[100]',
-              'hover:bg-primary/90 flex items-center gap-1'
+              'absolute bg-primary text-primary-foreground px-3 py-1.5 rounded-t-lg text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity z-[10000]',
+              'hover:bg-primary/90 flex items-center gap-1 pointer-events-auto'
             )}
             onClick={handleResetSize}
             title="重置为默认尺寸和位置"
@@ -437,7 +452,7 @@ export function ResizableDialogContent({
           {/* 拖拽时边框高亮 */}
           {(isResizing || isMoving) && (
             <div
-              className="absolute inset-0 pointer-events-none border-2 border-primary rounded-lg z-[100]"
+              className="absolute inset-0 pointer-events-none border-2 border-primary rounded-lg z-[10000]"
               style={{
                 transform: 'scale(1.02)',
                 left: position.x,

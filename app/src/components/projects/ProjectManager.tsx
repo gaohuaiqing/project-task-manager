@@ -75,17 +75,34 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
   // ==================== 创建项目 ====================
   // ✅ 使用 useCallback 优化回调函数
   const handleCreateProject = useCallback(async () => {
-    if (isSubmitting) return;
+    console.log('[DEBUG] handleCreateProject 开始执行', { isSubmitting });
 
-    if (!formHook.validate(validationRules)) {
-      // 验证失败时，显示错误提示
-      await dialog.alert('请检查表单，有必填字段未填写或填写有误', { variant: 'error' });
+    if (isSubmitting) {
+      console.log('[DEBUG] 提前返回：正在提交');
       return;
     }
 
+    console.log('[DEBUG] 开始验证表单');
+    const isValid = formHook.validate(validationRules);
+    console.log('[DEBUG] 验证结果', { isValid, errors: formHook.validationErrors });
+
+    if (!isValid) {
+      console.log('[DEBUG] 验证失败，显示错误提示');
+      try {
+        await dialog.alert('请检查表单，有必填字段未填写或填写有误', { variant: 'error' });
+      } catch (dialogError) {
+        console.error('[ERROR] 对话框调用失败', dialogError);
+      }
+      return;
+    }
+
+    console.log('[DEBUG] 验证通过，开始提交');
     setIsSubmitting(true);
+    console.log('[DEBUG] isSubmitting 已设置为 true');
+
     try {
       const formData = formHook.getFormDataForSubmit();
+      console.log('[DEBUG] 表单数据已准备', { formData });
 
       // 转换 memberIds 为数字数组
       const memberIdsAsNumbers = (formData.memberIds || []).map(id =>
@@ -97,18 +114,45 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
         memberIds: memberIdsAsNumbers
       };
 
-      await api.createProject(projectData as any);
+      console.log('[DEBUG] 开始调用 API 创建项目');
 
-      await dialog.alert('项目创建成功！', { variant: 'success' });
+      // 添加超时保护（30秒）
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('API调用超时（30秒），请检查网络连接')), 30000)
+      );
+
+      // 使用 Promise.race 防止 API 调用卡住
+      await Promise.race([
+        api.createProject(projectData as any),
+        timeoutPromise
+      ]);
+
+      console.log('[DEBUG] API 调用成功');
+
+      // 显示成功对话框（添加错误处理）
+      try {
+        await dialog.alert('项目创建成功！', { variant: 'success' });
+        console.log('[DEBUG] 成功对话框已关闭');
+      } catch (dialogError) {
+        console.error('[ERROR] 成功对话框调用失败', dialogError);
+        // 继续执行，不影响后续流程
+      }
+
       setIsCreateDialogOpen(false);
       formHook.resetForm();
     } catch (error) {
+      console.error('[ERROR] 创建失败', error);
       const message = error instanceof Error ? error.message : '创建项目失败';
-      await dialog.alert(message, { variant: 'error' });
+      try {
+        await dialog.alert(message, { variant: 'error' });
+      } catch (dialogError) {
+        console.error('[ERROR] 错误对话框调用失败', dialogError);
+      }
     } finally {
+      console.log('[DEBUG] finally 块执行，重置 isSubmitting');
       setIsSubmitting(false);
     }
-  }, [isSubmitting, formHook, validationRules, api, dialog]);
+  }, [formHook, validationRules, api, dialog]);
 
   // ==================== 编辑项目 ====================
   // ✅ 使用 useCallback 优化回调函数
@@ -144,65 +188,119 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
 
   // ✅ 使用 useCallback 优化回调函数
   const handleSaveEdit = useCallback(async () => {
-    console.log('handleSaveEdit 开始执行', { editingProjectId, isSubmitting });
+    console.log('[DEBUG] handleSaveEdit 开始执行', { editingProjectId, isSubmitting });
 
     if (!editingProjectId || isSubmitting) {
-      console.log('提前返回：无项目ID或正在提交');
+      console.log('[DEBUG] 提前返回：无项目ID或正在提交');
       return;
     }
 
+    // 编辑现有项目时，使用宽松验证（不强制要求里程碑和日期）
+    const editValidationRules = {
+      requireDates: false,
+      requireMilestones: false, // 编辑模式不强制要求里程碑
+    };
+
     // 验证表单
-    console.log('开始验证表单', { formData: formHook.formData, validationRules });
-    const isValid = formHook.validate(validationRules);
-    console.log('验证结果', { isValid, errors: formHook.validationErrors });
+    console.log('[DEBUG] 开始验证表单', { formData: formHook.formData, validationRules: editValidationRules });
+    const isValid = formHook.validate(editValidationRules);
+    console.log('[DEBUG] 验证结果', { isValid, errors: formHook.validationErrors });
 
     if (!isValid) {
-      console.log('验证失败，显示错误提示', formHook.validationErrors);
+      console.log('[DEBUG] 验证失败，显示错误提示', formHook.validationErrors);
 
       // 构造详细的错误消息
       const errorMessages = Object.values(formHook.validationErrors).join('\n');
-      await dialog.alert(`表单验证失败：\n${errorMessages}`, { variant: 'error' });
+      try {
+        await dialog.alert(`表单验证失败：\n${errorMessages}`, { variant: 'error' });
+      } catch (dialogError) {
+        console.error('[ERROR] 对话框调用失败', dialogError);
+      }
       return;
     }
 
-    console.log('验证通过，开始提交');
+    // 对于产品开发类项目，如果没有里程碑，给出警告但允许保存
+    if (formHook.formData.projectType === 'product_development' &&
+        (!formHook.formData.milestones || formHook.formData.milestones.length === 0)) {
+      console.log('[DEBUG] 产品开发类项目没有里程碑，给出警告');
+      try {
+        const confirmed = await dialog.confirm(
+          '该产品开发类项目没有设置里程碑，建议添加里程碑以更好地跟踪项目进度。是否继续保存？',
+          { title: '提示', variant: 'warning' }
+        );
+        if (!confirmed) {
+          return;
+        }
+      } catch (dialogError) {
+        console.error('[ERROR] 确认对话框调用失败', dialogError);
+        return;
+      }
+    }
+
+    console.log('[DEBUG] 验证通过，开始提交');
     setIsSubmitting(true);
+    console.log('[DEBUG] isSubmitting 已设置为 true');
+
     try {
       const formData = formHook.getFormDataForSubmit();
-      console.log('表单数据已准备', { formData });
+      console.log('[DEBUG] 表单数据已准备', { formData });
 
       // 转换 memberIds 为数字数组
       const memberIdsAsNumbers = (formData.memberIds || []).map(id =>
         typeof id === 'string' ? parseInt(id) : id
       );
 
-      console.log('调用 API 更新项目', { editingProjectId, memberIdsAsNumbers });
+      console.log('[DEBUG] 成员ID已转换', { memberIdsAsNumbers });
+      console.log('[DEBUG] 开始调用 API...', { editingProjectId });
 
-      await api.updateProjectFull(editingProjectId, {
-        code: formData.code,
-        name: formData.name,
-        description: formData.description,
-        projectType: formData.projectType,
-        plannedStartDate: formData.plannedStartDate,
-        plannedEndDate: formData.plannedEndDate,
-        memberIds: memberIdsAsNumbers,
-        milestones: formData.milestones,
-      });
+      // 添加超时保护（30秒）
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('API调用超时（30秒），请检查网络连接')), 30000)
+      );
 
-      console.log('API 调用成功');
-      await dialog.alert('项目更新成功！', { variant: 'success' });
+      // 使用 Promise.race 防止 API 调用卡住
+      await Promise.race([
+        api.updateProjectFull(editingProjectId, {
+          code: formData.code,
+          name: formData.name,
+          description: formData.description,
+          projectType: formData.projectType,
+          plannedStartDate: formData.plannedStartDate,
+          plannedEndDate: formData.plannedEndDate,
+          memberIds: memberIdsAsNumbers,
+          milestones: formData.milestones,
+        }),
+        timeoutPromise
+      ]);
+
+      console.log('[DEBUG] API 调用成功');
+
+      // 显示成功对话框（添加错误处理）
+      try {
+        await dialog.alert('项目更新成功！', { variant: 'success' });
+        console.log('[DEBUG] 成功对话框已关闭');
+      } catch (dialogError) {
+        console.error('[ERROR] 成功对话框调用失败', dialogError);
+        // 继续执行，不影响后续流程
+      }
+
       setIsEditDialogOpen(false);
       formHook.resetForm();
       setEditingProjectId(null);
     } catch (error) {
-      console.error('保存失败', error);
+      console.error('[ERROR] 保存失败', error);
       const message = error instanceof Error ? error.message : '更新项目失败';
-      await dialog.alert(message, { variant: 'error' });
+      try {
+        await dialog.alert(message, { variant: 'error' });
+      } catch (dialogError) {
+        console.error('[ERROR] 错误对话框调用失败', dialogError);
+        // 对话框失败也要继续执行
+      }
     } finally {
-      console.log('提交完成');
+      console.log('[DEBUG] finally 块执行，重置 isSubmitting');
       setIsSubmitting(false);
     }
-  }, [editingProjectId, isSubmitting, formHook, validationRules, api, dialog]);
+  }, [editingProjectId, formHook, api, dialog]);
 
   // ==================== 关闭对话框前确认 ====================
   // ✅ 使用 useCallback 优化回调函数
@@ -220,6 +318,7 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
         if (confirmed) {
           formHook.resetForm();
           setEditingProjectId(null);
+          setIsSubmitting(false); // 重置提交状态
           setIsCreateDialogOpen(false);
           setIsEditDialogOpen(false);
         }
@@ -233,6 +332,7 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
       console.log('直接关闭对话框');
       formHook.resetForm();
       setEditingProjectId(null);
+      setIsSubmitting(false); // 重置提交状态
       setIsCreateDialogOpen(false);
       setIsEditDialogOpen(false);
     }
@@ -281,6 +381,7 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
     setIsEditDialogOpen(false);
     formHook.resetForm();
     setEditingProjectId(null);
+    setIsSubmitting(false); // 重置提交状态
   }, [formHook]);
 
   // ==================== 时间计划编辑器 ====================
@@ -382,7 +483,7 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
       {/* 编辑项目对话框 */}
       <Dialog open={isEditDialogOpen} onOpenChange={handleEditDialogOpenChange}>
         <DialogContent className="max-w-4xl max-h-[95vh] overflow-hidden flex flex-col p-0">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border flex-shrink-0 pr-12">
+          <DialogHeader className="px-6 pt-4 pb-3 border-b border-border flex-shrink-0 pr-12">
             <DialogTitle className="text-xl font-semibold text-foreground">编辑项目</DialogTitle>
           </DialogHeader>
           <div className="px-6 overflow-y-auto flex-1" style={{ paddingBottom: '80px' }}>
@@ -414,7 +515,12 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
       </Dialog>
 
       {/* 确认对话框 */}
-      <ConfirmDialog />
+      <ConfirmDialog
+        isOpen={dialog.confirmDialog.isOpen}
+        options={dialog.confirmDialog.options}
+        onConfirm={dialog.confirmDialog.handleConfirm}
+        onCancel={dialog.confirmDialog.handleCancel}
+      />
 
       {/* 时间计划编辑对话框 - 独立渲染 */}
       <ProjectTimePlanDialog
