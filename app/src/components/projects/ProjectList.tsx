@@ -124,48 +124,68 @@ export function ProjectList({
   // 分页
   const [currentPage, setCurrentPage] = useState(1);
 
-  // 筛选和排序后的项目列表
+  // 筛选和排序后的项目列表（性能优化版）
   const filteredProjects = useMemo(() => {
-    let result = [...projects];
+    let result = projects; // 不复制数组，减少内存操作
+
+    // ✅ 预处理搜索文本（只转换一次）
+    const hasSearchQuery = searchQuery.trim();
+    const searchQueryLower = hasSearchQuery ? searchQuery.toLowerCase().trim() : '';
 
     // 搜索过滤
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(project =>
-        project.name.toLowerCase().includes(query) ||
-        project.code.toLowerCase().includes(query) ||
-        (project.description && project.description.toLowerCase().includes(query))
-      );
+    if (searchQueryLower) {
+      result = result.filter(project => {
+        // ✅ 只转换一次项目数据
+        const name = project.name.toLowerCase();
+        const code = project.code.toLowerCase();
+        const desc = project.description?.toLowerCase() || '';
+        return name.includes(searchQueryLower) ||
+               code.includes(searchQueryLower) ||
+               desc.includes(searchQueryLower);
+      });
     }
 
-    // 状态过滤
-    result = result.filter(project => statusFilter[project.status] || false);
+    // ✅ 使用索引过滤（避免 Object.values，直接使用状态数组）
+    const activeFilters: ProjectStatus[] = [];
+    if (statusFilter.planning) activeFilters.push('planning');
+    if (statusFilter.in_progress) activeFilters.push('in_progress');
+    if (statusFilter.completed) activeFilters.push('completed');
+    if (statusFilter.delayed) activeFilters.push('delayed');
+    if (statusFilter.archived) activeFilters.push('archived');
 
-    // 排序
-    result.sort((a, b) => {
-      let compareValue = 0;
+    // 只有在未全选时才过滤
+    if (activeFilters.length < 5) {
+      result = result.filter(project => activeFilters.includes(project.status));
+    }
 
-      switch (sortBy) {
-        case 'name':
-          compareValue = a.name.localeCompare(b.name, 'zh-CN');
-          break;
-        case 'progress':
-          compareValue = a.progress - b.progress;
-          break;
-        case 'plannedEndDate':
-          const aDate = a.plannedEndDate ? new Date(a.plannedEndDate).getTime() : 0;
-          const bDate = b.plannedEndDate ? new Date(b.plannedEndDate).getTime() : 0;
-          compareValue = aDate - bDate;
-          break;
-        case 'createdAt':
-          const aCreated = new Date(a.createdAt).getTime();
-          const bCreated = new Date(b.createdAt).getTime();
-          compareValue = aCreated - bCreated;
-          break;
-      }
+    // ✅ 只在需要时排序（按创建时间降序是默认排序，不需要额外操作）
+    if (sortBy !== 'createdAt' || sortOrder !== 'desc') {
+      // 创建数组副本进行排序（避免修改原数组）
+      result = [...result].sort((a, b) => {
+        let compareValue = 0;
 
-      return sortOrder === 'asc' ? compareValue : -compareValue;
-    });
+        switch (sortBy) {
+          case 'name':
+            compareValue = a.name.localeCompare(b.name, 'zh-CN');
+            break;
+          case 'progress':
+            compareValue = a.progress - b.progress;
+            break;
+          case 'plannedEndDate':
+            const aDate = a.plannedEndDate ? new Date(a.plannedEndDate).getTime() : 0;
+            const bDate = b.plannedEndDate ? new Date(b.plannedEndDate).getTime() : 0;
+            compareValue = aDate - bDate;
+            break;
+          case 'createdAt':
+            const aCreated = new Date(a.createdAt).getTime();
+            const bCreated = new Date(b.createdAt).getTime();
+            compareValue = aCreated - bCreated;
+            break;
+        }
+
+        return sortOrder === 'asc' ? compareValue : -compareValue;
+      });
+    }
 
     return result;
   }, [projects, searchQuery, statusFilter, sortBy, sortOrder]);

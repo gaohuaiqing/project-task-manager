@@ -12,10 +12,8 @@
  * 使用原则：
  * - localStorage 仅作为缓存层，不是唯一数据源
  * - 真实数据源在后端数据库
- * - 缓存用于提升性能和离线降级
+ * - 缓存用于提升性能
  */
-
-import { indexedDBSyncService } from './IndexedDBSyncService';
 
 // ================================================================
 // 类型定义
@@ -58,8 +56,6 @@ export interface CacheStats {
 export interface CacheOptions {
   /** 生存时间（毫秒），默认 1 小时 */
   ttl?: number;
-  /** 是否同步到 IndexedDB（用于跨浏览器） */
-  syncToIndexedDB?: boolean;
   /** 数据版本号 */
   version?: number;
 }
@@ -232,7 +228,6 @@ class CacheManagerClass {
   // 生命周期管理属性
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   private initTimeout: ReturnType<typeof setTimeout> | null = null;
-  private pendingIndexedDBOps: Set<Promise<void>> = new Set();
   private isDestroyed: boolean = false;
   private isInitialized: boolean = false;
 
@@ -308,21 +303,6 @@ class CacheManagerClass {
 
       // 存储到 localStorage
       localStorage.setItem(normalizedKey, JSON.stringify(entry));
-
-      // 可选：同步到 IndexedDB（追踪 Promise）
-      if (options.syncToIndexedDB && !this.isDestroyed) {
-        const indexedDBOp = indexedDBSyncService.init().then(() => {
-          if (!this.isDestroyed) {
-            return indexedDBSyncService.saveData(normalizedKey, entry);
-          }
-        }).catch(err => {
-          console.warn(`[CacheManager] IndexedDB 同步失败:`, err);
-        }).finally(() => {
-          this.pendingIndexedDBOps.delete(indexedDBOp);
-        });
-
-        this.pendingIndexedDBOps.add(indexedDBOp);
-      }
 
       return true;
     } catch (error) {
@@ -710,10 +690,6 @@ CacheManagerClass.prototype.destroy = async function(): Promise<void> {
     clearInterval(this.cleanupInterval);
     this.cleanupInterval = null;
   }
-
-  // 等待所有 IndexedDB 操作完成
-  await Promise.allSettled(Array.from(this.pendingIndexedDBOps));
-  this.pendingIndexedDBOps.clear();
 
   // 清空内存缓存
   this.memoryCache.clear();

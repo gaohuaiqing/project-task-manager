@@ -23,7 +23,6 @@ import { getCapabilityDimensions } from '@/utils/capabilityDimensionManager';
 import type { UserRole } from '@/types/auth';
 import { WebSocketService } from '@/services/WebSocketService';
 import { broadcastService } from '@/services/BroadcastChannelService';
-import { indexedDBSyncService } from '@/services/IndexedDBSyncService';
 import { CacheManager } from '@/services/CacheManager';
 import { UserAccountService } from '@/services/UserAccountService';
 
@@ -68,13 +67,6 @@ export async function getOrganization(): Promise<OrganizationStructure | null> {
         // 同步到 localStorage（仅作为缓存，提升性能）
         CacheManager.set(ORG_STORAGE_KEY, orgData, { ttl: ORG_CACHE_TTL });
 
-        // 同步到 IndexedDB（跨浏览器）
-        indexedDBSyncService.init().then(() => {
-          indexedDBSyncService.saveData('organization_units', orgData);
-        }).catch(error => {
-          console.warn('[OrganizationManager] IndexedDB同步失败:', error);
-        });
-
         // 派发全局事件，通知所有监听器组织架构已更新
         try {
           const allMembers = getAllMembersSync();
@@ -112,32 +104,6 @@ export async function getOrganization(): Promise<OrganizationStructure | null> {
     }
 
     return cached;
-  }
-
-  // 最后尝试从 IndexedDB 读取（跨浏览器缓存）
-  try {
-    console.log('[OrganizationManager] 尝试从 IndexedDB 读取...');
-    await indexedDBSyncService.init();
-    const data = await indexedDBSyncService.getData('organization_units');
-    if (data && data.departments && data.departments.length > 0) {
-      console.log('[OrganizationManager] ⚠️ 从 IndexedDB 读取到组织架构，版本:', data.version, '部门数量:', data.departments?.length || 0);
-      // 同步到 localStorage 缓存
-      CacheManager.set(ORG_STORAGE_KEY, data, { ttl: ORG_CACHE_TTL });
-
-      // 从 IndexedDB 加载后也派发事件
-      try {
-        const allMembers = getAllMembersSync();
-        window.dispatchEvent(new CustomEvent('organization-changed', {
-          detail: { orgData: data, members: allMembers, source: 'indexed-db' }
-        }));
-      } catch (eventError) {
-        // 忽略事件派发错误
-      }
-
-      return data;
-    }
-  } catch (error) {
-    console.error('[OrganizationManager] Failed to read from IndexedDB:', error);
   }
 
   console.log('[OrganizationManager] ❌ 所有数据源均为空');
@@ -306,16 +272,7 @@ export async function saveOrganization(org: OrganizationStructure): Promise<void
     console.error('[OrganizationManager] BroadcastChannel同步失败:', error);
   }
 
-  // 4. IndexedDB 跨浏览器同步（同一台电脑不同浏览器）
-  try {
-    await indexedDBSyncService.init();
-    await indexedDBSyncService.saveData('organization_units', org);
-    console.log('[OrganizationManager] IndexedDB跨浏览器同步成功');
-  } catch (error) {
-    console.error('[OrganizationManager] IndexedDB同步失败:', error);
-  }
-
-  // 5. 派发全局事件，通知所有监听器组织架构已更新
+  // 4. 派发全局事件，通知所有监听器组织架构已更新
   try {
     const allMembers = getAllMembersSync();
     window.dispatchEvent(new CustomEvent('organization-changed', {

@@ -1,22 +1,22 @@
 /**
- * 项目管理器 - 性能优化版本
+ * 项目管理器 - React Query 优化版本
  *
  * 优化内容：
- * 1. 使用 useInitialData 进行批量数据加载
- * 2. 并行加载项目和成员数据
- * 3. 优化加载状态和错误处理
- * 4. 添加骨架屏加载体验
- * 5. 性能监控集成
+ * 1. 使用 React Query 管理服务端状态
+ * 2. 自动缓存和请求去重
+ * 3. 优化的变更操作（自动刷新缓存）
+ * 4. 修复 WebSocket 监听器（使用 Query Cache 更新）
+ * 5. 骨架屏加载体验
  *
  * @module components/projects/ProjectManagerOptimized
  */
 
-import React, { useState, useCallback, memo, useMemo } from 'react';
+import React, { useState, useCallback, memo, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { canPerformProjectOperation } from '@/types/auth';
-import { useInitialData } from '@/hooks/useInitialData';
+import { useProjectQueries } from '@/hooks/useProjectQueries';
 import { useProjectForm, useProjectTypeValidation } from '@/hooks/useProjectForm';
 import { ProjectList } from './ProjectList';
 import { ProjectForm } from './ProjectForm';
@@ -24,6 +24,10 @@ import { ProjectTimePlanDialog } from './ProjectTimePlanDialog';
 import { useDialog } from '@/hooks/useDialog';
 import { ConfirmDialog } from '@/components/common/DialogProvider';
 import { ProjectListSkeleton } from './ProjectListSkeleton';
+import { mySqlDataService } from '@/services/MySqlDataService';
+import { getDisplayMembersMap } from '@/services/MemberService';
+import { getOrganization } from '@/utils/organizationManager';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Project, ProjectFormData } from '@/types/project';
 import type { DisplayMember } from '@/types/member';
 
@@ -33,22 +37,61 @@ interface ProjectManagerOptimizedProps {
 }
 
 /**
- * 项目管理器组件 - 性能优化版本
+ * 项目管理器组件 - React Query 优化版本
  */
 export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ initialProjects }) => {
   const { user, isAdmin } = useAuth();
   const dialog = useDialog();
+  const queryClient = useQueryClient();
 
-  // ==================== 优化的数据加载 ====================
-  // 使用批量查询和并行加载
-  const {
-    projects,
-    members,
-    organization,
-    loading,
-    error,
-    reload
-  } = useInitialData();
+  // ==================== 使用 React Query 加载数据 ====================
+  const { data: projects = [], isLoading, error } = useProjects();
+
+  // ==================== 使用 Mutations ====================
+  const createProjectMutation = useCreateProject();
+  const updateProjectMutation = useUpdateProject();
+  const deleteProjectMutation = useDeleteProject();
+
+  // ==================== 成员和组织数据 ====================
+  const [membersMap, setMembersMap] = useState<Map<string, DisplayMember>>(new Map());
+  const [organization, setOrganization] = useState<any>(null);
+  const [membersLoaded, setMembersLoaded] = useState(false);
+
+  // 加载成员和组织数据（一次性）
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadMembersAndOrganization = async () => {
+      try {
+        const [members, org] = await Promise.all([
+          getDisplayMembersMap(),
+          getOrganization().catch(() => null),
+        ]);
+
+        if (isMounted) {
+          setMembersMap(members);
+          setOrganization(org);
+          setMembersLoaded(true);
+        }
+      } catch (err) {
+        console.error('[ProjectManagerOptimized] 加载成员数据失败:', err);
+        if (isMounted) {
+          setMembersLoaded(true);
+        }
+      }
+    };
+
+    loadMembersAndOrganization();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // 成员列表（用于表单）
+  const membersList = useMemo(() => {
+    return Array.from(membersMap.values());
+  }, [membersMap]);
 
   // ==================== 表单 Hooks ====================
   const formHook = useProjectForm();
@@ -66,35 +109,31 @@ export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ ini
   const canEdit = isAdmin || canPerformProjectOperation(user, 'update');
   const canDelete = isAdmin || canPerformProjectOperation(user, 'delete');
 
-  // ==================== 成员映射表 ====================
-  // 使用 useMemo 优化性能，避免重复计算
-  const membersMap = useMemo(() => {
-    return new Map<string, DisplayMember>(
-      Array.from(members.entries()).map(([key, member]) => [
-        key,
-        {
-          id: member.id,
-          name: member.name,
-          employeeId: member.employee_id,
-          department: member.department,
-          position: member.position,
-          email: member.email,
-          phone: member.phone,
-          status: member.status as 'active' | 'inactive'
+  // ==================== WebSocket 实时更新（修复版）====================
+  useEffect(() => {
+    // 订阅项目数据更新
+    const unsubscribe = mySqlDataService.on('projects', ({ operation, record }) => {
+      console.log('[ProjectManagerOptimized] 收到项目更新:', operation, record);
+
+      // 直接更新 Query Cache，不触发 fetchProjects（避免重复请求）
+      queryClient.setQueryData(['projects'], (old: Project[] = []) => {
+        switch (operation) {
+          case 'create':
+            return [...old, record];
+          case 'update':
+            return old.map(p => p.id === record.id ? record : p);
+          case 'delete':
+            return old.filter(p => p.id !== record.id);
+          default:
+            return old;
         }
-      ])
-    );
-  }, [members]);
+      });
+    });
 
-  // ==================== 成员列表（用于表单）====================
-  const membersList = useMemo(() => {
-    return Array.from(membersMap.values());
-  }, [membersMap]);
-
-  // ==================== API 操作（使用原 Hook 保持兼容）====================
-  // 注意：这里我们仍然使用 useProjectApi 来处理 CRUD 操作
-  // 但数据加载已通过 useInitialData 优化
-  // 实际项目中可以考虑将 CRUD 操作也集成到 useInitialData 中
+    return () => {
+      unsubscribe();
+    };
+  }, [queryClient]); // 只依赖 queryClient，避免频繁重建
 
   // ==================== 创建项目 ====================
   const handleCreateProject = useCallback(async () => {
@@ -119,35 +158,25 @@ export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ ini
         memberIds: memberIdsAsNumbers
       };
 
-      // TODO: 调用创建 API
-      // await api.createProject(projectData as any);
+      // 调用创建 API（React Query 会自动刷新缓存）
+      await createProjectMutation.mutateAsync(projectData as any);
 
       await dialog.alert('项目创建成功！', { variant: 'success' });
       setIsCreateDialogOpen(false);
       formHook.resetForm();
-
-      // 重新加载数据
-      await reload();
     } catch (error) {
       const message = error instanceof Error ? error.message : '创建项目失败';
       await dialog.alert(message, { variant: 'error' });
     } finally {
       setIsSubmitting(false);
     }
-  }, [isSubmitting, formHook, validationRules, dialog, reload]);
+  }, [isSubmitting, formHook, validationRules, dialog, createProjectMutation]);
 
   // ==================== 编辑项目 ====================
   const handleEditProject = useCallback(async (project: Project) => {
     const projectId = typeof project.id === 'number' ? project.id : parseInt(project.id);
     setEditingProjectId(projectId);
     formHook.loadFromProject(project);
-
-    // TODO: 加载项目详情（成员、里程碑）
-    // const [members, milestones] = await Promise.all([
-    //   api.fetchProjectMembers(projectId),
-    //   api.fetchProjectMilestones(projectId),
-    // ]);
-
     setIsEditDialogOpen(true);
   }, [formHook]);
 
@@ -192,26 +221,26 @@ export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ ini
         typeof id === 'string' ? parseInt(id) : id
       );
 
-      // TODO: 调用更新 API
-      // await api.updateProjectFull(editingProjectId, {
-      //   ...formData,
-      //   memberIds: memberIdsAsNumbers
-      // } as any);
+      // 调用更新 API（React Query 会自动刷新缓存）
+      await updateProjectMutation.mutateAsync({
+        id: editingProjectId,
+        data: {
+          ...formData,
+          memberIds: memberIdsAsNumbers
+        } as any
+      });
 
       await dialog.alert('项目更新成功！', { variant: 'success' });
       setIsEditDialogOpen(false);
       formHook.resetForm();
       setEditingProjectId(null);
-
-      // 重新加载数据
-      await reload();
     } catch (error) {
       const message = error instanceof Error ? error.message : '更新项目失败';
       await dialog.alert(message, { variant: 'error' });
     } finally {
       setIsSubmitting(false);
     }
-  }, [editingProjectId, isSubmitting, formHook, dialog, reload]);
+  }, [editingProjectId, isSubmitting, formHook, dialog, updateProjectMutation]);
 
   // ==================== 删除项目 ====================
   const handleDeleteProject = useCallback(async (project: Project) => {
@@ -223,18 +252,15 @@ export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ ini
     if (!confirmed) return;
 
     try {
-      // TODO: 调用删除 API
-      // await api.deleteProject(project.id);
+      // 调用删除 API（React Query 会自动刷新缓存）
+      await deleteProjectMutation.mutateAsync(project.id as number);
 
       await dialog.alert('项目删除成功！', { variant: 'success' });
-
-      // 重新加载数据
-      await reload();
     } catch (error) {
       const message = error instanceof Error ? error.message : '删除项目失败';
       await dialog.alert(message, { variant: 'error' });
     }
-  }, [dialog, reload]);
+  }, [dialog, deleteProjectMutation]);
 
   // ==================== 项目点击 ====================
   const handleProjectClick = useCallback((project: Project) => {
@@ -299,7 +325,7 @@ export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ ini
   // ==================== 渲染 ====================
   return (
     <>
-      {loading ? (
+      {isLoading || !membersLoaded ? (
         // 显示骨架屏
         <ProjectListSkeleton />
       ) : error ? (
@@ -307,8 +333,8 @@ export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ ini
         <div className="flex flex-col items-center justify-center h-full p-8">
           <div className="text-center">
             <h3 className="text-lg font-semibold text-destructive mb-2">加载失败</h3>
-            <p className="text-sm text-muted-foreground mb-4">{error}</p>
-            <Button onClick={reload} variant="outline">
+            <p className="text-sm text-muted-foreground mb-4">{error.message}</p>
+            <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['projects'] })} variant="outline">
               重试
             </Button>
           </div>
@@ -327,7 +353,7 @@ export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ ini
           onDelete={handleDeleteProject}
           isLoading={false}
           error={null}
-          onRetry={reload}
+          onRetry={() => queryClient.invalidateQueries({ queryKey: ['projects'] })}
         />
       )}
 
@@ -348,7 +374,7 @@ export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ ini
               onFieldValueChange={formHook.setFieldValue}
               onSubmit={handleCreateProject}
               onCancel={handleCancelForm}
-              isSubmitting={isSubmitting}
+              isSubmitting={isSubmitting || createProjectMutation.isPending}
               onOpenTimePlanDialog={handleOpenTimePlanDialog}
               showActions={false}
             />
@@ -357,8 +383,8 @@ export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ ini
             <Button type="button" variant="outline" onClick={handleCancelForm}>
               取消
             </Button>
-            <Button type="button" onClick={handleCreateProject} disabled={isSubmitting}>
-              {isSubmitting ? '提交中...' : '创建项目'}
+            <Button type="button" onClick={handleCreateProject} disabled={isSubmitting || createProjectMutation.isPending}>
+              {isSubmitting || createProjectMutation.isPending ? '提交中...' : '创建项目'}
             </Button>
           </div>
         </DialogContent>
@@ -381,7 +407,7 @@ export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ ini
               onFieldValueChange={formHook.setFieldValue}
               onSubmit={handleSaveEdit}
               onCancel={handleCancelForm}
-              isSubmitting={isSubmitting}
+              isSubmitting={isSubmitting || updateProjectMutation.isPending}
               onOpenTimePlanDialog={handleOpenTimePlanDialog}
               showActions={false}
             />
@@ -390,8 +416,8 @@ export const ProjectManagerOptimized = memo<ProjectManagerOptimizedProps>(({ ini
             <Button type="button" variant="outline" onClick={handleCancelForm}>
               取消
             </Button>
-            <Button type="button" onClick={handleSaveEdit} disabled={isSubmitting}>
-              {isSubmitting ? '提交中...' : '保存修改'}
+            <Button type="button" onClick={handleSaveEdit} disabled={isSubmitting || updateProjectMutation.isPending}>
+              {isSubmitting || updateProjectMutation.isPending ? '提交中...' : '保存修改'}
             </Button>
           </div>
         </DialogContent>

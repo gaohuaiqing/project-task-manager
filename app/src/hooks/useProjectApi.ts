@@ -588,7 +588,15 @@ export function useProjectApi(): UseProjectApiReturn {
     setProjectMilestonesState({ data: null, status: 'idle', error: null });
   }, []);
 
-  // ==================== 实时更新监听 ====================
+  // ==================== 实时更新监听（修复版）====================
+
+  // ✅ 使用 ref 存储最新状态，避免依赖项变化导致重建
+  const currentProjectIdRef = useRef(projectState.data?.id);
+
+  // 更新 ref 当状态变化时
+  useEffect(() => {
+    currentProjectIdRef.current = projectState.data?.id;
+  }, [projectState.data?.id]);
 
   useEffect(() => {
     // 订阅项目数据更新
@@ -598,8 +606,8 @@ export function useProjectApi(): UseProjectApiReturn {
       // 自动刷新项目列表
       fetchProjects().catch(console.error);
 
-      // 如果当前正在查看该项目，也刷新它
-      if (projectState.data?.id === record.id) {
+      // 如果当前正在查看该项目，也刷新它（使用 ref 避免依赖项）
+      if (currentProjectIdRef.current === record.id) {
         fetchProject(record.id).catch(console.error);
       }
     });
@@ -611,16 +619,11 @@ export function useProjectApi(): UseProjectApiReturn {
         unsubscribeRef.current();
       }
     };
-  }, [fetchProjects, fetchProject, projectState.data?.id]);
-
-  // ==================== 初始加载 ====================
-
-  useEffect(() => {
-    // 组件挂载时加载项目列表
-    fetchProjects().catch(console.error);
-  }, [fetchProjects]);
+  }, [fetchProjects, fetchProject]); // ✅ 只依赖函数引用，不依赖状态
 
   // ==================== 返回 ====================
+  // 注意：初始加载逻辑已移除，使用 React Query 的 useProjects hook 代替
+  // React Query 会自动管理数据加载和缓存
 
   return {
     // 项目列表

@@ -24,7 +24,6 @@ import {
 import { downloadOrganizationExcel } from '@/utils/excelHandler';
 import { WebSocketService } from '@/services/WebSocketService';
 import { broadcastService } from '@/services/BroadcastChannelService';
-import { indexedDBSyncService } from '@/services/IndexedDBSyncService';
 import { DialogProvider } from '@/components/common/DialogProvider';
 import { useDialog } from '@/hooks/useDialog';
 
@@ -112,51 +111,6 @@ export function OrganizationSettings() {
         setOrgStructure(data);
       }
     });
-
-    // 4. 监听 IndexedDB 数据更新（跨浏览器同步）- 只初始化一次
-    // 注意：由于单例模式，indexedDBSyncService 在整个应用中只有一个实例
-    // 我们使用一个全局标志来确保监听器只被添加一次
-    const INDEXEDDB_LISTENER_KEY = 'org_settings_indexeddb_listener_initialized';
-
-    if (!(window as any)[INDEXEDDB_LISTENER_KEY]) {
-      indexedDBSyncService.init()
-        .then(() => {
-          const unsubscribe = indexedDBSyncService.onDataChange('organization_units', (data) => {
-            if (!isMounted) return;
-
-            // 版本检查：基于 ref 中的最新版本
-            const currentVersion = orgVersionRef.current;
-            const newVersion = data?.version || 0;
-
-            console.log('[OrganizationSettings] 收到IndexedDB更新，新版本:', newVersion, '当前ref版本:', currentVersion, '部门数量:', data?.departments?.length || 0);
-
-            // 只有当新版本大于当前版本时才更新
-            if (newVersion > currentVersion) {
-              console.log('[OrganizationSettings] IndexedDB版本更新，接受新数据');
-              setOrgStructure(data);
-              // 同步到 localStorage（带错误处理）
-              try {
-                localStorage.setItem('org_structure', JSON.stringify(data));
-              } catch (error) {
-                console.warn('[OrganizationSettings] localStorage保存失败，可能是配额已满:', error);
-              }
-            } else {
-              console.log('[OrganizationSettings] IndexedDB版本旧于或等于当前版本，忽略更新');
-            }
-          });
-
-          // 保存取消监听的函数到全局，以便组件卸载时清理
-          (window as any)[INDEXEDDB_LISTENER_KEY + '_unsubscribe'] = unsubscribe;
-
-          console.log('[OrganizationSettings] IndexedDB监听器已初始化');
-        })
-        .catch((error) => {
-          console.warn('[OrganizationSettings] IndexedDB初始化失败，使用降级方案:', error);
-          // 降级：仅使用 localStorage 和 WebSocket 同步
-        });
-
-      (window as any)[INDEXEDDB_LISTENER_KEY] = true;
-    }
 
     window.addEventListener('storage', handleStorageChange);
     const unsubscribeWs = wsService.onMessage(messageHandler);

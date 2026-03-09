@@ -1,21 +1,17 @@
 /**
- * 查询缓存管理器 - 双层缓存架构
- *
- * 缓存层次：
- * L1: Redis 分布式缓存（共享，支持集群）
- * L2: LRU 内存缓存（本地，低延迟）
+ * 查询缓存管理器 - 单层 LRU 内存缓存
  *
  * 缓存策略：
  * - Cache-Aside：先查缓存，未命中则查数据库
  * - Write-Through：写操作时同步更新缓存
  * - 缓存穿透保护：空值缓存
- * - 缓存预热：系统启动时预加载热点数据
+ * - LRU 淘汰：自动淘汰最少使用的条目
  *
  * @author AI Assistant
  * @since 2025-03-04
+ * @updated 2026-03-10 - 简化架构，移除 Redis 层
  */
 
-import { redisCacheService } from './RedisCacheService.js';
 import { LRUCacheWithTTL, cacheCleanupManager } from '../utils/LRUCache.js';
 import crypto from 'crypto';
 
@@ -35,7 +31,6 @@ interface CacheEntry<T> {
 }
 
 interface CacheConfig {
-  redisTTL: number;      // Redis 缓存时间（秒）
   memoryTTL: number;     // 内存缓存时间（毫秒）
   memorySize: number;    // 内存缓存最大条目数
   enableNullCache: boolean; // 是否缓存空值（防止穿透）
@@ -56,42 +51,36 @@ interface QueryStats {
 const DEFAULT_CACHE_CONFIG: Record<string, CacheConfig> = {
   // 项目列表缓存
   projects_list: {
-    redisTTL: 300,       // 5 分钟
     memoryTTL: 60000,    // 1 分钟
     memorySize: 1000,
     enableNullCache: true
   },
   // 项目详情缓存
   projects_detail: {
-    redisTTL: 1800,      // 30 分钟
     memoryTTL: 300000,   // 5 分钟
     memorySize: 500,
     enableNullCache: true
   },
   // 成员列表缓存
   members_list: {
-    redisTTL: 600,       // 10 分钟
     memoryTTL: 120000,   // 2 分钟
     memorySize: 500,
     enableNullCache: true
   },
   // 成员详情缓存
   members_detail: {
-    redisTTL: 3600,      // 1 小时
     memoryTTL: 600000,   // 10 分钟
     memorySize: 200,
     enableNullCache: true
   },
   // WBS 任务列表缓存
   wbs_tasks_list: {
-    redisTTL: 180,       // 3 分钟
     memoryTTL: 30000,    // 30 秒
     memorySize: 2000,
     enableNullCache: true
   },
   // WBS 任务详情缓存
   wbs_tasks_detail: {
-    redisTTL: 900,       // 15 分钟
     memoryTTL: 180000,   // 3 分钟
     memorySize: 1000,
     enableNullCache: true
@@ -103,15 +92,12 @@ const DEFAULT_CACHE_CONFIG: Record<string, CacheConfig> = {
 // ================================================================
 
 class QueryCacheManager {
-  // L2 内存缓存（按缓存类型分组）
+  // LRU 内存缓存（按缓存类型分组）
   private memoryCaches: Map<string, LRUCacheWithTTL<string, any>>;
   // 查询统计
   private stats: Map<string, QueryStats>;
   // 空值标记
   private NULL_MARKER = '__NULL__';
-  // Redis 操作队列限制（防止队列累积）
-  private pendingRedisOps = 0;
-  private readonly MAX_PENDING_REDIS_OPS = 50;
 
   constructor() {
     this.memoryCaches = new Map();
@@ -123,7 +109,7 @@ class QueryCacheManager {
     // 注册定期清理任务
     this.registerCleanupTasks();
 
-    console.log('[QueryCacheManager] 查询缓存管理器已初始化');
+    console.log('[QueryCacheManager] 查询缓存管理器已初始化（单层 LRU 缓存）');
   }
 
   // ================================================================
@@ -173,7 +159,7 @@ class QueryCacheManager {
   // ================================================================
 
   /**
-   * 获取缓存数据（双层查询）
+   * 获取缓存数据
    * @param cacheType 缓存类型
    * @param key 缓存键
    * @returns 缓存数据，未命中返回 null
@@ -182,7 +168,7 @@ class QueryCacheManager {
     const startTime = Date.now();
     const stats = this.stats.get(cacheType);
 
-    // 1. 查询 L2 内存缓存
+    // 查询内存缓存
     const memoryCache = this.memoryCaches.get(cacheType);
     if (memoryCache) {
       const memoryData = memoryCache.get(key);
@@ -200,32 +186,7 @@ class QueryCacheManager {
       }
     }
 
-    // 2. 查询 L1 Redis 缓存
-    try {
-      if (redisCacheService.isConnected()) {
-        const redisKey = this.buildRedisKey(cacheType, key);
-        const redisData = await redisCacheService.get<CacheEntry<T>>(redisKey);
-
-        if (redisData) {
-          // 空值检测
-          if (redisData.data === this.NULL_MARKER) {
-            if (stats) stats.nullHits++;
-            return null;
-          }
-
-          // 回写 L2 内存缓存
-          memoryCache?.set(key, redisData.data);
-
-          if (stats) stats.hits++;
-          this.updateHitRate(cacheType);
-          return redisData.data;
-        }
-      }
-    } catch (error) {
-      console.warn(`[QueryCacheManager] Redis 查询失败，降级到数据库:`, error);
-    }
-
-    // 3. 缓存未命中
+    // 缓存未命中
     if (stats) stats.misses++;
     this.updateHitRate(cacheType);
 
@@ -236,7 +197,7 @@ class QueryCacheManager {
   }
 
   /**
-   * 设置缓存数据（双层写入）
+   * 设置缓存数据
    * @param cacheType 缓存类型
    * @param key 缓存键
    * @param data 缓存数据
@@ -254,44 +215,10 @@ class QueryCacheManager {
       ? this.NULL_MARKER
       : data;
 
-    // 1. 写入 L2 内存缓存
+    // 写入内存缓存
     const memoryCache = this.memoryCaches.get(cacheType);
     if (memoryCache && valueToCache !== undefined) {
       memoryCache.set(key, valueToCache);
-    }
-
-    // 2. 异步写入 L1 Redis 缓存（带队列限制）
-    if (redisCacheService.isConnected()) {
-      // 🔧 防止队列累积：检查待处理操作数量
-      if (this.pendingRedisOps < this.MAX_PENDING_REDIS_OPS) {
-        this.pendingRedisOps++;
-        setImmediate(async () => {
-          try {
-            const redisKey = this.buildRedisKey(cacheType, key);
-            const entry: CacheEntry<T> = {
-              data: valueToCache as T,
-              timestamp: Date.now(),
-              version,
-              metadata: {
-                queryHash: this.hashQuery(key),
-                hitCount: 0,
-                lastAccess: Date.now()
-              }
-            };
-
-            await redisCacheService.set(redisKey, entry, config.redisTTL);
-          } catch (error) {
-            console.warn(`[QueryCacheManager] Redis 写入失败:`, error);
-          } finally {
-            this.pendingRedisOps--;
-          }
-        });
-      } else {
-        // 队列已满，跳过 Redis 写入（仅记录日志）
-        if (this.pendingRedisOps === this.MAX_PENDING_REDIS_OPS) {
-          console.warn(`[QueryCacheManager] Redis 操作队列已满 (${this.MAX_PENDING_REDIS_OPS})，跳过部分操作`);
-        }
-      }
     }
   }
 
@@ -301,27 +228,9 @@ class QueryCacheManager {
    * @param key 缓存键
    */
   async delete(cacheType: string, key: string): Promise<void> {
-    // 1. 删除 L2 内存缓存
+    // 删除内存缓存
     const memoryCache = this.memoryCaches.get(cacheType);
     memoryCache?.delete(key);
-
-    // 2. 异步删除 L1 Redis 缓存（带队列限制）
-    if (redisCacheService.isConnected()) {
-      // 🔧 防止队列累积：检查待处理操作数量
-      if (this.pendingRedisOps < this.MAX_PENDING_REDIS_OPS) {
-        this.pendingRedisOps++;
-        setImmediate(async () => {
-          try {
-            const redisKey = this.buildRedisKey(cacheType, key);
-            await redisCacheService.del(redisKey);
-          } catch (error) {
-            console.warn(`[QueryCacheManager] Redis 删除失败:`, error);
-          } finally {
-            this.pendingRedisOps--;
-          }
-        });
-      }
-    }
   }
 
   /**
@@ -329,27 +238,9 @@ class QueryCacheManager {
    * @param cacheType 缓存类型
    */
   async invalidateType(cacheType: string): Promise<void> {
-    // 1. 清空 L2 内存缓存
+    // 清空内存缓存
     const memoryCache = this.memoryCaches.get(cacheType);
     memoryCache?.clear();
-
-    // 2. 异步删除 L1 Redis 缓存（带队列限制）
-    if (redisCacheService.isConnected()) {
-      // 🔧 防止队列累积：检查待处理操作数量
-      if (this.pendingRedisOps < this.MAX_PENDING_REDIS_OPS) {
-        this.pendingRedisOps++;
-        setImmediate(async () => {
-          try {
-            const pattern = this.buildRedisKey(cacheType, '*');
-            await redisCacheService.delPattern(pattern);
-          } catch (error) {
-            console.warn(`[QueryCacheManager] Redis 批量删除失败:`, error);
-          } finally {
-            this.pendingRedisOps--;
-          }
-        });
-      }
-    }
   }
 
   // ================================================================
@@ -473,16 +364,6 @@ class QueryCacheManager {
   }
 
   /**
-   * 构建 Redis 键
-   * @param cacheType 缓存类型
-   * @param key 键
-   * @returns Redis 键
-   */
-  private buildRedisKey(cacheType: string, key: string): string {
-    return `query:${cacheType}:${key}`;
-  }
-
-  /**
    * 检查是否为空值缓存
    */
   private isNullCached(cacheType: string, key: string): boolean {
@@ -545,15 +426,6 @@ class QueryCacheManager {
     // 清空内存缓存
     for (const cache of this.memoryCaches.values()) {
       cache.clear();
-    }
-
-    // 清空 Redis 缓存
-    if (redisCacheService.isConnected()) {
-      try {
-        await redisCacheService.delPattern('query:*');
-      } catch (error) {
-        console.warn('[QueryCacheManager] Redis 清空失败:', error);
-      }
     }
 
     // 重置统计

@@ -7,6 +7,9 @@ import App from './App.tsx'
 // 导入主题提供者
 import { ThemeProvider } from '@/components/theme/ThemeProvider'
 
+// 导入 React Query 提供者
+import { QueryProvider } from '@/providers/QueryProvider'
+
 // 导入服务管理器
 import { serviceManager } from '@/services/ServiceManager'
 
@@ -131,8 +134,10 @@ function RootApp() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ThemeProvider>
-      <RootApp />
-    </ThemeProvider>
+    <QueryProvider>
+      <ThemeProvider>
+        <RootApp />
+      </ThemeProvider>
+    </QueryProvider>
   </StrictMode>,
 )

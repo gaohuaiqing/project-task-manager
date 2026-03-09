@@ -9,7 +9,6 @@ import bcrypt from 'bcrypt';
 import { SessionManager } from './services/SessionManager.js';
 import { databaseService } from './services/DatabaseService.js';
 import { globalDataManager } from './services/GlobalDataManager.js';
-import { redisCacheService } from './services/RedisCacheService.js';
 import { permissionManagerOptimized as permissionManager } from './services/PermissionManagerOptimized.js';
 // 使用新的异步日志系统（已包含 systemLogger 别名和所有管理方法）
 import { systemLogger, asyncSystemLogger } from './services/AsyncSystemLogger.js';
@@ -340,44 +339,6 @@ app.get('/api/db-pool-status', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to get pool status', details: String(error) });
-  }
-});
-
-// Redis缓存状态监控
-app.get('/health/redis', async (req, res) => {
-  try {
-    const isConnected = redisCacheService.isConnected();
-
-    if (!isConnected) {
-      return res.status(503).json({
-        status: 'disconnected',
-        message: 'Redis缓存服务不可用',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // 获取Redis缓存统计信息
-    const stats = await redisCacheService.getStats();
-
-    res.json({
-      status: 'ok',
-      message: 'Redis缓存服务正常',
-      stats: {
-        hitRate: `${stats.hitRate}%`,
-        totalHits: stats.totalHits,
-        totalMisses: stats.totalMisses,
-        keyCount: stats.keyCount,
-        memoryUsage: `${(stats.memoryUsage / 1024 / 1024).toFixed(2)} MB`
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: '获取Redis状态失败',
-      error: String(error),
-      timestamp: new Date().toISOString()
-    });
   }
 });
 
