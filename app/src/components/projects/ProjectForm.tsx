@@ -59,6 +59,8 @@ interface ProjectFormProps {
   className?: string;
   /** 打开时间计划编辑器回调 */
   onOpenTimePlanDialog?: () => void;
+  /** 是否显示操作按钮（默认显示） */
+  showActions?: boolean;
 }
 
 /**
@@ -106,6 +108,7 @@ export function ProjectForm({
   isSubmitting = false,
   className,
   onOpenTimePlanDialog,
+  showActions = true,
 }: ProjectFormProps) {
   const [showTypeChangeDialog, setShowTypeChangeDialog] = useState(false);
   const [pendingTypeChange, setPendingTypeChange] = useState<ProjectType | null>(null);
@@ -486,8 +489,10 @@ export function ProjectForm({
             </Button>
           </div>
         )}
+      </div>
 
-        {/* 操作按钮 - 设计文档第144行：按钮靠在一起 */}
+      {/* 操作按钮 - 设计文档第144行：按钮靠在一起 */}
+      {showActions && (
         <div className="flex justify-center gap-3 pt-4 border-t border-border">
           <Button type="button" variant="outline" onClick={onCancel}>
             取消
@@ -496,7 +501,7 @@ export function ProjectForm({
             {isSubmitting ? '提交中...' : project ? '保存修改' : '创建项目'}
           </Button>
         </div>
-      </div>
+      )}
 
       {/* 项目类型切换确认对话框 */}
       {showTypeChangeDialog && pendingTypeChange && (

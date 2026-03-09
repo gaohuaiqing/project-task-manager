@@ -246,17 +246,29 @@ export function getHandleAtPosition(
 /**
  * 格式化拖拽提示文本
  * @param result - 拖拽结果
+ * @param originalStartDate - 原始开始日期（用于计算偏移）
  * @returns 提示文本
  */
-export function formatDragTooltip(result: DragResult): string {
+export function formatDragTooltip(result: DragResult, originalStartDate?: string): string {
   if (!result.valid) {
     return '无效的日期范围';
   }
 
   const formatDate = (date: string) => {
-    const [year, month, day] = date.split('-');
-    return `${parseInt(month)}/${parseInt(day)}`;
+    const d = new Date(date);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
   };
 
+  // 如果有原始开始日期，计算天数偏移
+  if (originalStartDate) {
+    const originalDate = new Date(originalStartDate);
+    const newDate = new Date(result.startDate);
+    const dayDiff = Math.round((newDate.getTime() - originalDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    const sign = dayDiff >= 0 ? '+' : '';
+    return `${formatDate(result.startDate)} ${sign}${dayDiff}天`;
+  }
+
+  // 否则显示日期范围
   return `${formatDate(result.startDate)} - ${formatDate(result.endDate)} (${result.duration}天)`;
 }

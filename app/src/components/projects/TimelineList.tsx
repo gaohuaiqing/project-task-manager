@@ -42,6 +42,18 @@ interface TimelineListProps {
   onTaskMouseLeave?: () => void;
   /** 点击轨道回调 */
   onTrackClick?: (date: string, timelineId: string) => void;
+  /** 编辑任务回调 */
+  onEditTask?: (task: any) => void;
+  /** 复制任务回调 */
+  onCopyTask?: (task: any) => void;
+  /** 切换状态回调 */
+  onToggleTaskStatus?: (task: any) => void;
+  /** 删除任务回调 */
+  onDeleteTask?: (task: any) => void;
+  /** 重命名时间轴回调 */
+  onRenameTimeline?: (timeline: Timeline) => void;
+  /** 删除时间轴回调 */
+  onDeleteTimeline?: (timeline: Timeline) => void;
   /** 自定义样式类名 */
   className?: string;
 }
@@ -64,6 +76,12 @@ export function TimelineList({
   onTaskMouseEnter,
   onTaskMouseLeave,
   onTrackClick,
+  onEditTask,
+  onCopyTask,
+  onToggleTaskStatus,
+  onDeleteTask,
+  onRenameTimeline,
+  onDeleteTimeline,
   className = '',
 }: TimelineListProps) {
   // 过滤可见的时间轴
@@ -105,6 +123,12 @@ export function TimelineList({
             onTaskMouseEnter={onTaskMouseEnter}
             onTaskMouseLeave={onTaskMouseLeave}
             onTrackClick={onTrackClick}
+            onEditTask={onEditTask}
+            onCopyTask={onCopyTask}
+            onToggleTaskStatus={onToggleTaskStatus}
+            onDeleteTask={onDeleteTask}
+            onRenameTimeline={onRenameTimeline}
+            onDeleteTimeline={onDeleteTimeline}
           />
         ))}
 

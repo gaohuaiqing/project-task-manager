@@ -34,7 +34,7 @@ function DialogContent({ className, children, showCloseButton = true, ...props }
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "bg-background fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border p-6 shadow-lg outline-none sm:max-w-lg",
+          "bg-background fixed top-1/2 left-1/2 z-50 w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border shadow-lg outline-none sm:max-w-lg",
           className
         )}
         style={{
@@ -45,7 +45,11 @@ function DialogContent({ className, children, showCloseButton = true, ...props }
           // 禁用硬件加速
           transform: 'translate(-50%, -50%) translateZ(0)',
           backfaceVisibility: 'hidden',
-          perspective: '1000px'
+          perspective: '1000px',
+          // 确保不使用 grid，改用 flex
+          display: 'flex',
+          flexDirection: 'column',
+          maxHeight: '95vh'
         }}
         {...props}
       >
@@ -53,7 +57,10 @@ function DialogContent({ className, children, showCloseButton = true, ...props }
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-3 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-3 right-4 z-[9999] rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-card hover:bg-accent cursor-pointer p-2"
+            onClick={(e) => {
+              console.log('关闭按钮 onClick 被触发', e);
+            }}
           >
             <XIcon />
             <span className="sr-only">Close</span>

@@ -235,7 +235,7 @@ export function useTimelineDrag(options: UseTimelineDragOptions) {
   /**
    * 格式化提示文本
    */
-  const tooltipText = formatDragTooltip(result);
+  const tooltipText = formatDragTooltip(result, dragState.originalTask?.startDate);
 
   /**
    * 处理任务悬停

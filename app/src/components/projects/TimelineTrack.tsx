@@ -42,6 +42,14 @@ interface TimelineTrackProps {
   onTaskMouseLeave?: () => void;
   /** 点击轨道回调（用于添加任务） */
   onTrackClick?: (date: string, timelineId: string) => void;
+  /** 编辑任务回调 */
+  onEditTask?: (task: any) => void;
+  /** 复制任务回调 */
+  onCopyTask?: (task: any) => void;
+  /** 切换状态回调 */
+  onToggleTaskStatus?: (task: any) => void;
+  /** 删除任务回调 */
+  onDeleteTask?: (task: any) => void;
   /** 自定义样式类名 */
   className?: string;
 }
@@ -64,6 +72,10 @@ export function TimelineTrack({
   onTaskMouseEnter,
   onTaskMouseLeave,
   onTrackClick,
+  onEditTask,
+  onCopyTask,
+  onToggleTaskStatus,
+  onDeleteTask,
   className = '',
 }: TimelineTrackProps) {
   const isEven = index % 2 === 0;
@@ -147,6 +159,10 @@ export function TimelineTrack({
             onMouseEnter={() => onTaskMouseEnter?.(task.id)}
             onMouseLeave={onTaskMouseLeave}
             onDoubleClick={() => onTaskDoubleClick?.(task)}
+            onEdit={onEditTask}
+            onCopy={onCopyTask}
+            onToggleStatus={onToggleTaskStatus}
+            onDelete={onDeleteTask}
           />
         );
       })}

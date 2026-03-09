@@ -185,6 +185,107 @@ export function MultiTimelineView({
   }, [timelines, onTimelinesChange]);
 
   /**
+   * 处理编辑任务
+   */
+  const handleEditTask = useCallback((task: TimelineTask) => {
+    onTaskDoubleClick?.(task);
+  }, [onTaskDoubleClick]);
+
+  /**
+   * 处理复制任务
+   */
+  const handleCopyTask = useCallback((task: TimelineTask) => {
+    const newTask = {
+      ...task,
+      id: `task_${Date.now()}`,
+      title: `${task.title} (副本)`,
+    };
+
+    const updatedTimelines = timelines.map(timeline => {
+      if (timeline.config.id === task.timelineId) {
+        return {
+          ...timeline,
+          tasks: [...timeline.tasks, newTask],
+        };
+      }
+      return timeline;
+    });
+
+    onTimelinesChange(updatedTimelines);
+  }, [timelines, onTimelinesChange]);
+
+  /**
+   * 处理切换任务状态
+   */
+  const handleToggleTaskStatus = useCallback((task: TimelineTask) => {
+    const statusFlow: Record<string, string> = {
+      pending: 'in_progress',
+      in_progress: 'completed',
+      completed: 'pending',
+      cancelled: 'pending',
+    };
+
+    const newStatus = statusFlow[task.status] || 'pending';
+
+    const updatedTimelines = timelines.map(timeline => {
+      const taskIndex = timeline.tasks.findIndex(t => t.id === task.id);
+      if (taskIndex !== -1) {
+        const updatedTasks = [...timeline.tasks];
+        updatedTasks[taskIndex] = {
+          ...updatedTasks[taskIndex],
+          status: newStatus as any,
+        };
+        return {
+          ...timeline,
+          tasks: updatedTasks,
+        };
+      }
+      return timeline;
+    });
+
+    onTimelinesChange(updatedTimelines);
+  }, [timelines, onTimelinesChange]);
+
+  /**
+   * 处理删除任务
+   */
+  const handleDeleteTask = useCallback((task: TimelineTask) => {
+    const updatedTimelines = timelines.map(timeline => {
+      if (timeline.tasks.some(t => t.id === task.id)) {
+        return {
+          ...timeline,
+          tasks: timeline.tasks.filter(t => t.id !== task.id),
+        };
+      }
+      return timeline;
+    });
+
+    onTimelinesChange(updatedTimelines);
+  }, [timelines, onTimelinesChange]);
+
+  /**
+   * 处理重命名时间轴
+   */
+  const handleRenameTimeline = useCallback((timeline: Timeline) => {
+    const newName = prompt('请输入新的时间轴名称：', timeline.config.name);
+    if (newName && newName.trim() !== '') {
+      const updatedTimelines = timelines.map(t => {
+        if (t.config.id === timeline.config.id) {
+          return {
+            ...t,
+            config: {
+              ...t.config,
+              name: newName.trim(),
+            },
+          };
+        }
+        return t;
+      });
+      onTimelinesChange(updatedTimelines);
+    }
+  }, [timelines, onTimelinesChange]);
+
+  /**
    * 计算时间轴总宽度
    */
   const totalWidth = useMemo(() => {
@@ -218,6 +319,12 @@ export function MultiTimelineView({
           onTaskMouseEnter={setHoveredTaskId}
           onTaskMouseLeave={() => setHoveredTaskId(null)}
           onTrackClick={handleTrackClick}
+          onEditTask={handleEditTask}
+          onCopyTask={handleCopyTask}
+          onToggleTaskStatus={handleToggleTaskStatus}
+          onDeleteTask={handleDeleteTask}
+          onRenameTimeline={handleRenameTimeline}
+          onDeleteTimeline={handleDeleteTimeline}
         />
       </div>
 

@@ -15,6 +15,7 @@
 
 import React, { useState, useEffect, useCallback, memo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { canPerformProjectOperation } from '@/types/auth';
 import { useProjectApi } from '@/hooks/useProjectApi';
@@ -77,13 +78,26 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
     if (isSubmitting) return;
 
     if (!formHook.validate(validationRules)) {
+      // 验证失败时，显示错误提示
+      await dialog.alert('请检查表单，有必填字段未填写或填写有误', { variant: 'error' });
       return;
     }
 
     setIsSubmitting(true);
     try {
       const formData = formHook.getFormDataForSubmit();
-      await api.createProject(formData as any);
+
+      // 转换 memberIds 为数字数组
+      const memberIdsAsNumbers = (formData.memberIds || []).map(id =>
+        typeof id === 'string' ? parseInt(id) : id
+      );
+
+      const projectData = {
+        ...formData,
+        memberIds: memberIdsAsNumbers
+      };
+
+      await api.createProject(projectData as any);
 
       await dialog.alert('项目创建成功！', { variant: 'success' });
       setIsCreateDialogOpen(false);
@@ -130,15 +144,39 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
 
   // ✅ 使用 useCallback 优化回调函数
   const handleSaveEdit = useCallback(async () => {
-    if (!editingProjectId || isSubmitting) return;
+    console.log('handleSaveEdit 开始执行', { editingProjectId, isSubmitting });
 
-    if (!formHook.validate(validationRules)) {
+    if (!editingProjectId || isSubmitting) {
+      console.log('提前返回：无项目ID或正在提交');
       return;
     }
 
+    // 验证表单
+    console.log('开始验证表单', { formData: formHook.formData, validationRules });
+    const isValid = formHook.validate(validationRules);
+    console.log('验证结果', { isValid, errors: formHook.validationErrors });
+
+    if (!isValid) {
+      console.log('验证失败，显示错误提示', formHook.validationErrors);
+
+      // 构造详细的错误消息
+      const errorMessages = Object.values(formHook.validationErrors).join('\n');
+      await dialog.alert(`表单验证失败：\n${errorMessages}`, { variant: 'error' });
+      return;
+    }
+
+    console.log('验证通过，开始提交');
     setIsSubmitting(true);
     try {
       const formData = formHook.getFormDataForSubmit();
+      console.log('表单数据已准备', { formData });
+
+      // 转换 memberIds 为数字数组
+      const memberIdsAsNumbers = (formData.memberIds || []).map(id =>
+        typeof id === 'string' ? parseInt(id) : id
+      );
+
+      console.log('调用 API 更新项目', { editingProjectId, memberIdsAsNumbers });
 
       await api.updateProjectFull(editingProjectId, {
         code: formData.code,
@@ -147,18 +185,21 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
         projectType: formData.projectType,
         plannedStartDate: formData.plannedStartDate,
         plannedEndDate: formData.plannedEndDate,
-        memberIds: formData.memberIds,
+        memberIds: memberIdsAsNumbers,
         milestones: formData.milestones,
       });
 
+      console.log('API 调用成功');
       await dialog.alert('项目更新成功！', { variant: 'success' });
       setIsEditDialogOpen(false);
       formHook.resetForm();
       setEditingProjectId(null);
     } catch (error) {
+      console.error('保存失败', error);
       const message = error instanceof Error ? error.message : '更新项目失败';
       await dialog.alert(message, { variant: 'error' });
     } finally {
+      console.log('提交完成');
       setIsSubmitting(false);
     }
   }, [editingProjectId, isSubmitting, formHook, validationRules, api, dialog]);
@@ -166,12 +207,16 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
   // ==================== 关闭对话框前确认 ====================
   // ✅ 使用 useCallback 优化回调函数
   const handleDialogClose = useCallback((open: boolean) => {
+    console.log('handleDialogClose 被调用', { open, isDirty: formHook.isDirty });
+
     if (!open && formHook.isDirty) {
       // 有未保存的更改，显示确认对话框
+      console.log('有未保存更改，显示确认对话框');
       dialog.confirm('有未保存的更改，确定要离开吗？', {
         title: '确认',
         variant: 'warning'
       }).then((confirmed) => {
+        console.log('确认对话框结果', confirmed);
         if (confirmed) {
           formHook.resetForm();
           setEditingProjectId(null);
@@ -185,6 +230,7 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
       setIsEditDialogOpen(true);
     } else {
       // 关闭对话框（没有未保存更改）
+      console.log('直接关闭对话框');
       formHook.resetForm();
       setEditingProjectId(null);
       setIsCreateDialogOpen(false);
@@ -301,11 +347,11 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
 
       {/* 创建项目对话框 */}
       <Dialog open={isCreateDialogOpen} onOpenChange={handleCreateDialogOpenChange}>
-        <DialogContent className="max-w-4xl p-0 max-h-[95vh] overflow-y-auto">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border sticky top-0 bg-card z-10">
+        <DialogContent className="max-w-4xl max-h-[95vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border flex-shrink-0 pr-12">
             <DialogTitle className="text-xl font-semibold text-foreground">新建项目</DialogTitle>
           </DialogHeader>
-          <div className="px-6 pb-6">
+          <div className="px-6 overflow-y-auto flex-1" style={{ paddingBottom: '80px' }}>
             <ProjectForm
               project={null}
               organization={organization}
@@ -318,18 +364,28 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
               onCancel={handleCancelForm}
               isSubmitting={isSubmitting}
               onOpenTimePlanDialog={handleOpenTimePlanDialog}
+              showActions={false}
             />
+          </div>
+          {/* 固定在底部的操作按钮 */}
+          <div className="flex justify-center gap-3 px-6 py-4 border-t border-border bg-card flex-shrink-0 relative z-10">
+            <Button type="button" variant="outline" onClick={handleCancelForm}>
+              取消
+            </Button>
+            <Button type="button" onClick={handleCreateProject} disabled={isSubmitting}>
+              {isSubmitting ? '提交中...' : '创建项目'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* 编辑项目对话框 */}
       <Dialog open={isEditDialogOpen} onOpenChange={handleEditDialogOpenChange}>
-        <DialogContent className="max-w-4xl p-0 max-h-[95vh] overflow-y-auto">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border sticky top-0 bg-card z-10">
+        <DialogContent className="max-w-4xl max-h-[95vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border flex-shrink-0 pr-12">
             <DialogTitle className="text-xl font-semibold text-foreground">编辑项目</DialogTitle>
           </DialogHeader>
-          <div className="px-6 pb-6">
+          <div className="px-6 overflow-y-auto flex-1" style={{ paddingBottom: '80px' }}>
             <ProjectForm
               project={api.projects.find(p => p.id === editingProjectId) || null}
               organization={organization}
@@ -342,7 +398,17 @@ export const ProjectManagerV2 = memo<ProjectManagerProps>(({ initialProjects }) 
               onCancel={handleCancelForm}
               isSubmitting={isSubmitting}
               onOpenTimePlanDialog={handleOpenTimePlanDialog}
+              showActions={false}
             />
+          </div>
+          {/* 固定在底部的操作按钮 */}
+          <div className="flex justify-center gap-3 px-6 py-4 border-t border-border bg-card flex-shrink-0 relative z-10">
+            <Button type="button" variant="outline" onClick={handleCancelForm}>
+              取消
+            </Button>
+            <Button type="button" onClick={handleSaveEdit} disabled={isSubmitting}>
+              {isSubmitting ? '提交中...' : '保存修改'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

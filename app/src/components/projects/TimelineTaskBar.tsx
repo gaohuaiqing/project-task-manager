@@ -2,14 +2,15 @@
  * 时间轴任务条组件
  *
  * 显示单个任务的时间条，支持拖拽调整
- * 状态指示、进度显示、拖拽手柄
+ * 状态指示、进度显示、拖拽手柄、右键菜单
  *
  * @module components/projects/TimelineTaskBar
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { TimelineTask } from '@/types/timeline';
 import { getTaskStatusColor } from '@/utils/timelineHelpers';
+import { TaskContextMenu, type ContextMenuPosition } from './TimelineContextMenu';
 
 interface TimelineTaskBarProps {
   /** 任务数据 */
@@ -36,6 +37,14 @@ interface TimelineTaskBarProps {
   onMouseLeave?: () => void;
   /** 双击回调 */
   onDoubleClick?: () => void;
+  /** 编辑任务回调 */
+  onEdit?: (task: TimelineTask) => void;
+  /** 复制任务回调 */
+  onCopy?: (task: TimelineTask) => void;
+  /** 切换状态回调 */
+  onToggleStatus?: (task: TimelineTask) => void;
+  /** 删除任务回调 */
+  onDelete?: (task: TimelineTask) => void;
   /** 自定义样式类名 */
   className?: string;
 }
@@ -56,31 +65,64 @@ export function TimelineTaskBar({
   onMouseEnter,
   onMouseLeave,
   onDoubleClick,
+  onEdit,
+  onCopy,
+  onToggleStatus,
+  onDelete,
   className = '',
 }: TimelineTaskBarProps) {
   const statusColor = useMemo(() => getTaskStatusColor(task.status), [task.status]);
   const isMilestone = task.startDate === task.endDate;
+  const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleCloseContextMenu = () => {
+    setContextMenu(null);
+  };
+
+  const handleEdit = () => {
+    onEdit?.(task);
+  };
+
+  const handleCopy = () => {
+    onCopy?.(task);
+  };
+
+  const handleToggleStatus = () => {
+    onToggleStatus?.(task);
+  };
+
+  const handleDelete = () => {
+    onDelete?.(task);
+  };
 
   return (
-    <div
-      className={`absolute rounded-md shadow-sm transition-all duration-150 ${className} ${
-        isDragging ? 'opacity-70 cursor-grabbing' : 'cursor-grab'
-      } ${isSelected ? 'ring-2 ring-blue-500 ring-offset-1' : ''} ${
-        isHovered && !isDragging ? 'shadow-md' : ''
-      }`}
-      style={{
-        left: `${x}px`,
-        width: `${Math.max(width, isMilestone ? 12 : 40)}px`,
-        height: `${height}px`,
-        backgroundColor: statusColor,
-        opacity: task.status === 'cancelled' ? 0.6 : 1,
-      }}
-      onMouseDown={(e) => onMouseDown?.(e, task)}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      onDoubleClick={onDoubleClick}
-      title={getTaskTooltip(task)}
-    >
+    <>
+      <div
+        className={`absolute rounded-md shadow-sm transition-all duration-150 ${className} ${
+          isDragging ? 'opacity-70 cursor-grabbing' : 'cursor-grab'
+        } ${isSelected ? 'ring-2 ring-blue-500 ring-offset-1' : ''} ${
+          isHovered && !isDragging ? 'shadow-md' : ''
+        }`}
+        style={{
+          left: `${x}px`,
+          width: `${Math.max(width, isMilestone ? 12 : 40)}px`,
+          height: `${height}px`,
+          backgroundColor: statusColor,
+          opacity: task.status === 'cancelled' ? 0.6 : 1,
+        }}
+        onMouseDown={(e) => onMouseDown?.(e, task)}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        onDoubleClick={onDoubleClick}
+        onContextMenu={handleContextMenu}
+        title={getTaskTooltip(task)}
+      >
       {/* 任务内容 */}
       <div className="flex items-center h-full px-2 overflow-hidden">
         {/* 里程碑标识 */}
@@ -88,9 +130,9 @@ export function TimelineTaskBar({
           <div className="w-2 h-2 rounded-full bg-white mr-1.5 flex-shrink-0" />
         )}
 
-        {/* 任务标题 */}
+        {/* 任务内容：持续时间 | 日期范围 */}
         <span className="text-xs font-medium text-white truncate flex-1">
-          {task.title}
+          {formatTaskDisplay(task)}
         </span>
 
         {/* 进度指示器（非里程碑任务） */}
@@ -113,9 +155,9 @@ export function TimelineTaskBar({
       {isHovered && !isDragging && width > 40 && (
         <>
           {/* 左手柄 */}
-          <div className="absolute top-0 left-0 w-1.5 h-full bg-white/30 rounded-l-md cursor-ew-resize" />
+          <div className="absolute top-1/2 left-1.5 -translate-y-1/2 w-3 h-3 bg-white/80 rounded-full border-2 border-white cursor-ew-resize shadow-sm" />
           {/* 右手柄 */}
-          <div className="absolute top-0 right-0 w-1.5 h-full bg-white/30 rounded-r-md cursor-ew-resize" />
+          <div className="absolute top-1/2 right-1.5 -translate-y-1/2 w-3 h-3 bg-white/80 rounded-full border-2 border-white cursor-ew-resize shadow-sm" />
         </>
       )}
 
@@ -137,7 +179,41 @@ export function TimelineTaskBar({
         />
       )}
     </div>
+
+    {/* 右键菜单 */}
+    {contextMenu && (
+      <TaskContextMenu
+        task={task}
+        position={contextMenu}
+        onClose={handleCloseContextMenu}
+        onEdit={handleEdit}
+        onCopy={handleCopy}
+        onToggleStatus={handleToggleStatus}
+        onDelete={handleDelete}
+      />
+    )}
+  </>
   );
+}
+
+/**
+ * 格式化任务显示文本 (持续时间 | 日期范围)
+ */
+function formatTaskDisplay(task: TimelineTask): string {
+  const formatDate = (date: string) => {
+    const d = new Date(date);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  };
+
+  const duration = Math.ceil(
+    (new Date(task.endDate).getTime() - new Date(task.startDate).getTime()) / (1000 * 60 * 60 * 24)
+  ) + 1;
+
+  if (task.startDate === task.endDate) {
+    return `1天 | ${formatDate(task.startDate)}`;
+  }
+
+  return `${duration}天 | ${formatDate(task.startDate)}-${formatDate(task.endDate)}`;
 }
 
 /**
