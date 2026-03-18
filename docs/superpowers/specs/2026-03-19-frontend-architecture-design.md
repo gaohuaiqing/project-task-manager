@@ -1,6 +1,6 @@
 # 前端架构设计文档
 
-> **文档版本**: 1.0
+> **文档版本**: 1.1
 > **创建日期**: 2026-03-19
 > **状态**: 设计完成，待实施
 > **作者**: AI Assistant
@@ -132,16 +132,17 @@ app/src/
 │   │   └── types.ts
 │   │
 │   └── settings/                  # 设置
-│       ├── components/
-│       │   ├── UserManagement.tsx
-│       │   ├── PermissionSettings.tsx
-│       │   ├── OrgStructure.tsx
-│       │   └── SystemConfig.tsx
+│       ├── components/            # 可复用组件
+│       │   ├── UserForm.tsx       # 用户表单组件
+│       │   ├── PermissionEditor.tsx
+│       │   └── OrgTree.tsx        # 组织架构树
 │       ├── hooks/
-│       ├── pages/                 # 设置子页面
-│       │   ├── Profile.tsx
-│       │   ├── Users.tsx
-│       │   └── Permissions.tsx
+│       ├── pages/                 # 设置子页面（路由级）
+│       │   ├── Profile.tsx        # /settings/profile
+│       │   ├── Users.tsx          # /settings/users
+│       │   ├── Permissions.tsx    # /settings/permissions
+│       │   ├── Organization.tsx   # /settings/organization
+│       │   └── SystemConfig.tsx   # /settings/system
 │       ├── index.tsx
 │       └── types.ts
 │
@@ -425,9 +426,227 @@ export const useUpdateProject = () => {
 
 ---
 
-## 6. 路由设计
+## 6. 实时通信（WebSocket）
 
-### 6.1 路由结构
+### 6.1 WebSocket 客户端设计
+
+```typescript
+// lib/api/websocket.ts
+type MessageHandler = (data: unknown) => void;
+type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+
+class WebSocketClient {
+  private ws: WebSocket | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 1000;
+  private handlers: Map<string, Set<MessageHandler>> = new Map();
+  private status: ConnectionStatus = 'disconnected';
+
+  connect() {
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
+    this.ws = new WebSocket(wsUrl);
+    this.status = 'connecting';
+
+    this.ws.onopen = () => {
+      this.status = 'connected';
+      this.reconnectAttempts = 0;
+    };
+
+    this.ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      this.handleMessage(message);
+    };
+
+    this.ws.onclose = () => {
+      this.status = 'disconnected';
+      this.scheduleReconnect();
+    };
+
+    this.ws.onerror = () => {
+      this.status = 'error';
+    };
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      setTimeout(() => this.connect(), this.reconnectDelay * this.reconnectAttempts);
+    }
+  }
+
+  subscribe(event: string, handler: MessageHandler) {
+    if (!this.handlers.has(event)) {
+      this.handlers.set(event, new Set());
+    }
+    this.handlers.get(event)!.add(handler);
+    return () => this.handlers.get(event)?.delete(handler);
+  }
+
+  private handleMessage(message: { type: string; data: unknown }) {
+    const handlers = this.handlers.get(message.type);
+    handlers?.forEach((h) => h(message.data));
+  }
+
+  send(type: string, data: unknown) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type, data }));
+    }
+  }
+
+  getStatus() {
+    return this.status;
+  }
+}
+
+export const wsClient = new WebSocketClient();
+```
+
+### 6.2 与 React Query 集成
+
+```typescript
+// lib/hooks/useRealtimeSync.ts
+import { useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { wsClient } from '../api/websocket';
+
+export function useRealtimeSync(queryKey: readonly unknown[]) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const unsubscribe = wsClient.subscribe('data-updated', (data: { entity: string }) => {
+      // 根据更新的实体类型失效相关缓存
+      queryClient.invalidateQueries({ queryKey });
+    });
+
+    return unsubscribe;
+  }, [queryClient, queryKey]);
+}
+```
+
+---
+
+## 7. 客户端状态管理
+
+### 7.1 状态分层
+
+| 状态类型 | 管理方案 | 使用场景 |
+|---------|---------|---------|
+| 服务器状态 | React Query | 项目、任务、用户数据 |
+| 全局 UI 状态 | React Context | 侧边栏折叠、主题设置 |
+| 组件本地状态 | useState | 表单输入、模态框开关 |
+
+### 7.2 全局 UI 状态（使用 Context）
+
+```typescript
+// shared/context/AppContext.tsx
+import { createContext, useContext, useState, type ReactNode } from 'react';
+
+interface AppContextValue {
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
+  theme: 'light' | 'dark';
+  setTheme: (theme: 'light' | 'dark') => void;
+}
+
+const AppContext = createContext<AppContextValue | null>(null);
+
+export function AppProvider({ children }: { children: ReactNode }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  return (
+    <AppContext.Provider
+      value={{
+        sidebarCollapsed,
+        toggleSidebar: () => setSidebarCollapsed((v) => !v),
+        theme,
+        setTheme,
+      }}
+    >
+      {children}
+    </AppContext.Provider>
+  );
+}
+
+export function useAppContext() {
+  const context = useContext(AppContext);
+  if (!context) throw new Error('useAppContext must be used within AppProvider');
+  return context;
+}
+```
+
+---
+
+## 8. 类型定义层次
+
+### 8.1 全局类型 (`types/`)
+
+用于跨模块共享的类型定义：
+
+```typescript
+// types/common.ts
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
+
+// types/api.ts
+export interface ApiError {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+```
+
+### 8.2 模块类型 (`features/*/types.ts`)
+
+用于模块内部的类型定义：
+
+```typescript
+// features/projects/types.ts
+export interface Project {
+  id: string;
+  name: string;
+  status: ProjectStatus;
+  // ...
+}
+
+export type ProjectStatus = 'active' | 'completed' | 'archived';
+
+// 仅本模块使用的类型
+export interface ProjectFilters {
+  status?: ProjectStatus;
+  search?: string;
+}
+```
+
+### 8.3 类型导入规则
+
+```typescript
+// ✅ 正确：从全局类型导入
+import type { PaginatedResponse } from '@/types';
+
+// ✅ 正确：从模块类型导入
+import type { Project, ProjectFilters } from '../types';
+
+// ❌ 错误：循环依赖
+// 不要在全局类型中导入模块类型
+```
+
+---
+
+## 9. 路由设计
+
+### 9.1 路由结构
 
 ```typescript
 // App.tsx
@@ -493,7 +712,7 @@ export function App() {
 }
 ```
 
-### 6.2 设置子路由
+### 9.2 设置子路由
 
 ```typescript
 // features/settings/index.tsx
@@ -520,7 +739,7 @@ export default function Settings() {
 
 ---
 
-## 7. 页面与后端模块映射
+## 10. 页面与后端模块映射
 
 | 页面 | 路由 | 调用后端模块 | 主要功能 |
 |------|------|-------------|----------|
@@ -533,7 +752,7 @@ export default function Settings() {
 
 ---
 
-## 8. 开发顺序
+## 11. 开发顺序
 
 ### 阶段 1: 基础设施 (Phase 1)
 
@@ -602,7 +821,7 @@ export default function Settings() {
 
 ---
 
-## 9. 清理计划
+## 12. 清理计划
 
 ### 9.1 保留文件
 
@@ -652,7 +871,7 @@ export default function Settings() {
 
 ---
 
-## 10. 风险与缓解
+## 13. 风险与缓解
 
 | 风险 | 影响 | 缓解措施 |
 |------|------|----------|
@@ -663,7 +882,7 @@ export default function Settings() {
 
 ---
 
-## 11. 验收标准
+## 14. 验收标准
 
 ### 阶段 1 完成标准
 - [ ] API 客户端可正常请求后端
@@ -696,4 +915,5 @@ export default function Settings() {
 
 | 日期 | 版本 | 变更内容 |
 |------|------|----------|
+| 2026-03-19 | 1.1 | 新增 WebSocket 集成、状态管理、类型定义层次章节；修复设置页面目录结构 |
 | 2026-03-19 | 1.0 | 初始版本 |
