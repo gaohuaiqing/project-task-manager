@@ -16,9 +16,13 @@ import { databaseService } from '../services/DatabaseService.js';
 import { AppError, NotFoundError, AuthorizationError, ValidationError } from '../errors/classes.js';
 import { logger, LOG_CATEGORIES } from '../logging/index.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { requireAuth } from '../middleware/auth.js';
 import { getCurrentUserId, validateNotEmpty, calculateDelayDays } from './route-utils.js';
 
 const router = express.Router();
+
+// 所有路由都需要认证
+router.use(requireAuth);
 
 // ==================== 审批列表 ====================
 

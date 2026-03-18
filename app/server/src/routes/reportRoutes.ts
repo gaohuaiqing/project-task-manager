@@ -16,9 +16,13 @@ import type { Request, Response } from 'express';
 import { databaseService } from '../services/DatabaseService.js';
 import { logger, LOG_CATEGORIES } from '../logging/index.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { requireAuth } from '../middleware/auth.js';
 import { ValidationError } from '../errors/index.js';
 
 const router = express.Router();
+
+// 所有路由都需要认证
+router.use(requireAuth);
 
 // ==================== 常量 ====================
 

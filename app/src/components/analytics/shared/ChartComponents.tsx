@@ -26,7 +26,11 @@ import {
 
 import type { ChartDataItem } from './ReportComponents';
 
-// ==================== 陮图配置 ====================
+// ==================== 颜色配置 ====================
+
+export const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+// ==================== 饼图配置 ====================
 
 interface PieChartProps {
   data: ChartDataItem[];
@@ -34,9 +38,7 @@ interface PieChartProps {
   innerRadius?: number;
   outerRadius?: number;
   showEmpty?: boolean;
-}
-
- const label?: string;
+  label?: string;
 }
 
 export function PieChartComponent({
@@ -76,7 +78,7 @@ export function PieChartComponent({
       </PieChart>
     </ResponsiveContainer>
   );
-};
+}
 
 // ==================== 柱状图配置 ====================
 
@@ -101,13 +103,13 @@ export function BarChartComponent({
     ) : null;
   }
 
-  const commonProps = {
-    layout === 'vertical' ? { layout: 'vertical', margin } undefined } : {}
-  };
+  const chartMargin = layout === 'vertical'
+    ? { top: 20, right: 30, bottom: 20, left: 100 }
+    : { top: 20, right: 30, bottom: 20, left: 20 };
 
   return (
     <ResponsiveContainer width="100%" height={300}>
-      <BarChart data={data} layout={layout} {...commonProps}>
+      <BarChart data={data} layout={layout} margin={chartMargin}>
         <CartesianGrid strokeDasharray="3 3" />
         {layout === 'vertical' ? (
           <>
@@ -115,15 +117,17 @@ export function BarChartComponent({
             <YAxis dataKey="name" type="category" width={80} />
           </>
         ) : (
-          <XAxis dataKey="name" />
-          <YAxis />
+          <>
+            <XAxis dataKey="name" />
+            <YAxis />
+          </>
         )}
         <Tooltip />
         <Bar dataKey="value" fill={color} radius={layout === 'vertical' ? [0, 4, 4, 0] : [4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );
-};
+}
 
 // ==================== 折线图配置 ====================
 
@@ -145,9 +149,73 @@ export function LineChartComponent({
       </div>
     ) : null;
   }
+
   return (
     <ResponsiveContainer width="100%" height={300}>
       <LineChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis dataKey="name" />
+        <YAxis />
+        <Tooltip />
+        <Legend />
+        <Line
+          type="monotone"
+          dataKey="value"
+          stroke={color}
+          strokeWidth={2}
+          dot={{ fill: color }}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ==================== 图表容器组件 ====================
+
+interface ChartContainerProps {
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}
+
+export function ChartContainer({ title, children, className = '' }: ChartContainerProps) {
+  return (
+    <div className={`bg-card rounded-lg border p-4 ${className}`}>
+      <h3 className="text-lg font-semibold mb-4">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+// ==================== 趋势图组件 ====================
+
+interface TrendChartProps {
+  data: { date: string; value: number }[];
+  color?: string;
+  showEmpty?: boolean;
+}
+
+export function TrendChart({
+  data,
+  color = '#ef4444',
+  showEmpty = true
+}: TrendChartProps) {
+  if (!data || data.length === 0) {
+    return showEmpty ? (
+      <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+        暂无数据
+      </div>
+    ) : null;
+  }
+
+  const chartData = data.map(item => ({
+    name: typeof item.date === 'string' ? item.date : String(item.date),
+    value: item.value
+  }));
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <LineChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="name" />
         <YAxis />
