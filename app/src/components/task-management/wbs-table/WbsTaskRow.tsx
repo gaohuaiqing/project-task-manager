@@ -5,11 +5,11 @@
  * - 显示单行任务数据
  * - 展开/折叠子任务
  * - 行内编辑
- * - 选择/取消选择
+ * - 点击选中（非批量选择）
  */
 
 import { useMemo } from 'react';
-import { ChevronRight, ChevronDown, Edit3, Trash2, AlertTriangle, Clock } from 'lucide-react';
+import { ChevronRight, ChevronDown, Edit3, Trash2, AlertTriangle, Clock, Plus, Activity, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -24,9 +24,13 @@ export interface WbsTaskRowProps {
   isEditing: boolean;
   hasChildren: boolean;
   onToggleExpand: () => void;
-  onToggleSelect: () => void;
+  onSelect: () => void;  // 改为单选
   onEdit: () => void;
+  onAddChild?: () => void;  // 添加子任务
+  onProgress?: () => void;  // 维护进展
   onDelete: () => void;
+  onSave?: () => void;  // 保存编辑
+  onCancel?: () => void;  // 取消编辑
   holidayDates: string[];
 }
 
@@ -52,9 +56,13 @@ export function WbsTaskRow({
   isEditing,
   hasChildren,
   onToggleExpand,
-  onToggleSelect,
+  onSelect,
   onEdit,
+  onAddChild,
+  onProgress,
   onDelete,
+  onSave,
+  onCancel,
   holidayDates,
 }: WbsTaskRowProps) {
   const nearDeadline = useMemo(() => {
@@ -71,45 +79,64 @@ export function WbsTaskRow({
         isSelected && 'bg-primary/10',
         isEditing && 'bg-accent'
       )}
+      onClick={onSelect}
     >
-      {/* 展开/折叠 */}
-      <td className="p-2">
-        {hasChildren ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            onClick={onToggleExpand}
-          >
-            {isExpanded ? (
-              <ChevronDown className="w-4 h-4" />
-            ) : (
-              <ChevronRight className="w-4 h-4" />
-            )}
-          </Button>
-        ) : (
-          <div className="w-6 h-6" />
-        )}
+      {/* 操作按钮列 */}
+      <td className="p-2 sticky left-0 bg-slate-800 z-10">
+        <div className="flex items-center gap-0.5">
+          {isEditing ? (
+            <>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-green-400 hover:text-green-300 hover:bg-green-500/20" onClick={(e) => { e.stopPropagation(); onSave?.(); }}>
+                <Check className="w-3.5 h-3.5" />
+              </Button>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-300" onClick={(e) => { e.stopPropagation(); onCancel?.(); }}>
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-400 hover:text-blue-300 hover:bg-blue-500/20" onClick={(e) => { e.stopPropagation(); onEdit(); }} title="编辑任务">
+                <Edit3 className="w-3.5 h-3.5" />
+              </Button>
+              {onAddChild && (
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-green-400 hover:text-green-300 hover:bg-green-500/20" onClick={(e) => { e.stopPropagation(); onAddChild(); }} title="添加子任务">
+                  <Plus className="w-3.5 h-3.5" />
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/20" onClick={(e) => { e.stopPropagation(); onDelete(); }} title="删除任务">
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
+              {onProgress && (
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-purple-400 hover:text-purple-300 hover:bg-purple-500/20" onClick={(e) => { e.stopPropagation(); onProgress(); }} title="维护进展">
+                  <Activity className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </>
+          )}
+        </div>
       </td>
 
-      {/* 选择框 */}
+      {/* WBS 编码 + 展开/折叠 */}
       <td className="p-2">
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={onToggleSelect}
-          className="w-4 h-4 rounded"
-        />
-      </td>
-
-      {/* WBS 编码 */}
-      <td className="p-2">
-        <span
-          className="text-sm font-mono"
-          style={{ paddingLeft: `${level * 16}px` }}
-        >
-          {task.wbsCode}
-        </span>
+        <div className="flex items-center" style={{ paddingLeft: `${level * 16}px` }}>
+          {hasChildren ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 mr-1"
+              onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
+            >
+              {isExpanded ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronRight className="w-4 h-4" />
+              )}
+            </Button>
+          ) : (
+            <div className="w-6 h-6 mr-1" />
+          )}
+          <span className="text-sm font-mono">{task.wbsCode}</span>
+        </div>
       </td>
 
       {/* 任务名称 */}
@@ -153,18 +180,6 @@ export function WbsTaskRow({
       {/* 计划工期 */}
       <td className="p-2">
         <span className="text-sm text-muted-foreground">{task.plannedDays || '-'} 天</span>
-      </td>
-
-      {/* 操作 */}
-      <td className="p-2">
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onEdit}>
-            <Edit3 className="w-3.5 h-3.5" />
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onDelete}>
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-        </div>
       </td>
     </tr>
   );

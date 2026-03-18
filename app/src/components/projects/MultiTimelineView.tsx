@@ -11,7 +11,6 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import type { Timeline, TimelineTask } from '@/types/timeline';
 import type { TimeRange } from '@/utils/ganttGeometry';
 import { TimelineStatsBar } from './TimelineStatsBar';
-import { TimelineTabs } from './TimelineTabs';
 import { TimelineToolbar } from './TimelineToolbar';
 import { TimelineList } from './TimelineList';
 import { useTimelineZoom } from '@/hooks/useTimelineZoom';
@@ -52,9 +51,6 @@ export function MultiTimelineView({
   // 状态
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [activeTimelineId, setActiveTimelineId] = useState<string | null>(
-    timelines.length > 0 ? timelines[0].config.id : null
-  );
   const [scrollLeft, setScrollLeft] = useState(0);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<TimelineTask | null>(null);
@@ -242,12 +238,7 @@ export function MultiTimelineView({
   const handleDeleteTimeline = useCallback((timelineId: string) => {
     const updatedTimelines = timelines.filter(t => t.config.id !== timelineId);
     onTimelinesChange(updatedTimelines);
-
-    // 如果删除的是当前激活的时间轴，切换到第一个
-    if (activeTimelineId === timelineId && updatedTimelines.length > 0) {
-      setActiveTimelineId(updatedTimelines[0].config.id);
-    }
-  }, [timelines, activeTimelineId, onTimelinesChange]);
+  }, [timelines, onTimelinesChange]);
 
   /**
    * 处理自动排列
@@ -353,15 +344,6 @@ export function MultiTimelineView({
       {/* 统计信息栏 */}
       <TimelineStatsBar stats={stats} showDetails={false} />
 
-      {/* 时间轴标签页 */}
-      <TimelineTabs
-        timelines={timelines}
-        activeTimelineId={activeTimelineId || undefined}
-        onSelectTimeline={setActiveTimelineId}
-        onAddTimeline={handleAddTimeline}
-        onDeleteTimeline={handleDeleteTimeline}
-      />
-
       {/* 主视图区域 */}
       <div className="flex-1 overflow-hidden">
         <TimelineList
@@ -392,7 +374,7 @@ export function MultiTimelineView({
         onZoomOut={zoom.zoomOut}
         onAddTask={() => handleTrackClick(
           new Date().toISOString().split('T')[0],
-          activeTimelineId || timelines[0]?.config.id || ''
+          timelines.find(t => t.config.visible !== false)?.config.id || timelines[0]?.config.id || ''
         )}
         onAutoArrange={handleAutoArrange}
       />

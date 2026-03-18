@@ -16,7 +16,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { canPerformProjectOperation } from '@/types/auth';
-import { useProjectQueries } from '@/hooks/useProjectQueries';
+import {
+  useProjects,
+  useCreateProject,
+  useUpdateProject,
+  useDeleteProject
+} from '@/hooks/useProjectQueries';
 import { useProjectForm, useProjectTypeValidation } from '@/hooks/useProjectForm';
 import { ProjectList } from './ProjectList';
 import { ProjectForm } from './ProjectForm';

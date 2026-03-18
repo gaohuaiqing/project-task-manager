@@ -350,5 +350,3 @@ if (require.main === module) {
     }
   })();
 }
-
-export { up, down };

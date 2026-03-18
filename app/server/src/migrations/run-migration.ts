@@ -117,6 +117,8 @@ export async function runMigration002(): Promise<boolean> {
 // 导入迁移 003 和 004
 import { runMigration003 } from './003-unify-users-members.js';
 import { runMigration004 } from './004-add-missing-fields.js';
+import { runMigration023 } from './023-create-plan-changes-table.js';
+import { runMigration024 } from './024-create-delay-records-table.js';
 
 // 导出自动运行函数
 export async function runPendingMigrations(): Promise<void> {
@@ -126,4 +128,6 @@ export async function runPendingMigrations(): Promise<void> {
   await runMigration002();
   await runMigration003();
   await runMigration004();
+  await runMigration023();
+  await runMigration024();
 }

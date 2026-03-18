@@ -168,6 +168,9 @@ auto-tests/*.json
 # AI 生成的临时报告，记录测试和优化过程，不影响代码功能
 docs/reports/
 
+# 归档文件
+docs/archive/
+
 # 用户的个人原始想法和跟踪文件
 docs/自定义Prompt/
 

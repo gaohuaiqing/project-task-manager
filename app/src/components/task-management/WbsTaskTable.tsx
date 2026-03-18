@@ -116,6 +116,9 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
   const [isExporting, setIsExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
+  // 列显示下拉菜单状态
+  const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+
   // 加载任务类型列表和节假日数据
   useEffect(() => {
     const loadTaskTypes = async () => {
@@ -168,12 +171,26 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
   }, []);
 
   // 列折叠状态 - 从 localStorage 读取初始值
+  // 有效列键名集合（用于过滤已删除的旧键名，保持兼容性）
+  const VALID_COLUMN_KEYS = new Set([
+    'wbsLevel', 'wbsCode', 'taskDesc', 'taskStatus', 'redmine', 'assignee',
+    'taskType', 'priority', 'predecessor', 'leadLag', 'startDate', 'duration',
+    'endDate', 'plannedCycle', 'warningDays', 'actualStartDate', 'actualEndDate',
+    'actualDays', 'fullTimeRatio', 'actualCycle', 'project', 'delayCount',
+    'adjustmentCount', 'progressRecord'
+  ]);
+
   const [collapsedColumns, setCollapsedColumns] = useState<Set<string>>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('wbsTableCollapsedColumns');
       if (saved) {
         try {
-          return new Set(JSON.parse(saved));
+          const parsed = JSON.parse(saved);
+          // 过滤掉已删除的列键名，保持兼容性
+          const filtered = (Array.isArray(parsed) ? parsed : []).filter(
+            (key: string) => VALID_COLUMN_KEYS.has(key)
+          );
+          return new Set(filtered);
         } catch {
           return new Set();
         }
@@ -182,7 +199,7 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
     return new Set();
   });
 
-  // 可折叠的列定义 - 包含所有列
+  // 可折叠的列定义 - 包含所有列（共24列，与需求文档一致）
   const collapsibleColumns = [
     { key: 'wbsLevel', label: 'WBS等级', index: 1 },
     { key: 'wbsCode', label: 'WBS', index: 2 },
@@ -197,19 +214,17 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
     { key: 'startDate', label: '开始日期', index: 11 },
     { key: 'duration', label: '工期', index: 12 },
     { key: 'endDate', label: '结束日期', index: 13 },
-    { key: 'plannedStartDate', label: '计划开始', index: 14 },
-    { key: 'plannedEndDate', label: '计划结束', index: 15 },
-    { key: 'plannedDays', label: '计划工期', index: 16 },
-    { key: 'warningDays', label: '预警天数', index: 17 },
-    { key: 'actualStartDate', label: '实际开始', index: 18 },
-    { key: 'actualEndDate', label: '实际结束', index: 19 },
-    { key: 'actualDays', label: '实际工期', index: 20 },
-    { key: 'fullTimeRatio', label: '全职比(%)', index: 21 },
-    { key: 'actualCycle', label: '实际周期', index: 22 },
-    { key: 'project', label: '项目', index: 23 },
-    { key: 'delayCount', label: '延期次数', index: 24 },
-    { key: 'adjustmentCount', label: '计划调整', index: 25 },
-    { key: 'progressRecord', label: '进展记录', index: 26 },
+    { key: 'plannedCycle', label: '计划周期', index: 14 },
+    { key: 'warningDays', label: '预警天数', index: 15 },
+    { key: 'actualStartDate', label: '实际开始', index: 16 },
+    { key: 'actualEndDate', label: '实际结束', index: 17 },
+    { key: 'actualDays', label: '实际工期', index: 18 },
+    { key: 'fullTimeRatio', label: '全职比(%)', index: 19 },
+    { key: 'actualCycle', label: '实际周期', index: 20 },
+    { key: 'project', label: '项目', index: 21 },
+    { key: 'delayCount', label: '延期次数', index: 22 },
+    { key: 'adjustmentCount', label: '计划调整', index: 23 },
+    { key: 'progressRecord', label: '进展记录', index: 24 },
   ];
 
   // 检查用户是否有任务编辑权限
@@ -663,9 +678,7 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
           '开始日期': task.plannedStartDate || '-',
           '工期': task.plannedDays || '-',
           '结束日期': task.plannedEndDate || '-',
-          '计划开始日期': plannedDates.plannedStartDate || '-',
-          '计划结束日期': plannedDates.plannedEndDate || '-',
-          '日历天数': calendarDays,
+          '计划周期': calendarDays,
           '预警天数': warningDays,
           '实际开始日期': task.actualStartDate || '-',
           '实际结束日期': task.actualEndDate || '-',
@@ -1077,8 +1090,9 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
         onClick={() => setSelectedTask(task.id)}
       >
         {/* 操作 - 根据任务状态动态显示左边框颜色，右边框保持原始颜色 */}
+        {/* 操作列固定在左侧，水平滚动时不动 */}
         <td className={cn(
-          "px-2 py-2 border-r border-slate-600",
+          "sticky left-0 z-20 bg-slate-800 px-2 py-2 border-r border-slate-600",
           (status === '提前完成' || status === '按期完成') ? "border-l-4 border-l-green-500" :
           (status === '延期' || status === '超期完成') ? "border-l-4 border-l-red-500" :
           nearDeadline ? "border-l-4 border-l-yellow-500" :
@@ -1611,34 +1625,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
           </td>
         )}
 
-        {/* 计划开始列 - 自动计算，浅绿色背景 */}
-        {!isColumnCollapsed('plannedStartDate') && (
-          <td className="px-2 py-2 text-center border-r border-slate-600 bg-[#E8F5E9]/10 transition-all duration-300">
-            <span className="text-[10px] text-slate-300">
-              {(() => {
-                const holidays = holidayDates;
-                const { plannedStartDate } = calculatePlannedDates(task, tasks, holidays);
-                return plannedStartDate ? format(parseISO(plannedStartDate), 'yyyy-MM-dd') : '-';
-              })()}
-            </span>
-          </td>
-        )}
-
-        {/* 计划结束列 - 自动计算，浅绿色背景 */}
-        {!isColumnCollapsed('plannedEndDate') && (
-          <td className="px-2 py-2 text-center border-r border-slate-600 bg-[#E8F5E9]/10 transition-all duration-300">
-            <span className="text-[10px] text-slate-300">
-              {(() => {
-                const holidays = holidayDates;
-                const { plannedEndDate } = calculatePlannedDates(task, tasks, holidays);
-                return plannedEndDate ? format(parseISO(plannedEndDate), 'yyyy-MM-dd') : '-';
-              })()}
-            </span>
-          </td>
-        )}
-
-        {/* 日历天数列 - 计算计划结束日期与计划开始日期的差值 */}
-        {!isColumnCollapsed('plannedDays') && (
+        {/* 计划周期列 - 计算计划结束日期与计划开始日期的差值 */}
+        {!isColumnCollapsed('plannedCycle') && (
           <td className="px-2 py-2 text-center border-r border-slate-600 bg-[#E8F5E9]/10 transition-all duration-300">
             <span className="text-[10px] text-slate-300">
               {(() => {
@@ -1657,32 +1645,51 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
           </td>
         )}
 
-        {/* 预警天数 */}
+        {/* 预警天数 - 可编辑阈值，默认3天 */}
         {!isColumnCollapsed('warningDays') && (
           <td className="px-2 py-2 text-center border-r border-slate-600 bg-yellow-500/5 transition-all duration-300">
-            <span className={cn(
-              "text-[10px] font-medium",
-              nearDeadline && !isDelayed ? "text-yellow-400" : "text-slate-400"
-            )}>
-              {(() => {
-                if (!task.plannedEndDate || task.status === 'completed') return '-';
-                const holidays = holidayDates;
-                const { plannedEndDate } = calculatePlannedDates(task, tasks, holidays);
-                if (!plannedEndDate) return '-';
-                
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                const endDate = new Date(plannedEndDate);
-                endDate.setHours(0, 0, 0, 0);
-                
-                const diffDays = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                
-                if (diffDays < 0) return '已延期';
-                if (diffDays === 0) return '今天';
-                if (diffDays <= 3) return `${diffDays}天`;
-                return '-';
-              })()}
-            </span>
+            {isEditing ? (
+              <Input
+                type="number"
+                min="1"
+                max="30"
+                value={editForm.warningDays ?? task.warningDays ?? 3}
+                onChange={(e) => setEditForm({ ...editForm, warningDays: e.target.value ? parseInt(e.target.value) : 3 })}
+                className="h-7 text-[10px] bg-slate-700 border-slate-600 text-white text-center font-sans w-14"
+                placeholder="3"
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className={cn(
+                "text-[10px] font-medium",
+                (() => {
+                  // 使用用户设置的预警天数阈值
+                  const warningThreshold = task.warningDays ?? 3;
+                  if (!task.plannedEndDate || task.status === 'completed') return "text-slate-400";
+
+                  const holidays = holidayDates;
+                  const { plannedEndDate } = calculatePlannedDates(task, tasks, holidays);
+                  if (!plannedEndDate) return "text-slate-400";
+
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  const endDate = new Date(plannedEndDate);
+                  endDate.setHours(0, 0, 0, 0);
+
+                  const diffDays = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+                  // 如果剩余天数小于等于预警阈值，显示黄色警告
+                  if (diffDays >= 0 && diffDays <= warningThreshold) return "text-yellow-400";
+                  return "text-slate-400";
+                })()
+              )}>
+                {(() => {
+                  // 显示用户设置的预警天数阈值
+                  const warningThreshold = task.warningDays ?? 3;
+                  return `${warningThreshold}天`;
+                })()}
+              </span>
+            )}
           </td>
         )}
 
@@ -1979,11 +1986,26 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
             </Button>
             
             {/* 列折叠控制按钮 */}
-            <div className="relative group">
+            <div className="relative" ref={(el) => {
+              // 点击外部关闭菜单
+              if (el) {
+                const handleClickOutside = (e: MouseEvent) => {
+                  if (!el.contains(e.target as Node)) {
+                    setColumnMenuOpen(false);
+                  }
+                };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+              }
+            }}>
               <Button
                 variant="outline"
                 size="sm"
-                className="border-slate-600 text-slate-300 hover:text-white"
+                className={cn(
+                  "border-slate-600 text-slate-300 hover:text-white",
+                  columnMenuOpen && "bg-slate-700"
+                )}
+                onClick={() => setColumnMenuOpen(!columnMenuOpen)}
               >
                 <Columns className="w-4 h-4 mr-1" />
                 列显示
@@ -1993,20 +2015,23 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                   </span>
                 )}
               </Button>
-              {/* 下拉菜单 */}
-              <div className="absolute right-0 top-full mt-1 w-48 bg-slate-800 border border-slate-600 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+              {/* 下拉菜单 - 点击触发 */}
+              <div className={cn(
+                "absolute right-0 top-full mt-1 w-48 bg-slate-800 border border-slate-600 rounded-lg shadow-xl transition-all duration-200 z-50",
+                columnMenuOpen ? "opacity-100 visible" : "opacity-0 invisible"
+              )}>
                 <div className="p-2">
                   <div className="flex items-center justify-between px-2 py-1.5 border-b border-slate-700 mb-1">
                     <span className="text-xs text-slate-400">显示/隐藏列</span>
                     <div className="flex gap-1">
                       <button
-                        onClick={expandAllColumns}
+                        onClick={() => { expandAllColumns(); }}
                         className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 rounded hover:bg-blue-500/10 transition-colors"
                       >
                         全部显示
                       </button>
                       <button
-                        onClick={collapseAllColumns}
+                        onClick={() => { collapseAllColumns(); }}
                         className="text-xs text-slate-400 hover:text-slate-300 px-1.5 py-0.5 rounded hover:bg-slate-700 transition-colors"
                       >
                         全部隐藏
@@ -2099,15 +2124,16 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
             {/* 固定表头 */}
             <thead className="bg-slate-800 text-[10px] text-white font-medium border-b border-slate-600 whitespace-nowrap sticky top-0 z-10">
               <tr className="h-8">
-                <th className="px-2 py-1 w-[25px] border-r border-slate-600">操作</th>
+                {/* 操作列固定在左侧，水平滚动时不动 */}
+                <th className="sticky left-0 z-20 bg-slate-800 px-2 py-1 w-[80px] border-r border-slate-600">操作</th>
                 {!isColumnCollapsed('wbsLevel') && (
                   <th className="px-2 py-1 text-center border-r border-slate-600 transition-all duration-300">
                     <div className="flex items-center justify-between">
                       <span>WBS等级</span>
                       <button
                         onClick={() => toggleColumnCollapse('wbsLevel')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2120,8 +2146,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>WBS</span>
                       <button
                         onClick={() => toggleColumnCollapse('wbsCode')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2134,8 +2160,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>任务描述</span>
                       <button
                         onClick={() => toggleColumnCollapse('taskDesc')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2148,8 +2174,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>任务状态</span>
                       <button
                         onClick={() => toggleColumnCollapse('taskStatus')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2162,8 +2188,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>Redmine</span>
                       <button
                         onClick={() => toggleColumnCollapse('redmine')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2176,8 +2202,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>负责人</span>
                       <button
                         onClick={() => toggleColumnCollapse('assignee')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2190,8 +2216,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>任务类型</span>
                       <button
                         onClick={() => toggleColumnCollapse('taskType')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2204,8 +2230,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>优先级</span>
                       <button
                         onClick={() => toggleColumnCollapse('priority')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2218,8 +2244,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>前置任务</span>
                       <button
                         onClick={() => toggleColumnCollapse('predecessor')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2232,8 +2258,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>提前/落后</span>
                       <button
                         onClick={() => toggleColumnCollapse('leadLag')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2246,8 +2272,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>开始日期</span>
                       <button
                         onClick={() => toggleColumnCollapse('startDate')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2260,8 +2286,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>工期</span>
                       <button
                         onClick={() => toggleColumnCollapse('duration')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2274,50 +2300,22 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>结束日期</span>
                       <button
                         onClick={() => toggleColumnCollapse('endDate')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
                     </div>
                   </th>
                 )}
-                {!isColumnCollapsed('plannedStartDate') && (
-                  <th className="px-2 py-1 text-center w-[100px] border-r border-slate-600 bg-[#E8F5E9]/5 transition-all duration-300">
-                    <div className="flex items-center justify-between">
-                      <span>计划开始</span>
-                      <button
-                        onClick={() => toggleColumnCollapse('plannedStartDate')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
-                      >
-                        <EyeOff className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </th>
-                )}
-                {!isColumnCollapsed('plannedEndDate') && (
-                  <th className="px-2 py-1 text-center w-[100px] border-r border-slate-600 bg-[#E8F5E9]/5 transition-all duration-300">
-                    <div className="flex items-center justify-between">
-                      <span>计划结束</span>
-                      <button
-                        onClick={() => toggleColumnCollapse('plannedEndDate')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
-                      >
-                        <EyeOff className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </th>
-                )}
-                {!isColumnCollapsed('plannedDays') && (
+                {!isColumnCollapsed('plannedCycle') && (
                   <th className="px-2 py-1 text-center w-[80px] border-r border-slate-600 bg-[#E8F5E9]/5 transition-all duration-300">
                     <div className="flex items-center justify-between">
-                      <span>日历天数</span>
+                      <span>计划周期</span>
                       <button
-                        onClick={() => toggleColumnCollapse('plannedDays')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        onClick={() => toggleColumnCollapse('plannedCycle')}
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2330,8 +2328,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>预警天数</span>
                       <button
                         onClick={() => toggleColumnCollapse('warningDays')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2344,8 +2342,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>实际开始</span>
                       <button
                         onClick={() => toggleColumnCollapse('actualStartDate')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2358,8 +2356,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>实际结束</span>
                       <button
                         onClick={() => toggleColumnCollapse('actualEndDate')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2372,8 +2370,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>实际工期</span>
                       <button
                         onClick={() => toggleColumnCollapse('actualDays')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2386,8 +2384,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>全职比(%)</span>
                       <button
                         onClick={() => toggleColumnCollapse('fullTimeRatio')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2400,8 +2398,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>实际周期</span>
                       <button
                         onClick={() => toggleColumnCollapse('actualCycle')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2414,8 +2412,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>项目</span>
                       <button
                         onClick={() => toggleColumnCollapse('project')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2428,8 +2426,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>延期次数</span>
                       <button
                         onClick={() => toggleColumnCollapse('delayCount')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2442,8 +2440,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>计划调整</span>
                       <button
                         onClick={() => toggleColumnCollapse('adjustmentCount')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>
@@ -2456,8 +2454,8 @@ export function WbsTaskTable({ tasks, members, projects, onTasksChange, userRole
                       <span>进展记录</span>
                       <button
                         onClick={() => toggleColumnCollapse('progressRecord')}
-                        className="p-0.5 hover:bg-slate-700 rounded opacity-50 hover:opacity-100 transition-opacity"
-                        title="隐藏此列"
+                        className="p-1 hover:bg-red-500/20 rounded transition-all text-slate-400 hover:text-red-300"
+                        title="点击隐藏此列"
                       >
                         <EyeOff className="w-3 h-3" />
                       </button>

@@ -59,6 +59,8 @@ export async function getMigrationsStatus(): Promise<MigrationInfo[]> {
       { version: '002', name: 'add_project_tables' },
       { version: '003', name: 'unify_users_members' },
       { version: '004', name: 'add_missing_fields' },
+      { version: '023', name: 'create_plan_changes_table' },
+      { version: '024', name: 'create_delay_records_table' },
     ];
 
     // 获取已执行的迁移

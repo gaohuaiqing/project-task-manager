@@ -25,7 +25,21 @@ import permissionRoutes from './routes/permissionRoutes.js';
 import projectExtendedRoutes, { setSessionManager as setProjectSessionManager } from './routes/projectExtendedRoutes.js';
 import batchQueryRoutes from './routes/batchQueryRoutes.js'; // 批量查询优化
 import { warmupCacheOnStartup } from './scripts/cache-warmup.js'; // 缓存预热
+import newArchitectureRoutes from './routes/newArchitectureRoutes.js'; // 新架构API路由
 import type { ClientMessage, ServerMessage, Session, User } from './types/index.js';
+
+// ================================================================
+// 新模块导入 (100人并发实时协作系统)
+// ================================================================
+import { redisService } from './cache/index.js';
+import { cacheManager } from './cache/index.js';
+import { authService } from './auth/index.js';
+import { webSocketService } from './realtime/index.js';
+import { messageBroker } from './realtime/index.js';
+import { broadcastService } from './realtime/index.js';
+import { projectService } from './data/index.js';
+import { dataService } from './data/index.js';
+import { VersionConflictError } from './data/types.js';
 
 // ================================================================
 // LRU 缓存实现（简单实现，避免额外依赖）
@@ -182,6 +196,17 @@ app.use('/api/permissions', permissionRoutes);
 // 注册批量查询优化路由
 app.use('/api', batchQueryRoutes);
 
+// 注册新架构API路由（100人并发实时协作系统）
+app.use('/api', newArchitectureRoutes);
+
+// 注册审批流程路由
+import approvalRoutes from './routes/approvalRoutes.js';
+app.use('/api/approvals', approvalRoutes);
+
+// 注册报表分析路由
+import reportRoutes from './routes/reportRoutes.js';
+app.use('/api/reports', reportRoutes);
+
 // 注册组织架构路由
 // app.use('/api/organization', organizationRoutes); // 文件不存在，已注释
 
@@ -277,7 +302,7 @@ async function broadcastToAll(message: ServerMessage, excludeClientId?: string):
 
   // 批量检查用户权限（一次查询检查所有用户）
   if (userIdsToCheck.length > 0) {
-    const permissionResults = await permissionManagerOptimized.batchCanReceiveBroadcast(userIdsToCheck, message);
+    const permissionResults = await permissionManager.batchCanReceiveBroadcast(userIdsToCheck, message);
 
     // 根据权限结果发送消息
     for (const [userId, canReceive] of permissionResults) {
@@ -329,10 +354,11 @@ app.get('/api/db-pool-status', async (req, res) => {
       }
     };
 
-    const utilization = ((poolInfo.activeConnections / poolInfo.totalConnections) * 100).toFixed(1);
+    const utilizationValue = (poolInfo.activeConnections / poolInfo.totalConnections) * 100;
+    const utilization = utilizationValue.toFixed(1);
 
     res.json({
-      status: utilization > 80 ? 'warning' : 'ok',
+      status: utilizationValue > 80 ? 'warning' : 'ok',
       utilization: `${utilization}%`,
       ...poolInfo,
       timestamp: new Date().toISOString()
@@ -429,15 +455,15 @@ app.get('/health/all', async (req, res) => {
   // 检查Redis
   const redisStart = Date.now();
   try {
-    const redisOk = redisCacheService.isConnected();
+    const redisHealth = await redisService.healthCheck();
     health.services.redis.responseTime = Date.now() - redisStart;
-    if (!redisOk) {
+    if (!redisHealth.healthy) {
       health.services.redis.status = 'down';
-      health.status = 'down';
+      health.status = 'degraded';
     }
   } catch (error) {
     health.services.redis.status = 'down';
-    health.status = 'down';
+    health.status = 'degraded';
   }
 
   // 检查WebSocket连接数
@@ -447,7 +473,7 @@ app.get('/health/all', async (req, res) => {
   const connectionUtilization = (clients.size / MAX_WS_CONNECTIONS) * 100;
   if (connectionUtilization > 80) {
     health.status = health.status === 'ok' ? 'degraded' : health.status;
-    health.services.websocket.status = 'degraded';
+    // websocket.status 保持 'ok'，因为服务本身正常运行
     console.warn(`[健康检查] WebSocket 连接数接近上限: ${clients.size}/${MAX_WS_CONNECTIONS} (${connectionUtilization.toFixed(1)}%)`);
   }
 
@@ -1591,13 +1617,12 @@ async function handleTaskAssign(clientId: string, ws: WebSocket, requestData: an
 
       // 分配成功，广播更新
       const updateMessage = {
-        type: 'global_data_updated',
+        type: 'global_data_updated' as const,
         data: {
           dataType,
           dataId: taskId,
           data: result.data,
           version: result.version,
-          timestamp: Date.now(),
           operator: operatorName || operatorId
         }
       };
@@ -1847,11 +1872,11 @@ async function handleWbsNodeMove(clientId: string, ws: WebSocket, requestData: a
 
       // 广播节点变更通知
       const changeMessage = {
-        type: 'wbs_node_changed',
+        type: 'wbs_node_changed' as const,
         data: {
           nodeId,
           change: {
-            type: 'move',
+            type: 'move' as const,
             oldPath,
             newPath,
             affectedNodeIds,
@@ -1987,14 +2012,6 @@ async function startServer() {
     await initSystemLogsTable();
     console.log('[服务器] ✅ 系统日志表初始化成功');
 
-    // 初始化测试日志（用于验证日志功能）
-    try {
-      const { initTestLogs } = await import('../init-test-logs.js');
-      await initTestLogs();
-    } catch (error) {
-      console.warn('[服务器] 测试日志初始化失败（非致命）:', error);
-    }
-
     // 初始化会话自动清理机制
     await initSessionCleanup();
 
@@ -2035,8 +2052,42 @@ async function startServer() {
     }
 
     // 初始化 Redis 缓存（必须，失败时终止启动）
-    await redisCacheService.init();
+    await redisService.connect();
     console.log('[服务器] ✅ Redis 缓存初始化成功');
+
+    // ================================================================
+    // 新模块初始化 (100人并发实时协作系统)
+    // ================================================================
+
+    // 初始化Redis服务（连接到Redis）
+    try {
+      await redisService.connect();
+      console.log('[服务器] ✅ Redis服务连接成功');
+    } catch (error: any) {
+      console.error('[服务器] ❌ Redis服务连接失败，将使用离线模式:', error.message);
+    }
+
+    // 初始化WebSocket服务（传入HTTP服务器）
+    webSocketService.initialize(server);
+    console.log('[服务器] ✅ WebSocket服务已初始化');
+
+    // 连接消息代理（Redis Pub/Sub）
+    try {
+      await messageBroker.connect();
+      console.log('[服务器] ✅ 消息代理已连接');
+    } catch (error: any) {
+      console.warn('[服务器] ⚠️ 消息代理连接失败，实时同步可能受影响:', error.message);
+    }
+
+    // 设置认证服务的广播回调（用于会话终止通知）
+    authService.setBroadcastCallback((username, message) => {
+      broadcastToAll({
+        type: 'session_terminated',
+        data: message.payload
+      });
+    });
+
+    console.log('[服务器] ✅ 新模块初始化完成');
 
     server.listen(Number(PORT), HOST, async () => {
       console.log(`[服务器] ✅ 运行在 http://${HOST}:${PORT}`);
@@ -2172,7 +2223,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   // 5. 关闭 Redis 连接
   try {
-    await redisCacheService.close();
+    await redisService.disconnect();
     console.log('[服务器] Redis 连接已关闭');
   } catch (error) {
     console.error('[服务器] 关闭 Redis 失败:', error);

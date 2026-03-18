@@ -1,5 +1,5 @@
 import { databaseService } from './DatabaseService.js';
-import { redisCacheService } from './RedisCacheService.js';
+// import { redisCacheService } from './RedisCacheService.js'; // TODO: 临时禁用，需要迁移到新缓存系统
 import { LRUCacheWithTTL, cacheCleanupManager } from '../utils/LRUCache.js';
 import { isValidQueryResult, hasQueryData, parseJsonField, stringifyJsonField } from '../utils/DatabaseTypeGuards.js';
 import { QUERY_TIMEOUT, transactionWithTimeout, withQueryTimeout } from '../utils/DatabaseQueryTimeout.js';
@@ -88,15 +88,14 @@ export class GlobalDataManager {
     const startTime = Date.now();
 
     try {
-      // 1. 检查 Redis 缓存（如果可用）
-      if (redisCacheService.isConnected()) {
-        const cached = await redisCacheService.getGlobalData(dataType, dataId || 'default');
-
-        if (cached) {
-          console.log(`[GlobalDataManager] Redis 缓存命中: ${dataType}${dataId ? '/' + dataId : ''}, 耗时: ${Date.now() - startTime}ms`);
-          return Array.isArray(cached.data) ? cached.data : [cached.data];
-        }
-      }
+      // 1. TODO: Redis 缓存已禁用，待迁移到新缓存系统
+      // if (redisCacheService.isConnected()) {
+      //   const cached = await redisCacheService.getGlobalData(dataType, dataId || 'default');
+      //   if (cached) {
+      //     console.log(`[GlobalDataManager] Redis 缓存命中: ${dataType}${dataId ? '/' + dataId : ''}, 耗时: ${Date.now() - startTime}ms`);
+      //     return Array.isArray(cached.data) ? cached.data : [cached.data];
+      //   }
+      // }
 
       // 2. 从数据库查询（带超时保护）
       let query = 'SELECT * FROM global_data WHERE data_type = ?';
@@ -128,18 +127,18 @@ export class GlobalDataManager {
         updatedAt: row.updated_at
       }));
 
-      // 4. 写入 Redis 缓存（异步，不阻塞响应）
-      setImmediate(() => {
-        if (dataId) {
-          redisCacheService.setGlobalData(dataType, dataId, items[0], items[0]?.version).catch(err =>
-            console.error('[GlobalDataManager] 缓存写入失败:', err)
-          );
-        } else {
-          redisCacheService.setGlobalDataList(dataType, items).catch(err =>
-            console.error('[GlobalDataManager] 缓存写入失败:', err)
-          );
-        }
-      });
+      // 4. TODO: Redis 缓存已禁用，待迁移到新缓存系统
+      // setImmediate(() => {
+      //   if (dataId) {
+      //     redisCacheService.setGlobalData(dataType, dataId, items[0], items[0]?.version).catch(err =>
+      //       console.error('[GlobalDataManager] 缓存写入失败:', err)
+      //     );
+      //   } else {
+      //     redisCacheService.setGlobalDataList(dataType, items).catch(err =>
+      //       console.error('[GlobalDataManager] 缓存写入失败:', err)
+      //     );
+      //   }
+      // });
 
       console.log(`[GlobalDataManager] 数据库查询: ${dataType}${dataId ? '/' + dataId : ''}, 数量: ${items.length}, 耗时: ${Date.now() - startTime}ms`);
 
@@ -1001,8 +1000,8 @@ export class GlobalDataManager {
   // ================================================================
 
   private async invalidateCache(dataType: string, dataId?: string): Promise<void> {
-    // 清除 Redis 缓存
-    await redisCacheService.invalidateGlobalData(dataType, dataId);
+    // TODO: Redis 缓存已禁用，待迁移到新缓存系统
+    // await redisCacheService.invalidateGlobalData(dataType, dataId);
 
     // 清除降级内存缓存
     const specificKey = dataId ? `${dataType}:${dataId}` : `${dataType}:*`;

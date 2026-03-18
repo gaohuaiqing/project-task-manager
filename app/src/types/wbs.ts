@@ -43,6 +43,9 @@ export interface WbsTask {
   predecessor?: string;     // 前置任务ID
   leadLag?: number;         // 提前/落后时间（天数）
 
+  // 预警阈值
+  warningDays?: number;     // 预警天数阈值，默认3天
+
   // 前置任务列表（支持多路径依赖）
   predecessors?: Array<{
     taskId: string;         // 前置任务ID

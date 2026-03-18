@@ -583,7 +583,8 @@ class DatabaseService {
     const connection = await this.pool!.getConnection();
 
     try {
-      const [rows, fields] = await connection.execute(sql, values);
+      // 临时使用 query 而不是 execute，避免 prepared statement 问题
+      const [rows, fields] = await connection.query(sql, values || []);
       const duration = Date.now() - startTime;
 
       // 记录SQL查询日志（跳过数据库写入，避免循环依赖）
@@ -640,7 +641,10 @@ class DatabaseService {
     (connection as any).execute = async (sql: string, values?: any[]) => {
       const startTime = Date.now();
       try {
-        const result = await originalExecute(sql, values);
+        // 当没有参数时使用 query，避免 prepared statement 错误
+        const result = (!values || values.length === 0)
+          ? await originalQuery(sql)
+          : await originalExecute(sql, values);
         const duration = Date.now() - startTime;
 
         if (this.logQueries) {

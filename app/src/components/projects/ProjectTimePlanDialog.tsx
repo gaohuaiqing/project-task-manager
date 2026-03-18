@@ -7,7 +7,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Calendar, Save } from 'lucide-react';
+import { Calendar } from 'lucide-react';
 import { ResizableDialogContent } from './ResizableDialogContent';
 import { TimePlanUnifiedView } from './TimePlanUnifiedView';
 import { MultiTimelineView } from './MultiTimelineView';
@@ -85,15 +85,12 @@ export function ProjectTimePlanDialog({
   const [localMilestones, setLocalMilestones] = useState<ProjectMilestone[]>(initialMilestones);
   const [localTasks, setLocalTasks] = useState<WbsTask[]>(initialTasks);
   const [timelines, setTimelines] = useState<Timeline[]>([]);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [dialogSize, setDialogSize] = useState({ width: 900, height: 700 });
 
   // ==================== 同步初始数据 ====================
   useEffect(() => {
     setLocalMilestones(initialMilestones);
     setLocalTasks(initialTasks);
-    setHasUnsavedChanges(false);
 
     // 自动迁移到时间轴格式（如果使用新视图）
     if (useMultiTimelineView) {
@@ -109,31 +106,39 @@ export function ProjectTimePlanDialog({
     }
   }, [initialMilestones, initialTasks, open, useMultiTimelineView]);
 
-  // ==================== 检测数据变更 ====================
-  useEffect(() => {
-    if (useMultiTimelineView) {
-      // 比较时间轴数据
-      const currentData = JSON.stringify({
-        milestones: timelinesToMilestones(timelines),
-        tasks: timelinesToWbsTasks(timelines),
-      });
-      const initialData = JSON.stringify({
-        milestones: initialMilestones,
-        tasks: initialTasks,
-      });
-      setHasUnsavedChanges(currentData !== initialData);
-    } else {
-      // 比较旧格式数据
-      const milestonesChanged = JSON.stringify(localMilestones) !== JSON.stringify(initialMilestones);
-      const tasksChanged = JSON.stringify(localTasks) !== JSON.stringify(initialTasks);
-      setHasUnsavedChanges(milestonesChanged || tasksChanged);
-    }
-  }, [timelines, localMilestones, localTasks, initialMilestones, initialTasks, useMultiTimelineView]);
-
-  // ==================== 处理时间轴变更（新视图） ====================
+  // ==================== 处理时间轴变更（新视图） - 自动保存 ====================
   const handleTimelinesChange = useCallback((newTimelines: Timeline[]) => {
     setTimelines(newTimelines);
-  }, []);
+
+    // 自动保存：直接转换并调用父组件回调
+    const legacyData = {
+      milestones: timelinesToMilestones(newTimelines),
+      tasks: timelinesToWbsTasks(newTimelines),
+    };
+
+    const milestonesToSave = legacyData.milestones.map((m, index) => ({
+      ...m,
+      id: initialMilestones[index]?.id ?? Date.now() + index,
+      projectId: Number(projectId),
+      createdAt: initialMilestones[index]?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })) as ProjectMilestone[];
+
+    const tasksToSave = legacyData.tasks.map((t, index) => ({
+      ...t,
+      id: initialTasks[index]?.id ?? `task_${Date.now()}_${index}`,
+      wbsCode: initialTasks[index]?.wbsCode ?? String(index + 1),
+      createdAt: initialTasks[index]?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      level: 0,
+      subtasks: [],
+      isExpanded: true,
+    })) as WbsTask[];
+
+    // 立即更新父组件数据
+    onMilestonesChange(milestonesToSave);
+    onTasksChange(tasksToSave);
+  }, [initialMilestones, initialTasks, projectId, onMilestonesChange, onTasksChange]);
 
   // ==================== 处理里程碑变更（旧视图） ====================
   const handleMilestonesChange = useCallback((milestones: ProjectMilestone[]) => {
@@ -231,7 +236,6 @@ export function ProjectTimePlanDialog({
   const handleReset = useCallback(() => {
     setLocalMilestones(initialMilestones);
     setLocalTasks(initialTasks);
-    setHasUnsavedChanges(false);
   }, [initialMilestones, initialTasks]);
 
   // ==================== 保存更改 ====================
@@ -283,27 +287,12 @@ export function ProjectTimePlanDialog({
       milestones: milestonesToSave,
       tasks: tasksToSave,
     });
-
-    setHasUnsavedChanges(false);
   }, [timelines, localMilestones, localTasks, initialMilestones, initialTasks, onMilestonesChange, onTasksChange, onSave, plannedStartDate, plannedEndDate, projectId, useMultiTimelineView]);
 
   // ==================== 处理关闭 ====================
   const handleClose = useCallback(() => {
-    if (hasUnsavedChanges && !readonly) {
-      setShowCloseConfirm(true);
-    } else {
-      onOpenChange(false);
-    }
-  }, [hasUnsavedChanges, readonly, onOpenChange]);
-
-  const handleConfirmClose = useCallback(() => {
-    setShowCloseConfirm(false);
     onOpenChange(false);
   }, [onOpenChange]);
-
-  const handleCancelClose = useCallback(() => {
-    setShowCloseConfirm(false);
-  }, []);
 
   // ==================== 验证日期 ====================
   const dateValidation = validateDateRange(plannedStartDate, plannedEndDate);
@@ -347,21 +336,12 @@ export function ProjectTimePlanDialog({
                 <Calendar className="w-5 h-5 text-primary" />
                 <h2 className="text-lg font-semibold text-foreground">
                   项目时间计划编辑器
+                  {plannedStartDate && plannedEndDate && (
+                    <span className="ml-2 text-sm font-normal text-muted-foreground">
+                      ({plannedStartDate} ~ {plannedEndDate})
+                    </span>
+                  )}
                 </h2>
-                {hasUnsavedChanges && (
-                  <span className="px-2 py-0.5 text-xs bg-amber-500/20 text-amber-500 rounded-md">
-                    未保存
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {plannedStartDate && plannedEndDate ? (
-                  <span>
-                    {plannedStartDate} ~ {plannedEndDate}
-                  </span>
-                ) : (
-                  <span className="text-destructive">请先设置项目日期范围</span>
-                )}
               </div>
             </div>
 
@@ -414,49 +394,14 @@ export function ProjectTimePlanDialog({
 
             {/* 底部按钮 */}
             <div className="px-6 py-4 border-t border-border">
-              <div className="flex justify-between w-full">
+              <div className="flex justify-end w-full">
                 <Button variant="outline" onClick={handleClose}>
-                  取消
+                  关闭
                 </Button>
-                {!readonly && (
-                  <Button onClick={handleSave} disabled={!hasUnsavedChanges}>
-                    <Save className="w-4 h-4 mr-2" />
-                    保存更改
-                  </Button>
-                )}
               </div>
             </div>
           </ResizableDialogContent>
         </>
-      )}
-
-      {/* 关闭确认对话框 */}
-      {showCloseConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-card border border-border rounded-lg shadow-lg max-w-md w-full mx-4 p-6">
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-                <AlertCircle className="w-5 h-5 text-amber-500" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-foreground mb-2">
-                  确认关闭？
-                </h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  您有未保存的更改，关闭对话框将丢失这些更改。是否继续？
-                </p>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={handleCancelClose} className="flex-1">
-                    继续编辑
-                  </Button>
-                  <Button variant="destructive" onClick={handleConfirmClose} className="flex-1">
-                    放弃更改
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
     </>
   );

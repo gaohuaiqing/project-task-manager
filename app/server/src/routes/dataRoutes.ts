@@ -194,31 +194,29 @@ router.get('/initial-data', async (req: any, res: any) => {
   console.log('[InitialData] 🚀 开始获取初始数据...', { page, pageSize });
 
   try {
-    // 尝试从 Redis 缓存获取
-    const { redisCacheService } = await import('../services/RedisCacheService.js');
-    const cached = await redisCacheService.get<any>(CACHE_KEY);
+    // TODO: Redis 缓存已禁用，待迁移到新缓存系统
+    // const { redisCacheService } = await import('../services/RedisCacheService.js');
+    // const cached = await redisCacheService.get<any>(CACHE_KEY);
+    // if (cached) {
+    //   const cacheTime = Date.now() - startTime;
+    //   console.log(`[InitialData] ✅ 命中缓存! 耗时: ${cacheTime}ms`);
+    //   console.log(`[InitialData] 📊 缓存数据:`, {
+    //     项目: cached.data.projects.length,
+    //     成员: cached.data.members.length,
+    //     任务: cached.data.tasks.length
+    //   });
+    //   return res.json({
+    //     success: true,
+    //     data: cached.data,
+    //     meta: {
+    //       ...cached.meta,
+    //       cached: true,
+    //       queryTime: cacheTime
+    //     }
+    //   });
+    // }
 
-    if (cached) {
-      const cacheTime = Date.now() - startTime;
-      console.log(`[InitialData] ✅ 命中缓存! 耗时: ${cacheTime}ms`);
-      console.log(`[InitialData] 📊 缓存数据:`, {
-        项目: cached.data.projects.length,
-        成员: cached.data.members.length,
-        任务: cached.data.tasks.length
-      });
-
-      return res.json({
-        success: true,
-        data: cached.data,
-        meta: {
-          ...cached.meta,
-          cached: true,
-          queryTime: cacheTime
-        }
-      });
-    }
-
-    console.log('[InitialData] 💾 缓存未命中，查询数据库...');
+    console.log('[InitialData] 💾 查询数据库...');
 
     // 并行查询所有数据（性能优化 + 分页）
     const timings = {
@@ -247,29 +245,8 @@ router.get('/initial-data', async (req: any, res: any) => {
       // 优化：分页查询项目
       (async () => {
         const t = Date.now();
-        const result = await databaseService.query(`
-          SELECT
-            p.id,
-            p.code,
-            p.name,
-            p.description,
-            p.status,
-            p.project_type as projectType,
-            p.planned_start_date as plannedStartDate,
-            p.planned_end_date as plannedEndDate,
-            p.progress,
-            p.task_count as taskCount,
-            p.completed_task_count as completedTaskCount,
-            p.created_at as createdAt,
-            p.updated_at as updatedAt,
-            p.created_by as createdBy,
-            u.name as created_by_name
-          FROM projects p
-          LEFT JOIN users u ON p.created_by = u.id
-          WHERE p.deleted_at IS NULL
-          ORDER BY p.created_at DESC
-          LIMIT ? OFFSET ?
-        `, [pageSize, offset]);
+        const sql = `SELECT p.id, p.code, p.name, p.description, p.status, p.project_type as projectType, p.planned_start_date as plannedStartDate, p.planned_end_date as plannedEndDate, p.progress, p.task_count as taskCount, p.completed_task_count as completedTaskCount, p.created_at as createdAt, p.updated_at as updatedAt, p.created_by as createdBy, u.name as created_by_name FROM projects p LEFT JOIN users u ON p.created_by = u.id WHERE p.deleted_at IS NULL ORDER BY p.created_at DESC LIMIT ${pageSize} OFFSET ${offset}`;
+        const result = await databaseService.query(sql);
         timings.projects = Date.now() - t;
         console.log(`[InitialData] ✅ 项目查询完成: ${result.length} 条, 耗时 ${timings.projects}ms`);
         return result;
@@ -277,26 +254,8 @@ router.get('/initial-data', async (req: any, res: any) => {
       // 优化：分页查询成员
       (async () => {
         const t = Date.now();
-        const result = await databaseService.query(`
-          SELECT
-            m.id,
-            m.name,
-            m.employee_id as employeeId,
-            m.department,
-            m.position,
-            m.email,
-            m.phone,
-            m.status,
-            m.created_at as createdAt,
-            m.updated_at as updatedAt,
-            u.role,
-            u.username
-          FROM members m
-          LEFT JOIN users u ON m.name = u.name
-          WHERE m.deleted_at IS NULL
-          ORDER BY m.department, m.name
-          LIMIT ? OFFSET ?
-        `, [pageSize, offset]);
+        const sql = `SELECT m.id, m.name, m.employee_id as employeeId, m.department, m.position, m.status, m.created_at as createdAt, m.updated_at as updatedAt, u.role, u.username FROM members m LEFT JOIN users u ON m.name = u.name WHERE m.deleted_at IS NULL ORDER BY m.department, m.name LIMIT ${pageSize} OFFSET ${offset}`;
+        const result = await databaseService.query(sql);
         timings.members = Date.now() - t;
         console.log(`[InitialData] ✅ 成员查询完成: ${result.length} 条, 耗时 ${timings.members}ms`);
         return result;
@@ -304,31 +263,8 @@ router.get('/initial-data', async (req: any, res: any) => {
       // 优化：分页查询任务
       (async () => {
         const t = Date.now();
-        const result = await databaseService.query(`
-          SELECT
-            t.id,
-            t.project_id as projectId,
-            t.parent_id as parentId,
-            t.task_code as taskCode,
-            t.task_name as taskName,
-            t.description,
-            t.task_type as taskType,
-            t.status,
-            t.priority,
-            t.estimated_hours as estimatedHours,
-            t.actual_hours as actualHours,
-            t.progress,
-            t.planned_start_date as plannedStartDate,
-            t.planned_end_date as plannedEndDate,
-            t.assignee_id as assigneeId,
-            t.assignee_name as assigneeName,
-            t.created_at as createdAt,
-            t.updated_at as updatedAt
-          FROM wbs_tasks t
-          WHERE t.deleted_at IS NULL
-          ORDER BY t.project_id, t.task_code
-          LIMIT ? OFFSET ?
-        `, [pageSize, offset]);
+        const sql = `SELECT t.id, t.project_id as projectId, t.parent_id as parentId, t.task_code as taskCode, t.task_name as taskName, t.description, t.task_type as taskType, t.status, t.priority, t.estimated_hours as estimatedHours, t.actual_hours as actualHours, t.progress, t.planned_start_date as plannedStartDate, t.planned_end_date as plannedEndDate, t.assignee_id as assigneeId, t.created_at as createdAt, t.updated_at as updatedAt FROM wbs_tasks t WHERE t.deleted_at IS NULL ORDER BY t.project_id, t.task_code LIMIT ${pageSize} OFFSET ${offset}`;
+        const result = await databaseService.query(sql);
         timings.tasks = Date.now() - t;
         console.log(`[InitialData] ✅ 任务查询完成: ${result.length} 条, 耗时 ${timings.tasks}ms`);
         return result;
@@ -378,9 +314,10 @@ router.get('/initial-data', async (req: any, res: any) => {
     };
 
     // 写入缓存（异步，不阻塞响应）
-    redisCacheService.set(CACHE_KEY, { data: responseData, meta: responseMeta }, CACHE_TTL)
-      .then(() => console.log('[InitialData] 💾 数据已缓存'))
-      .catch(err => console.warn('[InitialData] ⚠️ 缓存写入失败:', err.message));
+    // TODO: Redis 缓存已禁用，待迁移到新缓存系统
+    // redisCacheService.set(CACHE_KEY, { data: responseData, meta: responseMeta }, CACHE_TTL)
+    //   .then(() => console.log('[InitialData] 💾 数据已缓存'))
+    //   .catch(err => console.warn('[InitialData] ⚠️ 缓存写入失败:', err.message));
 
     res.json({
       success: true,
