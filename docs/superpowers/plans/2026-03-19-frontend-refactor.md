@@ -1682,11 +1682,17 @@ export function useAuth(): AuthState & {
   const { setCurrentUser } = useAppContext();
   const [isLoading, setIsLoading] = useState(false);
 
+  // 检查是否有登录标记（从 localStorage 读取）
+  const [hasAuthCookie, setHasAuthCookie] = useState(() => {
+    return localStorage.getItem('auth_pending') === 'true';
+  });
+
   // 获取当前用户
-  // 注意：使用 enabled 控制是否自动请求，避免在未登录时触发 401 重定向循环
+  // 使用 enabled 控制是否自动请求，避免在未登录时触发 401 重定向循环
   const { data: user } = useQuery({
     queryKey: authQueryKeys.user,
     queryFn: authApi.getCurrentUser,
+    enabled: hasAuthCookie, // 只有在有登录标记时才请求
     retry: false,
     staleTime: 5 * 60 * 1000, // 5 分钟
   });
@@ -1703,6 +1709,10 @@ export function useAuth(): AuthState & {
   const loginMutation = useMutation({
     mutationFn: authApi.login,
     onSuccess: (response) => {
+      // 设置登录标记
+      localStorage.setItem('auth_pending', 'true');
+      setHasAuthCookie(true);
+
       setCurrentUser({
         id: response.user.id,
         username: response.user.username,
@@ -1720,6 +1730,10 @@ export function useAuth(): AuthState & {
   const logoutMutation = useMutation({
     mutationFn: authApi.logout,
     onSuccess: () => {
+      // 清除登录标记
+      localStorage.removeItem('auth_pending');
+      setHasAuthCookie(false);
+
       setCurrentUser(null);
       queryClient.clear();
       navigate('/login');
@@ -2021,7 +2035,7 @@ git commit -m "feat(auth): 新增认证模块
 ```tsx
 // app/src/App.tsx
 
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppProvider } from '@/shared/context/AppContext';
@@ -2058,7 +2072,7 @@ const queryClient = new QueryClient({
  */
 export function App() {
   // 启动 WebSocket 连接
-  React.useEffect(() => {
+  useEffect(() => {
     wsClient.connect();
     return () => wsClient.disconnect();
   }, []);
