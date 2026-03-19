@@ -22,9 +22,11 @@ test.describe('认证 API 测试', () => {
     expect([200, 201]).toContain(response.status);
     expect(response.ok).toBe(true);
 
-    // 验证返回数据
-    expect(response.data).toHaveProperty('user');
-    expect(response.data.user).toHaveProperty('username');
+    // 验证返回数据 - API 返回 { success: true, data: { user, sessionId } }
+    expect(response.data).toHaveProperty('success');
+    expect(response.data.success).toBe(true);
+    expect(response.data.data).toHaveProperty('user');
+    expect(response.data.data.user).toHaveProperty('username');
   });
 
   test('登录 API - 错误密码应返回错误', async () => {
@@ -33,27 +35,27 @@ test.describe('认证 API 测试', () => {
       password: 'wrong_password_123',
     });
 
-    // 验证返回错误
+    // 验证返回错误 - API 返回 { success: false, error: { code, message } }
     expect(response.status).toBe(401);
     expect(response.ok).toBe(false);
-    expect(response.data).toHaveProperty('code');
-    expect(response.data).toHaveProperty('message');
+    expect(response.data).toHaveProperty('error');
+    expect(response.data.error).toHaveProperty('code');
+    expect(response.data.error).toHaveProperty('message');
   });
 
   test('获取当前用户 - 应返回用户信息', async () => {
     // 先登录
-    await api.post('/auth/login', {
-      username: testUser.username,
-      password: testUser.password,
-    });
+    await api.login(testUser.username, testUser.password);
 
     // 获取当前用户
     const response = await api.get('/auth/me');
 
-    // 验证响应
+    // 验证响应 - API 返回 { success: true, data: { user, sessionId, permissions } }
     expect(response.ok).toBe(true);
-    expect(response.data).toHaveProperty('id');
-    expect(response.data).toHaveProperty('username');
+    expect(response.data).toHaveProperty('success');
+    expect(response.data.success).toBe(true);
+    expect(response.data.data).toHaveProperty('user');
+    expect(response.data.data.user).toHaveProperty('username');
   });
 
   test('未认证访问 - 应返回 401', async ({ request }) => {
