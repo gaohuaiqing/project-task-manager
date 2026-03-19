@@ -1,59 +1,36 @@
+/**
+ * 设置页面
+ */
 import { Routes, Route } from 'react-router-dom';
-
-function ProfilePage() {
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">个人设置</h1>
-      <p className="text-muted-foreground">个人设置功能开发中...</p>
-    </div>
-  );
-}
-
-function UsersPage() {
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">用户管理</h1>
-      <p className="text-muted-foreground">用户管理功能开发中...</p>
-    </div>
-  );
-}
-
-function PermissionsPage() {
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">权限管理</h1>
-      <p className="text-muted-foreground">权限管理功能开发中...</p>
-    </div>
-  );
-}
-
-function OrganizationPage() {
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">组织架构</h1>
-      <p className="text-muted-foreground">组织架构功能开发中...</p>
-    </div>
-  );
-}
-
-function SystemConfigPage() {
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">系统配置</h1>
-      <p className="text-muted-foreground">系统配置功能开发中...</p>
-    </div>
-  );
-}
+import { ProfileSettings } from './pages/Profile';
+import { UsersSettings } from './pages/Users';
+import { PermissionsSettings } from './pages/Permissions';
+import { OrganizationSettings } from './pages/Organization';
+import { SystemConfigSettings } from './pages/SystemConfig';
 
 export default function SettingsPage() {
   return (
-    <Routes>
-      <Route index element={<ProfilePage />} />
-      <Route path="profile" element={<ProfilePage />} />
-      <Route path="users" element={<UsersPage />} />
-      <Route path="permissions" element={<PermissionsPage />} />
-      <Route path="organization" element={<OrganizationPage />} />
-      <Route path="system" element={<SystemConfigPage />} />
-    </Routes>
+    <div className="space-y-6 animate-fade-in">
+      <div>
+        <h1 className="text-2xl font-bold">系统设置</h1>
+        <p className="text-muted-foreground">管理系统配置和用户权限</p>
+      </div>
+
+      <Routes>
+        <Route index element={<ProfileSettings />} />
+        <Route path="profile" element={<ProfileSettings />} />
+        <Route path="users" element={<UsersSettings />} />
+        <Route path="permissions" element={<PermissionsSettings />} />
+        <Route path="organization" element={<OrganizationSettings />} />
+        <Route path="system" element={<SystemConfigSettings />} />
+      </Routes>
+    </div>
   );
 }
+
+// 导出子页面组件
+export { ProfileSettings } from './pages/Profile';
+export { UsersSettings } from './pages/Users';
+export { PermissionsSettings } from './pages/Permissions';
+export { OrganizationSettings } from './pages/Organization';
+export { SystemConfigSettings } from './pages/SystemConfig';
