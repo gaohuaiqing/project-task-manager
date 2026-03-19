@@ -19,7 +19,6 @@ export function useAuth(): AuthState & {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { setCurrentUser } = useAppContext();
-  const [isLoading, setIsLoading] = useState(false);
 
   // 检查是否有登录标记
   const [hasAuthSession, setHasAuthSession] = useState(() => {
@@ -82,24 +81,14 @@ export function useAuth(): AuthState & {
   // 登录方法
   const login = useCallback(
     async (data: LoginRequest) => {
-      setIsLoading(true);
-      try {
-        await loginMutation.mutateAsync(data);
-      } finally {
-        setIsLoading(false);
-      }
+      await loginMutation.mutateAsync(data);
     },
     [loginMutation]
   );
 
   // 登出方法
   const logout = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      await logoutMutation.mutateAsync();
-    } finally {
-      setIsLoading(false);
-    }
+    await logoutMutation.mutateAsync();
   }, [logoutMutation]);
 
   // 检查单个权限
@@ -131,7 +120,7 @@ export function useAuth(): AuthState & {
   return {
     user: user ?? null,
     isAuthenticated: !!user,
-    isLoading: isLoading || loginMutation.isPending || logoutMutation.isPending,
+    isLoading: loginMutation.isPending || logoutMutation.isPending,
     login,
     logout,
     hasPermission,

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { FolderKanban, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { PROJECT_STATUS_CONFIG } from '@/shared/constants';
 import type { ProjectProgressItem } from '../types';
 
 interface ProjectProgressProps {
@@ -14,13 +15,6 @@ interface ProjectProgressProps {
   className?: string;
   onProjectClick?: (project: ProjectProgressItem) => void;
 }
-
-const statusConfig = {
-  planning: { label: '计划中', color: 'bg-gray-500' },
-  in_progress: { label: '进行中', color: 'bg-blue-500' },
-  completed: { label: '已完成', color: 'bg-green-500' },
-  delayed: { label: '已延期', color: 'bg-red-500' },
-};
 
 export function ProjectProgress({ projects, className, onProjectClick }: ProjectProgressProps) {
   if (projects.length === 0) {
@@ -69,9 +63,9 @@ export function ProjectProgress({ projects, className, onProjectClick }: Project
                 <div className="flex items-center gap-2 mt-1">
                   <Badge
                     variant="secondary"
-                    className={cn('text-white text-xs', statusConfig[project.status].color)}
+                    className={cn('text-white text-xs', PROJECT_STATUS_CONFIG[project.status].bgColor)}
                   >
-                    {statusConfig[project.status].label}
+                    {PROJECT_STATUS_CONFIG[project.status].label}
                   </Badge>
                   {project.deadline && (
                     <span className="text-xs text-muted-foreground flex items-center gap-1">

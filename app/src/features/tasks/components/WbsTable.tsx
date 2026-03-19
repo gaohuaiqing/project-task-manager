@@ -24,8 +24,9 @@ import { Progress } from '@/components/ui/progress';
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner';
 import { useTasks } from '../hooks/useTasks';
 import { taskApi } from '@/lib/api/task.api';
-import type { Task, TaskWithChildren, TaskStatus } from '../types';
+import type { Task, TaskWithChildren } from '../types';
 import { cn } from '@/lib/utils';
+import { TASK_STATUS_CONFIG } from '@/shared/constants';
 
 interface WbsTableProps {
   projectId?: string;
@@ -33,13 +34,6 @@ interface WbsTableProps {
   onEditTask?: (task: Task) => void;
   onDeleteTask?: (task: Task) => void;
 }
-
-const statusConfig: Record<TaskStatus, { label: string; color: string }> = {
-  pending: { label: '待处理', color: 'bg-gray-100 text-gray-700' },
-  in_progress: { label: '进行中', color: 'bg-blue-100 text-blue-700' },
-  completed: { label: '已完成', color: 'bg-green-100 text-green-700' },
-  delayed: { label: '已延期', color: 'bg-red-100 text-red-700' },
-};
 
 export function WbsTable({ projectId, onCreateTask, onEditTask, onDeleteTask }: WbsTableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -100,8 +94,8 @@ export function WbsTable({ projectId, onCreateTask, onEditTask, onDeleteTask }: 
           </div>
         </TableCell>
         <TableCell>
-          <Badge className={cn('text-xs', statusConfig[task.status].color)}>
-            {statusConfig[task.status].label}
+          <Badge className={cn('text-xs', TASK_STATUS_CONFIG[task.status].bgColor, TASK_STATUS_CONFIG[task.status].textColor)}>
+            {TASK_STATUS_CONFIG[task.status].label}
           </Badge>
         </TableCell>
         <TableCell>{task.assigneeName || '-'}</TableCell>

@@ -14,11 +14,21 @@ export const apiClient = axios.create({
 });
 
 /**
- * 获取 CSRF Token
+ * CSRF Token 缓存
+ * Token 在页面生命周期内不变，首次读取后缓存
+ */
+let cachedCsrfToken: string | null | undefined = undefined;
+
+/**
+ * 获取 CSRF Token（带缓存）
  */
 function getCsrfToken(): string | null {
+  if (cachedCsrfToken !== undefined) {
+    return cachedCsrfToken;
+  }
   const metaTag = document.querySelector('meta[name="csrf-token"]');
-  return metaTag?.getAttribute('content') ?? null;
+  cachedCsrfToken = metaTag?.getAttribute('content') ?? null;
+  return cachedCsrfToken;
 }
 
 /**

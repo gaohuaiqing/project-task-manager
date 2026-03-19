@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { PROJECT_STATUS_CONFIG, PROJECT_TYPE_CONFIG } from '@/shared/constants';
 import type { Project } from '../types';
 
 interface ProjectCardProps {
@@ -21,18 +22,6 @@ interface ProjectCardProps {
   onEdit?: () => void;
   onDelete?: () => void;
 }
-
-const statusConfig = {
-  planning: { label: '计划中', color: 'bg-gray-500' },
-  in_progress: { label: '进行中', color: 'bg-blue-500' },
-  completed: { label: '已完成', color: 'bg-green-500' },
-  delayed: { label: '已延期', color: 'bg-red-500' },
-};
-
-const typeLabels: Record<string, string> = {
-  product_development: '产品开发',
-  functional_management: '职能管理',
-};
 
 export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
   const navigate = useNavigate();
@@ -55,9 +44,9 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
               </span>
               <Badge
                 variant="secondary"
-                className={cn('text-white text-xs', statusConfig[project.status].color)}
+                className={cn('text-white text-xs', PROJECT_STATUS_CONFIG[project.status].bgColor)}
               >
-                {statusConfig[project.status].label}
+                {PROJECT_STATUS_CONFIG[project.status].label}
               </Badge>
             </div>
             <CardTitle className="text-lg truncate">{project.name}</CardTitle>
@@ -100,7 +89,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
         {/* 类型标签 */}
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-xs">
-            {typeLabels[project.projectType] || project.projectType}
+            {PROJECT_TYPE_CONFIG[project.projectType]?.label || project.projectType}
           </Badge>
         </div>
 
