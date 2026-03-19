@@ -130,7 +130,25 @@ export default defineConfig({
 | 更新状态 | 更改任务状态 | 状态更新成功 |
 | 任务分配 | 分配任务给成员 | 负责人更新 |
 
-### 4. API 集成测试 (api/*.spec.ts)
+### 4. 智能分配模块 (assignment.spec.ts)
+
+| 用例 | 描述 | 验证点 |
+|------|------|--------|
+| 页面加载 | 访问智能分配页面 | 显示成员能力矩阵 |
+| 能力筛选 | 按技能类型筛选成员 | 显示符合条件的成员 |
+| 负载查看 | 查看成员当前负载 | 显示任务数量和工时 |
+| 分配建议 | 选择任务查看分配建议 | 显示推荐人员列表 |
+
+### 5. 错误处理测试 (error-handling.spec.ts)
+
+| 用例 | 描述 | 验证点 |
+|------|------|--------|
+| 网络断开 | 模拟网络断开 | 显示离线提示 |
+| 表单验证 | 提交空表单 | 显示字段错误提示 |
+| 权限不足 | 普通用户访问管理页面 | 显示权限拒绝提示 |
+| API 超时 | 模拟 API 超时 | 显示加载超时提示 |
+
+### 6. API 集成测试 (api/*.spec.ts)
 
 | 用例 | 描述 | 验证点 |
 |------|------|--------|
@@ -285,6 +303,204 @@ npm run report
 2. **清理策略**: 每次测试前清理测试数据，确保测试可重复
 3. **超时设置**: API 测试超时 10s，页面操作超时 30s
 4. **并发控制**: 单 worker 执行，避免数据竞争
+
+---
+
+## 页面选择器定义
+
+按页面组织选择器文件，便于维护和复用：
+
+```
+fixtures/selectors/
+├── auth.selectors.ts
+├── project.selectors.ts
+├── task.selectors.ts
+└── common.selectors.ts
+```
+
+```typescript
+// fixtures/selectors/auth.selectors.ts
+export const authSelectors = {
+  loginForm: '[data-testid="login-form"]',
+  usernameInput: '[data-testid="username-input"]',
+  passwordInput: '[data-testid="password-input"]',
+  submitButton: '[data-testid="login-button"]',
+  errorMessage: '[data-testid="error-message"]',
+};
+
+// fixtures/selectors/project.selectors.ts
+export const projectSelectors = {
+  listContainer: '[data-testid="project-list"]',
+  projectCard: '[data-testid="project-card"]',
+  createButton: '[data-testid="create-project-btn"]',
+  editButton: '[data-testid="edit-project-btn"]',
+  deleteButton: '[data-testid="delete-project-btn"]',
+};
+
+// 命名规范：[data-testid="组件名-元素类型"]
+// 例如：login-form, username-input, project-card
+```
+
+---
+
+## 数据库清理辅助
+
+```typescript
+// utils/db-helper.ts
+import mysql from 'mysql2/promise';
+
+interface DbConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+}
+
+// 从环境变量读取配置
+const getTestDbConfig = (): DbConfig => ({
+  host: process.env.TEST_DB_HOST || 'localhost',
+  port: parseInt(process.env.TEST_DB_PORT || '3306'),
+  user: process.env.TEST_DB_USER || 'root',
+  password: process.env.TEST_DB_PASSWORD || '',
+  database: process.env.TEST_DB_NAME || 'task_manager_test',
+});
+
+// 清理测试数据（按外键依赖顺序）
+export async function cleanupTestData(): Promise<void> {
+  const connection = await mysql.createConnection(getTestDbConfig());
+
+  try {
+    await connection.beginTransaction();
+
+    // 按外键依赖顺序删除（子表先删）
+    const tables = [
+      'task_dependencies',
+      'progress_records',
+      'tasks',
+      'timeline_tasks',
+      'timelines',
+      'milestones',
+      'project_members',
+      'projects',
+      // 用户表保留测试账号
+    ];
+
+    for (const table of tables) {
+      // 只删除测试数据（以 E2E- 或 test_ 开头）
+      await connection.execute(
+        `DELETE FROM ${table} WHERE id LIKE 'E2E-%' OR name LIKE 'E2E%' OR code LIKE 'E2E-%'`
+      );
+    }
+
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    await connection.end();
+  }
+}
+
+// 清理时机：每个测试文件 beforeEach 钩子
+```
+
+---
+
+## 测试环境配置
+
+```bash
+# .env.test - 测试环境配置文件
+
+# 前端服务
+FRONTEND_URL=http://localhost:5173
+
+# 后端服务
+API_BASE_URL=http://localhost:3001/api
+
+# 测试数据库（独立于开发数据库）
+TEST_DB_HOST=localhost
+TEST_DB_PORT=3306
+TEST_DB_USER=root
+TEST_DB_PASSWORD=
+TEST_DB_NAME=task_manager_test
+
+# 测试账号
+TEST_ADMIN_USERNAME=test_admin
+TEST_ADMIN_PASSWORD=Test@123456
+
+# Redis（可选，用于缓存测试）
+TEST_REDIS_HOST=localhost
+TEST_REDIS_PORT=6379
+```
+
+```typescript
+// 在 playwright.config.ts 中加载环境变量
+import { config } from 'dotenv';
+config({ path: '.env.test' });
+```
+
+---
+
+## CI/CD 集成（可选）
+
+```yaml
+# .github/workflows/e2e-tests.yml
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: task_manager_test
+        ports:
+          - 3306:3306
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          cd app && npm ci
+          cd ../app/server && npm ci
+          cd ../../Test/E2E_AutoTest && npm ci
+          npx playwright install chromium
+
+      - name: Run E2E tests
+        run: cd Test/E2E_AutoTest && npm test
+        env:
+          TEST_DB_HOST: localhost
+          TEST_DB_PASSWORD: test
+
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: Test/E2E_AutoTest/reports/html/
+```
 
 ---
 
