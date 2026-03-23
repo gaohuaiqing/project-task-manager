@@ -11,6 +11,8 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // 接受 304 (Not Modified) 作为成功响应
+  validateStatus: (status) => (status >= 200 && status < 300) || status === 304,
 });
 
 /**
@@ -32,13 +34,18 @@ function getCsrfToken(): string | null {
 }
 
 /**
- * 请求拦截器：添加 CSRF token
+ * 请求拦截器：添加 CSRF token 和禁用缓存
  */
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const csrfToken = getCsrfToken();
     if (csrfToken && config.headers) {
       config.headers['X-CSRF-Token'] = csrfToken;
+    }
+    // 禁用浏览器缓存，避免 304 响应
+    if (config.headers) {
+      config.headers['Cache-Control'] = 'no-cache';
+      config.headers['Pragma'] = 'no-cache';
     }
     return config;
   },

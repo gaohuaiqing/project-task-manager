@@ -2,7 +2,7 @@
  * 项目卡片组件
  */
 import { useNavigate } from 'react-router-dom';
-import { MoreVertical, Calendar, Users, CheckCircle2 } from 'lucide-react';
+import { MoreVertical, Calendar } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { AvatarGroup } from '@/components/ui/avatar-group';
 import { cn } from '@/lib/utils';
 import { PROJECT_STATUS_CONFIG, PROJECT_TYPE_CONFIG } from '@/shared/constants';
 import type { Project } from '../types';
@@ -30,6 +31,12 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
     navigate(`/projects/${project.id}`);
   };
 
+  // 格式化日期
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '未设定';
+    return new Date(dateStr).toLocaleDateString();
+  };
+
   return (
     <Card
       className="cursor-pointer hover:shadow-md transition-shadow"
@@ -39,9 +46,9 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs text-muted-foreground font-mono">
+              <Badge variant="outline" className="text-xs font-mono">
                 {project.code}
-              </span>
+              </Badge>
               <Badge
                 variant="secondary"
                 className={cn('text-white text-xs', PROJECT_STATUS_CONFIG[project.status].bgColor)}
@@ -93,22 +100,6 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
           </Badge>
         </div>
 
-        {/* 时间信息 */}
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          {project.startDate && (
-            <div className="flex items-center gap-1">
-              <Calendar className="h-3 w-3" />
-              <span>{new Date(project.startDate).toLocaleDateString()}</span>
-            </div>
-          )}
-          {project.deadline && (
-            <div className="flex items-center gap-1">
-              <span>至</span>
-              <span>{new Date(project.deadline).toLocaleDateString()}</span>
-            </div>
-          )}
-        </div>
-
         {/* 进度条 */}
         <div className="space-y-1">
           <div className="flex items-center justify-between text-sm">
@@ -116,6 +107,19 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
             <span className="font-medium">{project.progress}%</span>
           </div>
           <Progress value={project.progress} className="h-2" />
+        </div>
+
+        {/* 底部：成员头像组 + 截止日期 */}
+        <div className="flex items-center justify-between pt-2 border-t">
+          <AvatarGroup
+            members={project.members || []}
+            max={5}
+            size="sm"
+          />
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Calendar className="h-3 w-3" />
+            <span>{formatDate(project.deadline)}</span>
+          </div>
         </div>
       </CardContent>
     </Card>

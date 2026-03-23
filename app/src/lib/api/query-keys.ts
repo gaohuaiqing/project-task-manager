@@ -14,17 +14,32 @@ export const queryKeys = {
   org: {
     all: ['org'] as const,
     departments: ['org', 'departments'] as const,
-    department: (id: string) => ['org', 'department', id] as const,
-    members: ['org', 'members'] as const,
-    member: (id: string) => ['org', 'member', id] as const,
+    departmentTree: ['org', 'departments', 'tree'] as const,
+    department: (id: number) => ['org', 'department', id] as const,
+    members: (params?: object) => ['org', 'members', params] as const,
+    member: (id: number) => ['org', 'member', id] as const,
     capabilities: ['org', 'capabilities'] as const,
     capability: (id: string) => ['org', 'capability', id] as const,
+    capabilityModels: ['org', 'capability-models'] as const,
+    capabilityModel: (id: string) => ['org', 'capability-model', id] as const,
   },
 
   // ==================== 项目管理 ====================
   projects: {
     all: ['projects'] as const,
-    list: () => ['projects', 'list'] as const,
+    list: (params?: object) => ['projects', 'list', params] as const,
+    detail: (id: string) => ['projects', 'detail', id] as const,
+    milestones: (projectId: string) => ['projects', 'milestones', projectId] as const,
+    milestone: (projectId: string, milestoneId: string) =>
+      ['projects', 'milestone', projectId, milestoneId] as const,
+    timelines: (projectId: string) => ['projects', 'timelines', projectId] as const,
+    tags: (projectId: string) => ['projects', 'tags', projectId] as const,
+  },
+
+  // 项目管理别名（单数形式）
+  project: {
+    all: ['projects'] as const,
+    list: (params?: object) => ['projects', 'list', params] as const,
     detail: (id: string) => ['projects', 'detail', id] as const,
     milestones: (projectId: string) => ['projects', 'milestones', projectId] as const,
     milestone: (projectId: string, milestoneId: string) =>
@@ -36,10 +51,27 @@ export const queryKeys = {
   // ==================== 任务管理 ====================
   tasks: {
     all: ['tasks'] as const,
-    list: (projectId: string) => ['tasks', 'list', projectId] as const,
+    lists: () => ['tasks', 'list'] as const,
+    list: (params?: object) => ['tasks', 'list', params] as const,
     detail: (id: string) => ['tasks', 'detail', id] as const,
+    stats: (projectId: string) => ['tasks', 'stats', projectId] as const,
+    progressRecords: (taskId: string) => ['tasks', 'progress', taskId] as const,
     dependencies: (taskId: string) => ['tasks', 'dependencies', taskId] as const,
     history: (taskId: string) => ['tasks', 'history', taskId] as const,
+    wbsTree: (projectId: string) => ['tasks', 'wbsTree', projectId] as const,
+  },
+
+  // 任务管理别名（单数形式）
+  task: {
+    all: ['tasks'] as const,
+    lists: () => ['tasks', 'list'] as const,
+    list: (params?: object) => ['tasks', 'list', params] as const,
+    detail: (id: string) => ['tasks', 'detail', id] as const,
+    stats: (projectId: string) => ['tasks', 'stats', projectId] as const,
+    progressRecords: (taskId: string) => ['tasks', 'progress', taskId] as const,
+    dependencies: (taskId: string) => ['tasks', 'dependencies', taskId] as const,
+    history: (taskId: string) => ['tasks', 'history', taskId] as const,
+    wbsTree: (projectId: string) => ['tasks', 'wbsTree', projectId] as const,
   },
 
   // ==================== 工作流 ====================
@@ -66,8 +98,13 @@ export const queryKeys = {
   analytics: {
     all: ['analytics'] as const,
     dashboard: () => ['analytics', 'dashboard'] as const,
+    dashboardStats: () => ['analytics', 'dashboardStats'] as const,
     projectStats: (projectId: string) => ['analytics', 'project', projectId] as const,
     taskStats: (projectId: string) => ['analytics', 'tasks', projectId] as const,
+    taskTrend: (params: object) => ['analytics', 'taskTrend', params] as const,
+    taskStatistics: (params: object) => ['analytics', 'taskStatistics', params] as const,
+    projectProgress: (projectId: string) => ['analytics', 'projectProgress', projectId] as const,
+    delayAnalysis: (params: object) => ['analytics', 'delayAnalysis', params] as const,
     reports: (type: string) => ['analytics', 'reports', type] as const,
   },
 

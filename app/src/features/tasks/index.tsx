@@ -1,51 +1,94 @@
 /**
  * 任务管理页面
  */
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { WbsTable } from './components/WbsTable';
 import { TaskForm } from './components/TaskForm';
+import { TaskFilterBar } from './components/TaskFilterBar';
+import { TaskDetailDialog } from './components/TaskDetailDialog';
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog';
+import { useTasks } from './hooks/useTasks';
 import {
   useCreateTask,
   useUpdateTask,
   useDeleteTask,
 } from './hooks/useTaskMutations';
-import type { Task, CreateTaskRequest, UpdateTaskRequest } from './types';
+import { useProjects } from '@/features/projects/hooks/useProjects';
+import { getMembers } from '@/lib/api/org.api';
+import { taskApi } from '@/lib/api/task.api';
+import { queryKeys } from '@/lib/api/query-keys';
+import type { WBSTaskListItem, CreateTaskRequest, UpdateTaskRequest, TaskQueryParams } from './types';
 
 interface TasksPageProps {
   projectId?: string;
 }
 
 export default function TasksPage({ projectId }: TasksPageProps) {
+  const queryClient = useQueryClient();
+
+  // 筛选状态
+  const [filters, setFilters] = useState<TaskQueryParams>({
+    projectId,
+    pageSize: 1000,
+  });
+
   // 对话框状态
   const [formOpen, setFormOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<WBSTaskListItem | null>(null);
   const [parentId, setParentId] = useState<string | null>(null);
+  const [wbsLevel, setWbsLevel] = useState<number>(1);
+  const [detailDefaultTab, setDetailDefaultTab] = useState<'progress' | 'delays' | 'changes'>('progress');
+
+  // 处理筛选变化
+  const handleFiltersChange = useCallback((newFilters: TaskQueryParams) => {
+    setFilters((prev) => ({
+      ...newFilters,
+      projectId: projectId || newFilters.projectId, // 项目详情页保持项目ID
+      pageSize: 1000,
+    }));
+  }, [projectId]);
+
+  // 查询任务列表（使用筛选参数）
+  const { data: tasksData, isLoading: tasksLoading } = useTasks(filters);
+
+  // 查询项目列表（用于下拉选择）
+  const { data: projectsData } = useProjects({ pageSize: 1000 });
+
+  // 查询成员列表（用于负责人下拉）
+  const { data: membersData } = useQuery({
+    queryKey: queryKeys.org.members,
+    queryFn: () => getMembers({ pageSize: 1000, status: 'active' }),
+    staleTime: 5 * 60 * 1000, // 5 分钟
+  });
 
   // Mutations
   const createMutation = useCreateTask();
-  const updateMutation = useUpdateTask(selectedTask?.id ?? '');
   const deleteMutation = useDeleteTask();
+  const updateMutation = useUpdateTask(); // 不传参数，在调用时传递 { id, data }
 
   // 处理创建任务
-  const handleCreateTask = (parentTaskId?: string) => {
+  const handleCreateTask = (parentTaskId?: string, level?: number) => {
     setSelectedTask(null);
     setParentId(parentTaskId ?? null);
+    setWbsLevel(level ?? 1);
     setFormOpen(true);
   };
 
   // 处理编辑任务
-  const handleEditTask = (task: Task) => {
+  const handleEditTask = (task: WBSTaskListItem) => {
     setSelectedTask(task);
     setParentId(task.parentId);
+    setWbsLevel(task.wbsLevel);
     setFormOpen(true);
   };
 
   // 处理删除任务
-  const handleDeleteTask = (task: Task) => {
+  const handleDeleteTask = (task: WBSTaskListItem) => {
     setSelectedTask(task);
     setDeleteOpen(true);
   };
@@ -53,7 +96,12 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   // 提交表单
   const handleFormSubmit = async (data: CreateTaskRequest | UpdateTaskRequest) => {
     if (selectedTask) {
-      await updateMutation.mutateAsync(data as UpdateTaskRequest);
+      // 编辑模式：添加 version 字段，使用 { id, data } 格式
+      const updateData: UpdateTaskRequest = {
+        ...data,
+        version: selectedTask.version,
+      } as UpdateTaskRequest;
+      await updateMutation.mutateAsync({ id: selectedTask.id, data: updateData });
     } else {
       await createMutation.mutateAsync(data as CreateTaskRequest);
     }
@@ -67,6 +115,74 @@ export default function TasksPage({ projectId }: TasksPageProps) {
       setSelectedTask(null);
     }
   };
+
+  // 查看进展记录
+  const handleViewProgress = (task: WBSTaskListItem) => {
+    setSelectedTask(task);
+    setDetailDefaultTab('progress');
+    setDetailOpen(true);
+  };
+
+  // 查看延期历史
+  const handleViewDelayHistory = (task: WBSTaskListItem) => {
+    setSelectedTask(task);
+    setDetailDefaultTab('delays');
+    setDetailOpen(true);
+  };
+
+  // 查看计划变更
+  const handleViewPlanChanges = (task: WBSTaskListItem) => {
+    setSelectedTask(task);
+    setDetailDefaultTab('changes');
+    setDetailOpen(true);
+  };
+
+  // 行内更新任务（字段级别）
+  const handleUpdateTaskField = useCallback(async (taskId: string, field: string, value: unknown) => {
+    const task = tasksData?.items.find(t => t.id === taskId);
+    if (!task) return;
+
+    const updateData: UpdateTaskRequest = {
+      [field]: value,
+      version: task.version,
+    } as UpdateTaskRequest;
+
+    // 直接调用 API
+    await taskApi.updateTask(taskId, updateData);
+
+    // 刷新任务列表
+    queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
+  }, [tasksData, queryClient]);
+
+  // 计算任务树（添加 hasChildren 和 depth）
+  const tasksWithMeta = useMemo(() => {
+    if (!tasksData?.items) return [];
+
+    const taskMap = new Map<string, WBSTaskListItem & { hasChildren: boolean; depth: number }>();
+    tasksData.items.forEach(task => taskMap.set(task.id, { ...task, hasChildren: false, depth: task.wbsLevel }));
+
+    // 标记有子任务的任务
+    tasksData.items.forEach(task => {
+      if (task.parentId) {
+        const parent = taskMap.get(task.parentId);
+        if (parent) {
+          parent.hasChildren = true;
+        }
+      }
+    });
+
+    return Array.from(taskMap.values());
+  }, [tasksData]);
+
+  // 成员列表（简化格式）
+  const members = useMemo(() => {
+    return membersData?.items.map(m => ({ id: m.id, name: m.name })) ?? [];
+  }, [membersData]);
+
+  // 项目列表（简化格式）
+  const projects = useMemo(() => {
+    return projectsData?.items.map(p => ({ id: String(p.id), name: p.name })) ?? [];
+  }, [projectsData]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -82,12 +198,28 @@ export default function TasksPage({ projectId }: TasksPageProps) {
         </Button>
       </div>
 
+      {/* 筛选器 */}
+      <TaskFilterBar
+        filters={filters}
+        onFiltersChange={handleFiltersChange}
+        projects={projects}
+        members={members}
+        showProjectFilter={!projectId}
+      />
+
       {/* WBS 表格 */}
       <WbsTable
-        projectId={projectId}
+        tasks={tasksWithMeta}
+        members={members}
+        projects={projects}
+        isLoading={tasksLoading}
         onCreateTask={handleCreateTask}
         onEditTask={handleEditTask}
         onDeleteTask={handleDeleteTask}
+        onViewProgress={handleViewProgress}
+        onViewDelayHistory={handleViewDelayHistory}
+        onViewPlanChanges={handleViewPlanChanges}
+        onUpdateTask={handleUpdateTaskField}
       />
 
       {/* 任务表单对话框 */}
@@ -101,8 +233,11 @@ export default function TasksPage({ projectId }: TasksPageProps) {
           }
         }}
         task={selectedTask}
-        projectId={projectId || ''}
+        projectId={projectId}
         parentId={parentId}
+        wbsLevel={wbsLevel}
+        projects={projects}
+        tasks={tasksData?.items || []}
         onSubmit={handleFormSubmit}
         isLoading={createMutation.isPending || updateMutation.isPending}
       />
@@ -115,11 +250,22 @@ export default function TasksPage({ projectId }: TasksPageProps) {
           if (!open) setSelectedTask(null);
         }}
         title="删除任务"
-        description={`确定要删除任务 "${selectedTask?.name}" 吗？此操作将同时删除所有子任务，无法撤销。`}
+        description={`确定要删除任务 "${selectedTask?.description}" 吗？此操作将同时删除所有子任务，无法撤销。`}
         confirmText="删除"
         onConfirm={handleConfirmDelete}
         loading={deleteMutation.isPending}
         variant="destructive"
+      />
+
+      {/* 任务详情弹窗 */}
+      <TaskDetailDialog
+        open={detailOpen}
+        onOpenChange={(open) => {
+          setDetailOpen(open);
+          if (!open) setSelectedTask(null);
+        }}
+        task={selectedTask}
+        defaultTab={detailDefaultTab}
       />
     </div>
   );

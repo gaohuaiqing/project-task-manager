@@ -21,10 +21,10 @@ export function useDashboardStats() {
 /**
  * 获取任务趋势数据
  */
-export function useTaskTrend(params: DashboardQueryParams = {}) {
+export function useTaskTrend(days: number = 30) {
   return useQuery({
-    queryKey: queryKeys.analytics.taskTrend(params),
-    queryFn: () => analyticsApi.getTaskTrend(params),
+    queryKey: queryKeys.analytics.taskTrend({ days }),
+    queryFn: () => analyticsApi.getTaskTrend({ days }),
     staleTime: 10 * 60 * 1000, // 10 分钟
   });
 }
@@ -43,11 +43,10 @@ export function useTaskDistribution(params: DashboardQueryParams = {}) {
 /**
  * 获取项目进度数据
  */
-export function useProjectProgress(projectId: string | undefined) {
+export function useProjectProgress() {
   return useQuery({
-    queryKey: queryKeys.analytics.projectProgress(projectId!),
-    queryFn: () => analyticsApi.getProjectProgress(projectId!),
-    enabled: !!projectId,
+    queryKey: queryKeys.analytics.projectProgress('all'),
+    queryFn: () => analyticsApi.getProjectProgress('all'),
     staleTime: 5 * 60 * 1000,
   });
 }

@@ -2,22 +2,19 @@
  * 仪表板页面
  */
 import { useNavigate } from 'react-router-dom';
-import {
-  CheckCircle2,
-  FolderKanban,
-  Users,
-  TrendingUp,
-  AlertCircle,
-  Clock,
-  ListTodo,
-} from 'lucide-react';
+import { CheckCircle2, FolderKanban, Users, TrendingUp } from 'lucide-react';
 import { StatsCard } from './components/StatsCard';
 import { ProjectProgress } from './components/ProjectProgress';
 import { TaskDistribution } from './components/TaskDistribution';
+import { TrendChart } from './components/TrendChart';
+import { ProgressPieChart, StatusPieChart } from './components/ProgressPieChart';
+import { UrgentTaskAlert } from './components/UrgentTaskAlert';
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner';
 import {
   useDashboardStats,
   useTaskDistribution,
+  useTaskTrend,
+  useProjectProgress,
 } from './hooks/useDashboardData';
 import type { ProjectProgressItem } from './types';
 
@@ -30,6 +27,12 @@ export default function DashboardPage() {
   // 获取任务分布数据
   const { data: distribution } = useTaskDistribution();
 
+  // 获取任务趋势数据
+  const { data: trendData, isLoading: trendLoading } = useTaskTrend(30);
+
+  // 获取项目进度数据
+  const { data: projectData, isLoading: projectLoading } = useProjectProgress();
+
   if (statsLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -38,8 +41,53 @@ export default function DashboardPage() {
     );
   }
 
-  // 模拟项目进度数据（后续从 API 获取）
-  const projects: ProjectProgressItem[] = [];
+  // 项目进度数据
+  const projects: ProjectProgressItem[] = projectData?.map((p) => ({
+    id: p.projectId,
+    name: p.projectName,
+    progress: p.progress,
+    totalTasks: p.taskCount,
+    completedTasks: p.completedCount,
+  })) ?? [];
+
+  // 任务状态分布数据
+  const statusDistribution = stats
+    ? [
+        {
+          status: 'not_started',
+          label: '未开始',
+          count: stats.pendingTasks,
+          color: '#9ca3af',
+        },
+        {
+          status: 'in_progress',
+          label: '进行中',
+          count: stats.inProgressTasks,
+          color: '#3b82f6',
+        },
+        {
+          status: 'completed',
+          label: '已完成',
+          count: stats.completedTasks,
+          color: '#22c55e',
+        },
+        {
+          status: 'delayed',
+          label: '已延期',
+          count: stats.overdueTasks,
+          color: '#ef4444',
+        },
+      ]
+    : [];
+
+  // 处理紧急任务跳转
+  const handleUrgentJump = (type: 'overdue' | 'warning') => {
+    if (type === 'overdue') {
+      navigate('/tasks?status=delayed');
+    } else {
+      navigate('/tasks?status=warning');
+    }
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -49,79 +97,60 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">欢迎回来，查看您的项目概览</p>
       </div>
 
-      {/* 统计卡片 */}
+      {/* 紧急任务提醒 */}
+      {stats && (stats.overdueTasks > 0 || (stats.warningTasks ?? 0) > 0) && (
+        <UrgentTaskAlert
+          overdueCount={stats.overdueTasks}
+          warningCount={stats.warningTasks ?? 0}
+          onJump={handleUrgentJump}
+        />
+      )}
+
+      {/* 统计卡片（极简数字样式） */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard
           title="总任务数"
           value={stats?.totalTasks ?? 0}
-          icon={CheckCircle2}
-          accentColor="#60a5fa"
           onClick={() => navigate('/tasks')}
         />
         <StatsCard
           title="进行中项目"
           value={stats?.activeProjects ?? 0}
           suffix="个"
-          icon={FolderKanban}
-          accentColor="#4ade80"
           onClick={() => navigate('/projects')}
         />
         <StatsCard
           title="团队成员"
           value={stats?.totalMembers ?? 0}
           suffix="人"
-          icon={Users}
-          accentColor="#a78bfa"
         />
         <StatsCard
           title="平均进度"
           value={stats?.avgProgress ?? 0}
           suffix="%"
-          icon={TrendingUp}
-          accentColor="#fb923c"
         />
       </div>
 
-      {/* 任务状态概览 */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="flex items-center gap-3 p-4 rounded-lg border bg-card">
-            <Clock className="h-5 w-5 text-gray-500" />
-            <div>
-              <p className="text-sm text-muted-foreground">待处理</p>
-              <p className="text-xl font-bold">{stats.pendingTasks}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 p-4 rounded-lg border bg-card">
-            <ListTodo className="h-5 w-5 text-blue-500" />
-            <div>
-              <p className="text-sm text-muted-foreground">进行中</p>
-              <p className="text-xl font-bold">{stats.inProgressTasks}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 p-4 rounded-lg border bg-card">
-            <CheckCircle2 className="h-5 w-5 text-green-500" />
-            <div>
-              <p className="text-sm text-muted-foreground">已完成</p>
-              <p className="text-xl font-bold">{stats.completedTasks}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 p-4 rounded-lg border bg-card">
-            <AlertCircle className="h-5 w-5 text-red-500" />
-            <div>
-              <p className="text-sm text-muted-foreground">已延期</p>
-              <p className="text-xl font-bold">{stats.overdueTasks}</p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 任务趋势图 */}
+      <TrendChart data={trendData ?? []} isLoading={trendLoading} />
 
-      {/* 项目进度和任务分布 */}
+      {/* 图表区域 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* 项目进度 */}
         <ProjectProgress
           projects={projects}
           onProjectClick={(project) => navigate(`/projects/${project.id}`)}
         />
+        {/* 项目任务分布饼图 */}
+        <ProgressPieChart
+          data={projectData ?? []}
+          isLoading={projectLoading}
+        />
+      </div>
+
+      {/* 任务状态分布饼图 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <StatusPieChart data={statusDistribution} />
         <TaskDistribution distribution={distribution} />
       </div>
     </div>

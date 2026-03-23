@@ -24,20 +24,22 @@ export type Permission =
   | 'setting:manage';
 
 /**
- * 用户信息
+ * 用户信息（与后端字段对齐）
  */
 export interface User {
-  id: string;
+  id: number;
   username: string;
-  displayName: string;
-  email: string;
+  real_name: string | null;
+  name?: string;
+  email: string | null;
+  phone?: string | null;
   avatar?: string;
   role: UserRole;
   permissions: Permission[];
-  departmentId?: string;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
+  department_id?: number | null;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
 }
 
 /**
@@ -50,11 +52,15 @@ export interface LoginRequest {
 }
 
 /**
- * 登录响应
+ * 登录响应（与后端返回格式对齐）
  */
 export interface LoginResponse {
-  user: User;
-  message: string;
+  success: boolean;
+  data: {
+    user: User;
+    sessionId: string;
+    permissions: Permission[];
+  };
 }
 
 /**

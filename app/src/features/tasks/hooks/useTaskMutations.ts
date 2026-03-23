@@ -22,14 +22,29 @@ export function useCreateTask() {
 
 /**
  * 更新任务
+ * @param id 任务ID（可选，如果未提供则需要在 mutationFn 中传递 { id, data }）
  */
-export function useUpdateTask(id: string) {
+export function useUpdateTask(id?: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: UpdateTaskRequest) => taskApi.updateTask(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.task.detail(id) });
+    mutationFn: (input: UpdateTaskRequest | { id: string; data: UpdateTaskRequest }) => {
+      // 支持两种调用方式：
+      // 1. useUpdateTask(taskId).mutate(data) - id 在 hook 参数中
+      // 2. useUpdateTask().mutate({ id, data }) - id 在 mutation 参数中
+      if ('id' in input && 'data' in input) {
+        return taskApi.updateTask(input.id, input.data);
+      }
+      if (id) {
+        return taskApi.updateTask(id, input as UpdateTaskRequest);
+      }
+      throw new Error('Task ID is required for update');
+    },
+    onSuccess: (_, variables) => {
+      const taskId = 'id' in variables ? variables.id : id;
+      if (taskId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.task.detail(taskId) });
+      }
       queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
     },
   });

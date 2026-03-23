@@ -12,6 +12,7 @@ export interface DashboardStats {
   inProgressTasks: number;
   pendingTasks: number;
   overdueTasks: number;
+  warningTasks?: number; // 延期预警任务数
   totalMembers: number;
   avgProgress: number;
 }

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Card,
   CardContent,
@@ -10,7 +11,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 interface LoginFormProps {
@@ -19,10 +20,13 @@ interface LoginFormProps {
 
 /**
  * 登录表单组件
+ * 符合需求文档 5.0 登录界面规范
  */
 export function LoginForm({ onSuccess }: LoginFormProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { login, isLoading } = useAuth();
@@ -41,7 +45,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
     }
 
     try {
-      await login({ username, password });
+      await login({ username, password, rememberMe });
       onSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败，请重试');
@@ -49,16 +53,22 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   };
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold">登录</CardTitle>
+    <Card className="w-full max-w-md shadow-lg rounded-xl">
+      <CardHeader className="space-y-1 text-center">
+        {/* Logo + 系统名称 */}
+        <div className="flex flex-col items-center mb-4">
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-green-500 flex items-center justify-center mb-2">
+            <span className="text-white font-bold text-lg">T</span>
+          </div>
+          <CardTitle className="text-xl font-bold">欢迎使用技术团队任务管理系统</CardTitle>
+        </div>
         <CardDescription>请输入您的用户名和密码</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
+            <Alert variant="destructive" className="border-0 bg-transparent p-0">
+              <AlertDescription className="text-red-500 font-medium">{error}</AlertDescription>
             </Alert>
           )}
 
@@ -77,15 +87,45 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
 
           <div className="space-y-2">
             <Label htmlFor="password">密码</Label>
-            <Input
-              id="password"
-              type="password"
-              placeholder="请输入密码"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={isLoading}
-              autoComplete="current-password"
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                placeholder="请输入密码"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
+                autoComplete="current-password"
+                className="pr-10 [&::-ms-reveal]:hidden [&::-webkit-credentials-auto-fill-button]:hidden"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label={showPassword ? '隐藏密码' : '显示密码'}
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* 记住我复选框 */}
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="remember-me"
+              checked={rememberMe}
+              onCheckedChange={(checked) => setRememberMe(checked as boolean)}
             />
+            <Label
+              htmlFor="remember-me"
+              className="text-sm font-normal cursor-pointer"
+            >
+              记住我 7天
+            </Label>
           </div>
 
           <Button type="submit" className="w-full" disabled={isLoading}>

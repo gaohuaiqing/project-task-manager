@@ -1,5 +1,5 @@
 /**
- * 任务列表 Hook
+ * 任务列表 Hooks
  */
 import { useQuery } from '@tanstack/react-query';
 import { taskApi } from '@/lib/api/task.api';
@@ -30,6 +30,18 @@ export function useTask(id: string | undefined) {
 }
 
 /**
+ * 获取任务的 WBS 树结构
+ */
+export function useWBSTree(projectId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.task.wbsTree(projectId!),
+    queryFn: () => taskApi.getWBSTree(projectId!),
+    enabled: !!projectId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+/**
  * 获取任务统计
  */
 export function useTaskStats(projectId: string | undefined) {
@@ -49,6 +61,18 @@ export function useProgressRecords(taskId: string | undefined) {
     queryKey: queryKeys.task.progressRecords(taskId!),
     queryFn: () => taskApi.getProgressRecords(taskId!),
     enabled: !!taskId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+/**
+ * 批量获取任务
+ */
+export function useTasksByIds(ids: string[]) {
+  return useQuery({
+    queryKey: ['tasks', 'batch', ids] as const,
+    queryFn: () => taskApi.getTasksByIds(ids),
+    enabled: ids.length > 0,
     staleTime: 2 * 60 * 1000,
   });
 }

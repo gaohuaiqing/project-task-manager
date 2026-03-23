@@ -11,14 +11,14 @@ import type {
   DashboardQueryParams,
 } from '@/features/dashboard/types';
 
-const BASE_PATH = '/api/analytics';
+const BASE_PATH = '/analytics';
 
 /**
  * 获取仪表板统计数据
  */
 export async function getDashboardStats(): Promise<DashboardStats> {
   const response = await apiClient.get<ApiResponse<DashboardStats>>(`${BASE_PATH}/dashboard/stats`);
-  return response.data.data;
+  return response.data;
 }
 
 /**
@@ -28,7 +28,7 @@ export async function getTaskTrend(params: DashboardQueryParams = {}): Promise<T
   const response = await apiClient.get<ApiResponse<TaskTrend>>(`${BASE_PATH}/dashboard/trends`, {
     params,
   });
-  return response.data.data;
+  return response.data;
 }
 
 /**
@@ -39,18 +39,35 @@ export async function getProjectProgress(projectId: string): Promise<ProjectProg
     `${BASE_PATH}/reports/project-progress`,
     { params: { project_id: projectId } }
   );
-  return response.data.data;
+  return response.data;
 }
 
 /**
  * 获取任务统计报表
  */
 export async function getTaskStatistics(params: DashboardQueryParams = {}): Promise<TaskDistribution> {
-  const response = await apiClient.get<ApiResponse<TaskDistribution>>(
+  const response = await apiClient.get<ApiResponse<any>>(
     `${BASE_PATH}/reports/task-statistics`,
     { params }
   );
-  return response.data.data;
+  const data = response.data;
+
+  // 转换后端数据格式为前端格式
+  return {
+    byStatus: {
+      pending: data.total_tasks || 0,
+      in_progress: 0,
+      completed: 0,
+      delayed: 0,
+    },
+    byPriority: data.priority_distribution || {},
+    byType: {},
+    byAssignee: (data.assignee_distribution || []).map((item: any) => ({
+      id: item.assignee_id || 0,
+      name: item.assignee_name || '未分配',
+      count: item.task_count || 0,
+    })),
+  };
 }
 
 /**
@@ -66,7 +83,7 @@ export async function getDelayAnalysis(params: DashboardQueryParams = {}): Promi
     `${BASE_PATH}/reports/delay-analysis`,
     { params }
   );
-  return response.data.data;
+  return response.data;
 }
 
 export const analyticsApi = {

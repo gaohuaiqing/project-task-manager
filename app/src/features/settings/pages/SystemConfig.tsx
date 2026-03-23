@@ -81,7 +81,7 @@ export function SystemConfigSettings() {
             </TabsList>
 
             <TabsContent value="general">
-              <div className="space-y-4 py-4">
+              <div className="space-y-4 px-6 py-4">
                 {configs.general.map((config) => (
                   <div key={config.key} className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -113,7 +113,7 @@ export function SystemConfigSettings() {
             </TabsContent>
 
             <TabsContent value="notification">
-              <div className="space-y-4 py-4">
+              <div className="space-y-4 px-6 py-4">
                 {configs.notification.map((config) => (
                   <div key={config.key} className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -145,7 +145,7 @@ export function SystemConfigSettings() {
             </TabsContent>
 
             <TabsContent value="security">
-              <div className="space-y-4 py-4">
+              <div className="space-y-4 px-6 py-4">
                 {configs.security.map((config) => (
                   <div key={config.key} className="space-y-2">
                     <div className="flex items-center justify-between">

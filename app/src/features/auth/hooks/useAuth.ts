@@ -42,13 +42,19 @@ export function useAuth(): AuthState & {
       localStorage.setItem('auth_session', 'true');
       setHasAuthSession(true);
 
-      // 设置用户信息
+      // 设置用户信息 - response 格式: { success: true, data: { user, sessionId, permissions } }
+      const userData = response.data?.user;
+      if (!userData) {
+        console.error('Login response missing user data:', response);
+        return;
+      }
+
       setCurrentUser({
-        id: response.user.id,
-        username: response.user.username,
-        displayName: response.user.displayName,
-        email: response.user.email,
-        avatar: response.user.avatar,
+        id: userData.id,
+        username: userData.username,
+        displayName: userData.real_name || userData.name || userData.username,
+        email: userData.email,
+        avatar: userData.avatar,
       });
 
       // 刷新用户数据

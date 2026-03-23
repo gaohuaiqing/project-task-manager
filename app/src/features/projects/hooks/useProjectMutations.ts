@@ -18,7 +18,7 @@ export function useCreateProject() {
   return useMutation({
     mutationFn: (data: CreateProjectRequest) => projectApi.createProject(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.project.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.project.all });
     },
   });
 }
@@ -33,7 +33,7 @@ export function useUpdateProject(id: string) {
     mutationFn: (data: UpdateProjectRequest) => projectApi.updateProject(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.project.detail(id) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.project.lists() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.project.list() });
     },
   });
 }
@@ -47,7 +47,7 @@ export function useDeleteProject() {
   return useMutation({
     mutationFn: (id: string) => projectApi.deleteProject(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.project.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.project.all });
     },
   });
 }

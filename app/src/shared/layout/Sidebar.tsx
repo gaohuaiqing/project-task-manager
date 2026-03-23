@@ -38,12 +38,12 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex h-full flex-col border-r bg-sidebar transition-all duration-300',
+        'flex h-full flex-col border-r border-border bg-card transition-all duration-300',
         sidebarCollapsed ? 'w-16' : 'w-64'
       )}
     >
       {/* Logo 区域 */}
-      <div className="flex h-14 items-center justify-between border-b px-4">
+      <div className="flex h-16 items-center justify-between border-b border-border px-4">
         {!sidebarCollapsed && (
           <span className="text-lg font-semibold">任务管理系统</span>
         )}
@@ -71,14 +71,21 @@ export function Sidebar() {
                   to={item.path}
                   className={({ isActive }) =>
                     cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-accent',
-                      isActive && 'bg-accent text-accent-foreground',
+                      // 基础样式
+                      'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200',
+                      // 状态样式
+                      isActive
+                        ? 'bg-nav-active text-nav-active-foreground font-medium'
+                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                      // 折叠状态
                       sidebarCollapsed && 'justify-center'
                     )
                   }
                 >
                   <item.icon className="h-5 w-5 shrink-0" />
-                  {!sidebarCollapsed && <span>{item.label}</span>}
+                  {!sidebarCollapsed && (
+                    <span className="text-sm font-medium">{item.label}</span>
+                  )}
                 </NavLink>
               </TooltipTrigger>
               {sidebarCollapsed && (

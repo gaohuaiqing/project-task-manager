@@ -1,12 +1,24 @@
 /**
- * 里程碑时间线组件
+ * 里程碑表格组件
+ * 重构为表格形式，符合需求规格
  */
-import { Plus, CheckCircle2, Circle, Clock, AlertCircle } from 'lucide-react';
+import { Plus, CheckCircle2, Circle, Clock, AlertCircle, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { cn } from '@/lib/utils';
-import type { Milestone } from '../types';
+import { MILESTONE_STATUS_CONFIG } from '@/shared/constants';
+import type { Milestone, MilestoneDisplayStatus } from '../types';
+import { getDisplayStatus, formatDateForDisplay } from '../utils/milestone';
 
 interface MilestoneTimelineProps {
   milestones: Milestone[];
@@ -16,12 +28,21 @@ interface MilestoneTimelineProps {
   readOnly?: boolean;
 }
 
-const statusConfig = {
-  pending: { icon: Circle, label: '待开始', color: 'text-gray-500' },
-  in_progress: { icon: Clock, label: '进行中', color: 'text-blue-500' },
-  completed: { icon: CheckCircle2, label: '已完成', color: 'text-green-500' },
-  delayed: { icon: AlertCircle, label: '已延期', color: 'text-red-500' },
-};
+/**
+ * 获取状态图标
+ */
+function getStatusIcon(status: MilestoneDisplayStatus) {
+  switch (status) {
+    case 'completed':
+      return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+    case 'in_progress':
+      return <Clock className="h-4 w-4 text-blue-500" />;
+    case 'delayed':
+      return <AlertCircle className="h-4 w-4 text-red-500" />;
+    default:
+      return <Circle className="h-4 w-4 text-gray-400" />;
+  }
+}
 
 export function MilestoneTimeline({
   milestones,
@@ -30,10 +51,16 @@ export function MilestoneTimeline({
   onDeleteMilestone,
   readOnly = false,
 }: MilestoneTimelineProps) {
-  // 按计划日期排序
+  // 按目标日期排序
   const sortedMilestones = [...milestones].sort(
-    (a, b) => new Date(a.plannedDate).getTime() - new Date(b.plannedDate).getTime()
+    (a, b) => new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime()
   );
+
+  // 计算每个里程碑的显示状态
+  const enrichedMilestones = sortedMilestones.map((m) => ({
+    ...m,
+    displayStatus: getDisplayStatus(m),
+  }));
 
   if (milestones.length === 0) {
     return (
@@ -69,78 +96,111 @@ export function MilestoneTimeline({
         )}
       </CardHeader>
       <CardContent>
-        <div className="relative">
-          {/* 时间线 */}
-          <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-border" />
-
-          {/* 里程碑列表 */}
-          <div className="space-y-6">
-            {sortedMilestones.map((milestone, index) => {
-              const config = statusConfig[milestone.status];
-              const StatusIcon = config.icon;
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-12">状态</TableHead>
+              <TableHead>名称</TableHead>
+              <TableHead className="w-32">目标日期</TableHead>
+              <TableHead className="w-28">完成进度</TableHead>
+              <TableHead className="w-24">状态</TableHead>
+              {!readOnly && <TableHead className="w-24 text-right">操作</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {enrichedMilestones.map((milestone) => {
+              const statusConfig = MILESTONE_STATUS_CONFIG[milestone.displayStatus];
+              const completionPercentage = milestone.completionPercentage ?? 0;
 
               return (
-                <div
+                <TableRow
                   key={milestone.id}
-                  className="relative pl-10 group"
+                  className={cn(
+                    'cursor-pointer',
+                    !readOnly && 'hover:bg-accent'
+                  )}
+                  onClick={() => !readOnly && onEditMilestone?.(milestone)}
                 >
-                  {/* 节点 */}
-                  <div
-                    className={cn(
-                      'absolute left-2 top-1 h-4 w-4 rounded-full bg-background border-2',
-                      config.color
-                    )}
-                  >
-                    <StatusIcon className="h-3 w-3" />
-                  </div>
+                  {/* 状态图标 */}
+                  <TableCell>
+                    {getStatusIcon(milestone.displayStatus)}
+                  </TableCell>
 
-                  {/* 内容 */}
-                  <div
-                    className={cn(
-                      'p-3 rounded-lg border bg-card cursor-pointer transition-colors',
-                      'hover:bg-accent'
-                    )}
-                    onClick={() => !readOnly && onEditMilestone?.(milestone)}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <h4 className="font-medium">{milestone.name}</h4>
-                      <Badge
-                        variant="secondary"
-                        className={cn(
-                          'text-xs',
-                          milestone.status === 'completed' && 'bg-green-100 text-green-700',
-                          milestone.status === 'delayed' && 'bg-red-100 text-red-700',
-                          milestone.status === 'in_progress' && 'bg-blue-100 text-blue-700'
-                        )}
-                      >
-                        {config.label}
-                      </Badge>
-                    </div>
-
-                    {milestone.description && (
-                      <p className="text-sm text-muted-foreground mb-2">
-                        {milestone.description}
-                      </p>
-                    )}
-
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        <span>计划: {new Date(milestone.plannedDate).toLocaleDateString()}</span>
-                      </div>
-                      {milestone.actualDate && (
-                        <div className="flex items-center gap-1">
-                          <CheckCircle2 className="h-3 w-3" />
-                          <span>实际: {new Date(milestone.actualDate).toLocaleDateString()}</span>
+                  {/* 名称 */}
+                  <TableCell>
+                    <div>
+                      <div className="font-medium">{milestone.name}</div>
+                      {milestone.description && (
+                        <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                          {milestone.description}
                         </div>
                       )}
                     </div>
-                  </div>
-                </div>
+                  </TableCell>
+
+                  {/* 目标日期 */}
+                  <TableCell className="text-muted-foreground">
+                    {formatDateForDisplay(milestone.targetDate)}
+                  </TableCell>
+
+                  {/* 完成进度 */}
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Progress value={completionPercentage} className="h-2 w-12" />
+                      <span className="text-xs text-muted-foreground w-8">
+                        {completionPercentage}%
+                      </span>
+                    </div>
+                  </TableCell>
+
+                  {/* 状态标签 */}
+                  <TableCell>
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        'text-xs',
+                        statusConfig.bgColor,
+                        statusConfig.textColor
+                      )}
+                    >
+                      {statusConfig.label}
+                    </Badge>
+                  </TableCell>
+
+                  {/* 操作按钮 */}
+                  {!readOnly && (
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditMilestone?.(milestone);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteMilestone?.(milestone);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  )}
+                </TableRow>
               );
             })}
-          </div>
-        </div>
+          </TableBody>
+        </Table>
       </CardContent>
     </Card>
   );

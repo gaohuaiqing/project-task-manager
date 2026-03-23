@@ -18,7 +18,7 @@ export function MainLayout() {
         <Header />
 
         {/* 内容区域 */}
-        <main className="flex-1 overflow-auto bg-background p-4">
+        <main className="flex-1 overflow-auto bg-background p-6">
           <ErrorBoundary>
             <Outlet />
           </ErrorBoundary>

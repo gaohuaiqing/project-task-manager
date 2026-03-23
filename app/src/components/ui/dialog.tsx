@@ -51,10 +51,12 @@ function DialogContent({ className, children, showCloseButton = true, ...props }
           transform: 'translate(-50%, -50%) translateZ(0)',
           backfaceVisibility: 'hidden',
           perspective: '1000px',
-          // 确保不使用 grid，改用 flex
+          // flex 布局，让 header/footer 固定，body 滚动
           display: 'flex',
           flexDirection: 'column',
           maxHeight: '95vh',
+          // 容器不滚动，由内部 body 滚动
+          overflow: 'hidden',
           // 确保内容可以接收点击事件
           pointerEvents: 'auto',
         }}
@@ -70,7 +72,7 @@ function DialogContent({ className, children, showCloseButton = true, ...props }
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-3 right-4 z-[9999] rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-card hover:bg-accent cursor-pointer p-2"
+            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 z-[9999] rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 hover:bg-accent cursor-pointer p-1"
             onClick={(e) => {
               console.log('关闭按钮 onClick 被触发', e);
             }}
@@ -88,7 +90,17 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-row gap-2 text-left items-center", className)}
+      className={cn("flex flex-col gap-1.5 text-left px-6 pt-6 pb-4 flex-shrink-0", className)}
+      {...props}
+    />
+  )
+}
+
+function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn("px-6 py-4 flex-1 overflow-y-auto min-h-0", className)}
       {...props}
     />
   )
@@ -99,7 +111,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end px-6 pb-6 pt-4 flex-shrink-0 border-t bg-background",
         className
       )}
       {...props}
@@ -135,6 +147,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,

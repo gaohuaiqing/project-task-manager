@@ -2,14 +2,27 @@
  * 项目管理模块类型定义
  */
 
+import type { MilestoneDisplayStatus } from '@/shared/constants';
+
 // 项目状态
 export type ProjectStatus = 'planning' | 'in_progress' | 'completed' | 'delayed';
 
-// 项目类型
-export type ProjectType = 'product_development' | 'functional_management';
+// 项目类型 - 与数据库实际存储值同步 (4种)
+export type ProjectType =
+  | 'product_dev'    // 产品开发
+  | 'func_mgmt'      // 职能管理
+  | 'material_sub'   // 物料改代
+  | 'quality_handle'; // 质量处理
 
 // 项目成员角色
 export type ProjectMemberRole = 'pm' | 'tech_lead' | 'member';
+
+// 项目成员摘要（用于列表显示）
+export interface ProjectMemberSummary {
+  id: number;
+  name: string;
+  avatar?: string;
+}
 
 // 项目基本信息
 export interface Project {
@@ -27,6 +40,8 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   version: number;
+  // 成员摘要（列表页使用）
+  members?: ProjectMemberSummary[];
 }
 
 // 项目成员
@@ -38,16 +53,21 @@ export interface ProjectMember {
   joinedAt: string;
 }
 
+// 里程碑后端状态（与数据库同步）
+export type MilestoneBackendStatus = 'pending' | 'achieved' | 'overdue';
+
 // 里程碑
 export interface Milestone {
   id: string;
   projectId: string;
   name: string;
   description: string;
-  plannedDate: string;
-  actualDate: string | null;
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
+  targetDate: string;           // 目标日期
+  completionPercentage: number; // 完成百分比 (0-100)
+  status: MilestoneBackendStatus; // 后端状态
   createdAt: string;
+  // 前端计算出的显示状态（可选，由前端计算）
+  displayStatus?: MilestoneDisplayStatus;
 }
 
 // 时间线
@@ -107,9 +127,26 @@ export interface CreateProjectRequest {
   name: string;
   description: string;
   projectType: ProjectType;
-  startDate?: string;
-  deadline?: string;
+  startDate: string;   // 必填
+  deadline: string;    // 必填
   memberIds?: number[];
+  milestones?: MilestoneCreateRequest[];
+}
+
+// 创建里程碑请求
+export interface MilestoneCreateRequest {
+  name: string;
+  targetDate: string;
+  description?: string;
+  completionPercentage?: number; // 完成百分比 (0-100)
+}
+
+// 更新里程碑请求
+export interface MilestoneUpdateRequest {
+  name?: string;
+  targetDate?: string;
+  description?: string;
+  completionPercentage?: number;
 }
 
 // 更新项目请求
