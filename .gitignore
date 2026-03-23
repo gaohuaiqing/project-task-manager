@@ -37,7 +37,6 @@ lerna-debug.log*
 # 测试报告与覆盖率
 # ========================================
 # 统一测试报告目录
-Test
 Test/reports/
 Test/frontend/coverage/
 Test/backend/coverage/
@@ -45,9 +44,12 @@ Test/backend/coverage/
 .nyc_output/
 
 # E2E 测试输出
+Test/E2E_AutoTest/node_modules/
 Test/E2E_AutoTest/test-results/
 Test/E2E_AutoTest/playwright-report/
 Test/E2E_AutoTest/playwright/.cache/
+Test/E2E_AutoTest/reports/
+Test/E2E_AutoTest/.auth/
 
 # ========================================
 # 测试框架
@@ -179,3 +181,7 @@ docs/自定义Prompt/
 # ========================================
 # Docker 部署临时文件
 docker-compose.override.yml
+
+# 临时文件
+cookies.txt
+**/cookies.txt
