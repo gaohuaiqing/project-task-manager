@@ -13,11 +13,11 @@ export interface ApiResponse<T = unknown> {
 
 export class ApiHelper {
   private request: APIRequestContext;
-  private authToken: string | null = null;
   private cookies: Record<string, string> = {};
 
   constructor(request: APIRequestContext) {
     this.request = request;
+    this.cookies = {};
   }
 
   /**
@@ -29,21 +29,10 @@ export class ApiHelper {
     });
 
     const data = await response.json();
-    
-    if (response.ok()) {
-      // 保存认证信息
-      this.authToken = data.token || null;
-      // 从响应头获取 cookie
-      const setCookie = response.headers()['set-cookie'];
-      if (setCookie) {
-        // 解析 cookie
-        setCookie.split(';').forEach((cookie: string) => {
-          const [name, value] = cookie.trim().split('=');
-          if (name && value) {
-            this.cookies[name] = value;
-          }
-        });
-      }
+
+    if (response.ok() && data.success && data.data?.sessionId) {
+      // 保存 sessionId 到 cookies
+      this.cookies['sessionId'] = data.data.sessionId;
     }
 
     return {
@@ -54,14 +43,18 @@ export class ApiHelper {
   }
 
   /**
-   * 获取请求头
+   * 获取请求头（包含 Cookie）
    */
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    if (this.authToken) {
-      headers['Authorization'] = `Bearer ${this.authToken}`;
+    // 添加 Cookie 头
+    const cookieString = Object.entries(this.cookies)
+      .map(([name, value]) => `${name}=${value}`)
+      .join('; ');
+    if (cookieString) {
+      headers['Cookie'] = cookieString;
     }
     return headers;
   }
@@ -182,7 +175,6 @@ export class ApiHelper {
    * 重置认证状态
    */
   resetAuth(): void {
-    this.authToken = null;
     this.cookies = {};
   }
 }
