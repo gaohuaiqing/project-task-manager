@@ -59,17 +59,16 @@ export class ProjectService {
       throw new ValidationError('项目代号已存在');
     }
 
-    const id = uuidv4();
-    await this.repo.createProject({ ...data, id });
+    const id = await this.repo.createProject(data);
 
     // 如果有成员，添加到项目成员表
     if (data.member_ids && data.member_ids.length > 0) {
       for (const memberId of data.member_ids) {
-        await this.repo.addProjectMember(id, { user_id: memberId, role: 'member' });
+        await this.repo.addProjectMember(String(id), { user_id: memberId, role: 'member' });
       }
     }
 
-    return id;
+    return String(id);
   }
 
   async updateProject(id: string, data: UpdateProjectRequest, currentUser: User): Promise<{ updated: boolean; conflict: boolean }> {
@@ -220,12 +219,62 @@ export class ProjectService {
   }
 
   async createTimelineTask(timelineId: string, data: CreateTimelineTaskRequest, currentUser: User): Promise<string> {
-    const id = uuidv4();
-    await this.repo.createTimelineTask({ ...data, id, timeline_id: timelineId });
-    return id;
+    // 验证时间线存在
+    const timeline = await this.repo.getTimelineById(timelineId);
+    if (!timeline) {
+      throw new ValidationError('时间线不存在');
+    }
+
+    // 验证时间范围
+    const startDate = data.start_date;
+    const endDate = data.end_date;
+    const timelineStart = timeline.start_date.toISOString().split('T')[0];
+    const timelineEnd = timeline.end_date.toISOString().split('T')[0];
+
+    if (startDate < timelineStart) {
+      throw new ValidationError('任务开始日期不能早于时间线开始日期');
+    }
+    if (endDate > timelineEnd) {
+      throw new ValidationError('任务结束日期不能晚于时间线结束日期');
+    }
+    if (endDate < startDate) {
+      throw new ValidationError('任务结束日期不能早于开始日期');
+    }
+
+    const taskId = uuidv4();
+    await this.repo.createTimelineTask({ ...data, id: taskId, timeline_id: timelineId });
+ return taskId;
   }
 
   async updateTimelineTask(id: string, data: UpdateTimelineTaskRequest, currentUser: User): Promise<boolean> {
+    // 如果有日期变更，需要验证时间范围
+    if (data.start_date || data.end_date) {
+      const task = await this.repo.getTimelineTaskById(id);
+      if (!task) {
+        throw new ValidationError('任务不存在');
+      }
+
+      const timeline = await this.repo.getTimelineById(task.timeline_id);
+      if (!timeline) {
+        throw new ValidationError('时间线不存在');
+      }
+
+      const startDate = data.start_date || task.start_date.toISOString().split('T')[0];
+      const endDate = data.end_date || task.end_date.toISOString().split('T')[0];
+      const timelineStart = timeline.start_date.toISOString().split('T')[0];
+      const timelineEnd = timeline.end_date.toISOString().split('T')[0];
+
+      if (startDate < timelineStart) {
+        throw new ValidationError('任务开始日期不能早于时间线开始日期');
+      }
+      if (endDate > timelineEnd) {
+        throw new ValidationError('任务结束日期不能晚于时间线结束日期');
+      }
+      if (endDate < startDate) {
+        throw new ValidationError('任务结束日期不能早于开始日期');
+      }
+    }
+
     return this.repo.updateTimelineTask(id, data);
   }
 

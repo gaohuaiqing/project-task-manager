@@ -113,7 +113,7 @@ export class OrgRepository {
     }
     if (options.is_active !== undefined) {
       conditions.push('u.is_active = ?');
-      params.push(options.is_active);
+      params.push(options.is_active ? 1 : 0);
     }
     if (options.search) {
       conditions.push('(u.username LIKE ? OR u.real_name LIKE ?)');
@@ -135,15 +135,16 @@ export class OrgRepository {
     const pageSize = options.pageSize || 20;
     const offset = (page - 1) * pageSize;
 
-    const [rows] = await pool.execute<MemberRow[]>(
+    // 使用 pool.query 代替 pool.execute 以避免 prepared statement 问题
+    const [rows] = await pool.query<MemberRow[]>(
       `SELECT u.id, u.username, u.real_name, u.role, u.department_id, u.email, u.phone, u.is_active, u.created_at, u.updated_at,
               d.name as department_name
        FROM users u
        LEFT JOIN departments d ON u.department_id = d.id
        ${whereClause}
        ORDER BY u.id
-       LIMIT ? OFFSET ?`,
-      [...params, pageSize, offset]
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params
     );
 
     return { items: rows, total };
@@ -172,6 +173,179 @@ export class OrgRepository {
       [departmentId]
     );
     return rows;
+  }
+
+  async createMember(data: {
+    username: string;
+    password: string;
+    real_name: string;
+    role: string;
+    department_id: number | null;
+    email?: string;
+    phone?: string;
+  }): Promise<number> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      `INSERT INTO users (username, password, name, real_name, role, department_id, email, phone, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
+      [data.username, data.password, data.real_name, data.real_name, data.role, data.department_id, data.email || null, data.phone || null]
+    );
+    return result.insertId;
+  }
+
+  async updateMember(id: number, data: {
+    real_name?: string;
+    role?: string;
+    department_id?: number | null;
+    email?: string;
+    phone?: string;
+    is_active?: boolean;
+  }): Promise<boolean> {
+    const pool = getPool();
+    const fields: string[] = [];
+    const values: (string | number | boolean | null)[] = [];
+
+    if (data.real_name !== undefined) { fields.push('real_name = ?'); values.push(data.real_name); }
+    if (data.role !== undefined) { fields.push('role = ?'); values.push(data.role); }
+    if (data.department_id !== undefined) { fields.push('department_id = ?'); values.push(data.department_id); }
+    if (data.email !== undefined) { fields.push('email = ?'); values.push(data.email); }
+    if (data.phone !== undefined) { fields.push('phone = ?'); values.push(data.phone); }
+    if (data.is_active !== undefined) { fields.push('is_active = ?'); values.push(data.is_active ? 1 : 0); }
+
+    if (fields.length === 0) return false;
+
+    fields.push('updated_at = NOW()');
+    values.push(id);
+
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE users SET ${fields.join(', ')} WHERE id = ?`,
+      values
+    );
+    return result.affectedRows > 0;
+  }
+
+  async deleteMember(id: number): Promise<boolean> {
+    const pool = getPool();
+    // 软删除：设置 is_active = 0
+    const [result] = await pool.execute<ResultSetHeader>(
+      'UPDATE users SET is_active = 0, updated_at = NOW() WHERE id = ?',
+      [id]
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * 获取成员删除检查数据
+   * 返回用户关联的项目、任务、审批等统计信息
+   */
+  async getMemberDeletionCheck(id: number): Promise<{
+    isDeptManager: boolean;
+    managedDepts: { id: number; name: string }[];
+    projectCount: number;
+    taskCount: number;
+    approvalCount: number;
+    capabilityRecords: number;
+  }> {
+    const pool = getPool();
+
+    // 检查是否是部门经理
+    const [managedDepts] = await pool.execute<RowDataPacket[]>(
+      'SELECT id, name FROM departments WHERE manager_id = ?',
+      [id]
+    );
+
+    // 类型转换
+    const typedManagedDepts = managedDepts as { id: number; name: string }[];
+
+    // 检查参与的项目数
+    const [projectRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT COUNT(DISTINCT project_id) as count FROM project_members WHERE user_id = ?',
+      [id]
+    );
+
+    // 检查负责的任务数
+    const [taskRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT COUNT(*) as count FROM tasks WHERE assignee_id = ? AND status NOT IN ("已完成", "已取消")',
+      [id]
+    );
+
+    // 检查审批记录数
+    const [approvalRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT COUNT(*) as count FROM task_delay_approvals WHERE requester_id = ?',
+      [id]
+    );
+
+    // 检查能力评估记录数
+    const [capabilityRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT COUNT(*) as count FROM member_capabilities WHERE user_id = ?',
+      [id]
+    );
+
+    return {
+      isDeptManager: typedManagedDepts.length > 0,
+      managedDepts: typedManagedDepts,
+      projectCount: projectRows[0]?.count || 0,
+      taskCount: taskRows[0]?.count || 0,
+      approvalCount: approvalRows[0]?.count || 0,
+      capabilityRecords: capabilityRows[0]?.count || 0,
+    };
+  }
+
+  /**
+   * 物理删除成员
+   * 仅在确认无关联数据后执行
+   */
+  async hardDeleteMember(id: number): Promise<boolean> {
+    const pool = getPool();
+
+    // 使用事务确保数据一致性
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // 删除能力评估记录
+      await connection.execute(
+        'DELETE FROM member_capabilities WHERE user_id = ?',
+        [id]
+      );
+
+      // 删除项目成员关系
+      await connection.execute(
+        'DELETE FROM project_members WHERE user_id = ?',
+        [id]
+      );
+
+      // 删除用户
+      const [result] = await connection.execute<ResultSetHeader>(
+        'DELETE FROM users WHERE id = ?',
+        [id]
+      );
+
+      await connection.commit();
+      return result.affectedRows > 0;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async usernameExists(username: string, excludeId?: number): Promise<boolean> {
+    const pool = getPool();
+    if (excludeId) {
+      const [rows] = await pool.execute<RowDataPacket[]>(
+        'SELECT COUNT(*) as count FROM users WHERE username = ? AND id != ?',
+        [username, excludeId]
+      );
+      return rows[0].count > 0;
+    } else {
+      const [rows] = await pool.execute<RowDataPacket[]>(
+        'SELECT COUNT(*) as count FROM users WHERE username = ?',
+        [username]
+      );
+      return rows[0].count > 0;
+    }
   }
 
   // ========== 能力模型 CRUD ==========
@@ -375,5 +549,64 @@ export class OrgRepository {
       match_level: (row.overall_score >= 80 ? 'excellent' : row.overall_score >= 60 ? 'good' : 'fair') as 'excellent' | 'good' | 'fair',
       current_tasks: row.current_tasks as number
     }));
+  }
+
+  // ========== 任务类型映射 CRUD ==========
+
+  async createTaskTypeMapping(data: {
+    task_type: string;
+    model_id: string;
+    priority: number;
+  }): Promise<number> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      'INSERT INTO task_type_model_mapping (task_type, model_id, priority) VALUES (?, ?, ?)',
+      [data.task_type, data.model_id, data.priority]
+    );
+    return result.insertId;
+  }
+
+  async updateTaskTypeMapping(id: number, data: {
+    task_type?: string;
+    model_id?: string;
+    priority?: number;
+  }): Promise<boolean> {
+    const pool = getPool();
+    const fields: string[] = [];
+    const values: (string | number)[] = [];
+
+    if (data.task_type !== undefined) { fields.push('task_type = ?'); values.push(data.task_type); }
+    if (data.model_id !== undefined) { fields.push('model_id = ?'); values.push(data.model_id); }
+    if (data.priority !== undefined) { fields.push('priority = ?'); values.push(data.priority); }
+
+    if (fields.length === 0) return false;
+
+    values.push(id);
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE task_type_model_mapping SET ${fields.join(', ')} WHERE id = ?`,
+      values
+    );
+    return result.affectedRows > 0;
+  }
+
+  async deleteTaskTypeMapping(id: number): Promise<boolean> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      'DELETE FROM task_type_model_mapping WHERE id = ?',
+      [id]
+    );
+    return result.affectedRows > 0;
+  }
+
+  async getTaskTypeMappingById(id: number): Promise<TaskTypeMapping | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<TaskTypeMappingRow[]>(
+      `SELECT ttm.*, cm.name as model_name
+       FROM task_type_model_mapping ttm
+       JOIN capability_models cm ON ttm.model_id = cm.id
+       WHERE ttm.id = ?`,
+      [id]
+    );
+    return rows[0] || null;
   }
 }

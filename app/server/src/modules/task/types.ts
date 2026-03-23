@@ -14,6 +14,18 @@ export type TaskType =
 
 export type TaskPriority = 'urgent' | 'high' | 'medium' | 'low';
 
+/** 待审批变更数据结构 */
+export interface PendingChangeData {
+  /** 变更字段 */
+  changes: Array<{ field: string; oldValue: unknown; newValue: unknown }>;
+  /** 变更原因 */
+  reason: string;
+  /** 提交时间 */
+  submitted_at: string;
+  /** 提交人ID */
+  submitted_by: number;
+}
+
 export interface WBSTask {
   id: string;
   project_id: string;
@@ -37,12 +49,19 @@ export interface WBSTask {
   full_time_ratio: number;
   actual_cycle: number | null;
   predecessor_id: string | null;
+  /** 依赖类型：FS(完成-开始), SS(开始-开始), FF(完成-完成), SF(开始-完成) */
+  dependency_type: DependencyType;
   lag_days: number | null;
   redmine_link: string | null;
   delay_count: number;
   plan_change_count: number;
   progress_record_count: number;
   tags: string | null;
+  last_plan_refresh_at: Date | null;
+  /** 待审批的变更数据（JSON格式） */
+  pending_changes: PendingChangeData | null;
+  /** 待审批变更类型 */
+  pending_change_type: string | null;
   version: number;
   created_at: Date;
   updated_at: Date;
@@ -67,9 +86,13 @@ export interface CreateTaskRequest {
   is_six_day_week?: boolean;
   warning_days?: number;
   predecessor_id?: string;
+  /** 依赖类型 */
+  dependency_type?: DependencyType;
   lag_days?: number;
   redmine_link?: string;
   full_time_ratio?: number;
+  /** 计划周期（计算字段） */
+  planned_duration?: number;
 }
 
 export interface UpdateTaskRequest {
@@ -82,11 +105,19 @@ export interface UpdateTaskRequest {
   is_six_day_week?: boolean;
   warning_days?: number;
   predecessor_id?: string;
+  /** 依赖类型 */
+  dependency_type?: DependencyType;
   lag_days?: number;
   actual_start_date?: string;
   actual_end_date?: string;
   redmine_link?: string;
   full_time_ratio?: number;
+  /** 计划周期（计算字段） */
+  planned_duration?: number;
+  /** 实际工期（计算字段） */
+  actual_duration?: number;
+  /** 实际周期（计算字段） */
+  actual_cycle?: number;
   version: number;
 }
 

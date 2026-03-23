@@ -21,7 +21,7 @@ function requireUser(req: Request): User {
 // ========== 任务管理 ==========
 
 // 获取任务列表
-router.get('/tasks', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const options: TaskQueryOptions = {
       project_id: req.query.project_id as string,
@@ -43,7 +43,7 @@ router.get('/tasks', async (req: Request, res: Response, next: NextFunction) => 
 });
 
 // 获取任务详情
-router.get('/tasks/:id', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const task = await taskService.getTaskById(req.params.id);
     if (!task) {
@@ -56,7 +56,7 @@ router.get('/tasks/:id', async (req: Request, res: Response, next: NextFunction)
 });
 
 // 创建任务
-router.post('/tasks', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     const id = await taskService.createTask(req.body as CreateTaskRequest, currentUser);
@@ -67,7 +67,7 @@ router.post('/tasks', async (req: Request, res: Response, next: NextFunction) =>
 });
 
 // 更新任务
-router.put('/tasks/:id', async (req: Request, res: Response, next: NextFunction) => {
+router.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     const result = await taskService.updateTask(req.params.id, req.body as UpdateTaskRequest, currentUser);
@@ -83,7 +83,7 @@ router.put('/tasks/:id', async (req: Request, res: Response, next: NextFunction)
 });
 
 // 删除任务
-router.delete('/tasks/:id', async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     await taskService.deleteTask(req.params.id, currentUser);
@@ -96,7 +96,7 @@ router.delete('/tasks/:id', async (req: Request, res: Response, next: NextFuncti
 // ========== 进度记录 ==========
 
 // 获取进度记录
-router.get('/tasks/:id/progress', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id/progress', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const records = await taskService.getProgressRecords(req.params.id);
     res.json({ success: true, data: records });
@@ -106,7 +106,7 @@ router.get('/tasks/:id/progress', async (req: Request, res: Response, next: Next
 });
 
 // 添加进度记录
-router.post('/tasks/:id/progress', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/progress', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     const { content } = req.body;
@@ -120,7 +120,7 @@ router.post('/tasks/:id/progress', async (req: Request, res: Response, next: Nex
 // ========== 批量操作 ==========
 
 // 批量获取任务
-router.post('/batch/tasks', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/batch', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { ids } = req.body;
     const tasks = await taskService.getTasksByIds(ids || []);
@@ -132,10 +132,44 @@ router.post('/batch/tasks', async (req: Request, res: Response, next: NextFuncti
 
 // ========== 统计 ==========
 
-router.get('/tasks/stats/:projectId', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/stats/:projectId', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const stats = await taskService.getTaskStats(req.params.projectId);
     res.json({ success: true, data: stats });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== WBS编码查询 ==========
+
+// 根据WBS编码获取任务
+router.get('/by-wbs-code/:wbsCode', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const projectId = req.query.project_id as string;
+    if (!projectId) {
+      return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: '缺少project_id参数' } });
+    }
+    const task = await taskService.getTaskByWbsCode(projectId, req.params.wbsCode);
+    if (!task) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '任务不存在' } });
+    }
+    res.json({ success: true, data: task });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 计划变更历史 ==========
+
+// 获取任务的计划变更历史
+router.get('/:id/plan-changes', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // 导入 WorkflowService
+    const { WorkflowService } = await import('../workflow/service');
+    const workflowService = new WorkflowService();
+    const changes = await workflowService.getPlanChangesByTaskId(req.params.id);
+    res.json({ success: true, data: changes });
   } catch (error) {
     next(error);
   }

@@ -2,11 +2,85 @@
 import { v4 as uuidv4 } from 'uuid';
 import { WorkflowRepository } from './repository';
 import { ValidationError, ForbiddenError } from '../../core/errors';
+import {
+  taskEvents,
+  TaskEventType,
+  type TaskPlanChangeRequestedEvent,
+  type TaskPlanChangeApprovedEvent,
+} from '../../core/events';
 import type { User } from '../../core/types';
 import type { PlanChange, DelayRecord, Notification, ApprovalStatus, CreatePlanChangeRequest, ApprovalDecisionRequest, CreateDelayRecordRequest, CreateNotificationRequest } from './types';
 
 export class WorkflowService {
   private repo = new WorkflowRepository();
+
+  constructor() {
+    // 订阅计划变更请求事件
+    this.setupEventListeners();
+  }
+
+  /**
+   * 设置事件监听器
+   */
+  private setupEventListeners(): void {
+    // 监听计划变更请求事件
+    taskEvents.on(
+      TaskEventType.PLAN_CHANGE_REQUESTED,
+      async (event: TaskPlanChangeRequestedEvent) => {
+        try {
+          await this.handlePlanChangeRequested(event);
+        } catch (error) {
+          console.error('处理计划变更请求事件失败:', error);
+        }
+      }
+    );
+
+    // 监听计划变更审批通过事件
+    taskEvents.on(
+      TaskEventType.PLAN_CHANGE_APPROVED,
+      async (event: TaskPlanChangeApprovedEvent) => {
+        try {
+          await this.handlePlanChangeApproved(event);
+        } catch (error) {
+          console.error('处理计划变更审批通过事件失败:', error);
+        }
+      }
+    );
+  }
+
+  /**
+   * 处理计划变更请求事件
+   */
+  private async handlePlanChangeRequested(event: TaskPlanChangeRequestedEvent): Promise<void> {
+    // 为每个变更字段创建审批记录
+    for (const change of event.changes) {
+      await this.repo.createPlanChange({
+        id: uuidv4(),
+        task_id: event.taskId,
+        user_id: event.userId,
+        change_type: change.field as 'start_date' | 'duration' | 'predecessor_id' | 'lag_days',
+        old_value: change.oldValue != null ? String(change.oldValue) : null,
+        new_value: change.newValue != null ? String(change.newValue) : null,
+        reason: event.reason,
+      });
+    }
+
+    // 更新任务的计划变更次数
+    await this.repo.incrementTaskCounter(event.taskId, 'plan_change_count');
+  }
+
+  /**
+   * 处理计划变更审批通过事件
+   */
+  private async handlePlanChangeApproved(event: TaskPlanChangeApprovedEvent): Promise<void> {
+    // 批量更新任务字段
+    const updates: Record<string, string | number | null> = {};
+    for (const change of event.changes) {
+      updates[change.field] = change.value as string | number | null;
+    }
+
+    await this.repo.updateTaskFields(event.taskId, updates);
+  }
 
   // ========== 计划变更管理 ==========
 
@@ -67,13 +141,48 @@ export class WorkflowService {
       throw new ForbiddenError('无权限审批此变更');
     }
 
+    // 更新审批记录状态
     await this.repo.approvePlanChange(id, currentUser.id, data.rejection_reason);
 
-    // 发送通知
     if (data.approved) {
+      // ========== 审批通过 ==========
+      // 1. 应用变更到任务
+      const updates: Record<string, string | number | null> = {};
+      updates[change.change_type] = change.new_value;
+
+      await this.repo.updateTaskFields(change.task_id, updates);
+
+      // 2. 清除待审批数据
+      await this.repo.clearPendingChanges(change.task_id);
+
+      // 3. 发送通知
       await this.sendNotification(change.user_id, 'approval_result', '变更审批通过', `您的变更请求已通过审批`);
+
+      // 4. 发出事件（触发级联更新等）
+      taskEvents.emit(TaskEventType.PLAN_CHANGE_APPROVED, {
+        planChangeId: id,
+        taskId: change.task_id,
+        approverId: currentUser.id,
+        changes: [{
+          field: change.change_type,
+          value: change.new_value,
+        }],
+      } as TaskPlanChangeApprovedEvent);
     } else {
-      await this.sendNotification(change.user_id, 'approval_result', '变更审批驳回', `您的变更请求已被驳回：${data.rejection_reason}`);
+      // ========== 审批驳回 ==========
+      // 1. 清除待审批数据
+      await this.repo.clearPendingChanges(change.task_id);
+
+      // 2. 更新任务状态为 rejected
+      await this.repo.updateTaskStatus(change.task_id, 'rejected');
+
+      // 3. 发送通知
+      await this.sendNotification(
+        change.user_id,
+        'approval_result',
+        '变更审批驳回',
+        `您的变更请求已被驳回：${data.rejection_reason || '无原因'}`
+      );
     }
   }
 
@@ -92,6 +201,13 @@ export class WorkflowService {
 
   async getPendingApprovals(currentUser: User): Promise<PlanChange[]> {
     return this.repo.getPendingApprovalsForUser(currentUser.id);
+  }
+
+  /**
+   * 获取任务的计划变更历史
+   */
+  async getPlanChangesByTaskId(taskId: string): Promise<PlanChange[]> {
+    return this.repo.getPlanChangesByTask(taskId);
   }
 
   // ========== 延期记录管理 ==========
@@ -146,14 +262,147 @@ export class WorkflowService {
 
   // ========== 定时任务 ==========
 
+  /**
+   * 检查审批超时（7天有效期）
+   * 将超过7天的待审批项标记为timeout状态
+   */
   async checkTimeoutApprovals(): Promise<number> {
-    // 检查超过7天的待审批项，标记超时
-    // 简化实现
-    return 0;
+    const timeoutCount = await this.repo.markTimeoutApprovals(7);
+
+    // 发送超时通知给相关审批人
+    if (timeoutCount > 0) {
+      const timeoutApprovals = await this.repo.getTimeoutApprovals();
+      for (const approval of timeoutApprovals) {
+        // 通知申请人
+        await this.sendNotification(
+          approval.user_id,
+          'approval_timeout',
+          '审批请求超时',
+          `您提交的变更请求因超过7天未审批已自动关闭`,
+          `/tasks/${approval.task_id}`
+        );
+      }
+    }
+
+    return timeoutCount;
   }
 
-  async checkDelayedTasks(): Promise<void> {
-    // 检查延期任务，更新状态
-    // 简化实现
+  /**
+   * 检查延期任务
+   * 每日凌晨1点执行，检查所有已过截止日期但未完成的任务
+   */
+  async checkDelayedTasks(): Promise<{ delayedCount: number; warningCount: number }> {
+    const now = new Date();
+
+    // 1. 检查延期预警任务（在预警天数内）
+    const warningTasks = await this.repo.getTasksNeedingWarning();
+    let warningCount = 0;
+
+    for (const task of warningTasks) {
+      // 发送预警通知
+      if (task.assignee_id) {
+        await this.sendNotification(
+          task.assignee_id,
+          'delay_warning',
+          '任务延期预警',
+          `任务 "${task.description}" 即将到期，请注意进度`,
+          `/tasks/${task.id}`
+        );
+      }
+      warningCount++;
+    }
+
+    // 2. 检查已延期任务（超过截止日期）
+    const delayedTasks = await this.repo.getDelayedTasks();
+    let delayedCount = 0;
+
+    for (const task of delayedTasks) {
+      // 更新状态为delayed
+      await this.repo.updateTaskStatus(task.id, 'delayed');
+
+      // 累计延期次数
+      await this.incrementDelayCount(task.id);
+
+      // 发送延期通知
+      if (task.assignee_id) {
+        await this.sendNotification(
+          task.assignee_id,
+          'task_delayed',
+          '任务已延期',
+          `任务 "${task.description}" 已超过截止日期，请尽快处理`,
+          `/tasks/${task.id}`
+        );
+      }
+
+      // 通知项目经理
+      const projectManagers = await this.repo.getProjectManagers(task.project_id);
+      for (const manager of projectManagers) {
+        await this.sendNotification(
+          manager.id,
+          'task_delayed',
+          '项目任务延期提醒',
+          `任务 "${task.description}" 已延期，负责人：${task.assignee_name || '未分配'}`,
+          `/tasks/${task.id}`
+        );
+      }
+
+      delayedCount++;
+    }
+
+    return { delayedCount, warningCount };
+  }
+
+  /**
+   * 累计延期次数
+   * 规则：
+   * - 首次延期：延期次数+1
+   * - 计划未刷新：不累加
+   * - 刷新后再次超期：再+1
+   */
+  private async incrementDelayCount(taskId: string): Promise<{ incremented: boolean; reason: string }> {
+    const task = await this.repo.getTaskById(taskId);
+    if (!task) {
+      return { incremented: false, reason: '任务不存在' };
+    }
+
+    const lastRefresh = task.last_plan_refresh_at ? new Date(task.last_plan_refresh_at) : null;
+
+    // 判断是否可以累加延期次数
+    if (lastRefresh) {
+      // 检查上次刷新时间是否在今天之前
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      if (lastRefresh >= todayStart) {
+        // 计划今天刷新过，不累加
+        return { incremented: false, reason: '计划未刷新，不累加延期次数' };
+      }
+    }
+
+    // 累加延期次数
+    await this.repo.incrementTaskCounter(taskId, 'delay_count');
+    return { incremented: true, reason: '延期次数已累加' };
+  }
+
+  /**
+   * 发送每日任务摘要通知
+   */
+  async sendDailyTaskSummary(): Promise<void> {
+    // 获取所有有活跃任务的用户
+    const usersWithTasks = await this.repo.getUsersWithActiveTasks();
+
+    for (const user of usersWithTasks) {
+      const summary = await this.repo.getUserTaskSummary(user.id);
+
+      if (summary.total > 0) {
+        await this.sendNotification(
+          user.id,
+          'daily_summary',
+          '每日任务摘要',
+          `您有 ${summary.pending} 个待处理任务，${summary.inProgress} 个进行中任务，${summary.delayed} 个延期任务`,
+          '/tasks'
+        );
+      }
+    }
   }
 }

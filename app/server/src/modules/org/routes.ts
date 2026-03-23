@@ -17,6 +17,11 @@ function getCurrentUser(req: Request): User | null {
 // 获取部门树
 router.get('/departments', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // 禁用缓存，确保前端获取最新数据
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
     const tree = await orgService.getDepartmentTree();
     res.json({ success: true, data: tree });
   } catch (error) {
@@ -115,9 +120,26 @@ router.delete('/departments/:id', async (req: Request, res: Response, next: Next
 // 获取成员列表
 router.get('/members', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // 禁用缓存，确保前端获取最新数据
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
+    // 处理 status/is_active 参数
+    let isActiveValue: boolean | undefined = undefined;
+    if (req.query.status === 'active') {
+      isActiveValue = true;
+    } else if (req.query.status === 'inactive') {
+      isActiveValue = false;
+    } else if (req.query.is_active === 'true') {
+      isActiveValue = true;
+    } else if (req.query.is_active === 'false') {
+      isActiveValue = false;
+    }
+
     const options = {
       department_id: req.query.department_id ? parseInt(req.query.department_id as string) : undefined,
-      is_active: req.query.is_active === 'true' ? true : req.query.is_active === 'false' ? false : undefined,
+      is_active: isActiveValue,
       search: req.query.search as string | undefined,
       page: req.query.page ? parseInt(req.query.page as string) : 1,
       pageSize: req.query.pageSize ? parseInt(req.query.pageSize as string) : 20,
@@ -125,6 +147,29 @@ router.get('/members', async (req: Request, res: Response, next: NextFunction) =
 
     const result = await orgService.getMembers(options);
     res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 获取成员删除检查数据（必须在 /members/:id 之前注册）
+router.get('/members/:id/deletion-check', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new ValidationError('无效的成员ID');
+    }
+
+    const checkResult = await orgService.getMemberDeletionCheck(id, currentUser);
+    res.json({ success: true, data: checkResult });
   } catch (error) {
     next(error);
   }
@@ -147,6 +192,108 @@ router.get('/members/:id', async (req: Request, res: Response, next: NextFunctio
     }
 
     res.json({ success: true, data: member });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 创建成员（自动创建用户账户）
+router.post('/members', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const result = await orgService.createMember(req.body, currentUser);
+    res.status(201).json({
+      success: true,
+      data: {
+        id: result.id,
+        initialPassword: result.initialPassword,
+        message: '成员创建成功，请保存初始密码'
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 更新成员信息
+router.put('/members/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new ValidationError('无效的成员ID');
+    }
+
+    const updated = await orgService.updateMember(id, req.body, currentUser);
+    res.json({ success: true, data: { updated } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 软删除成员（停用）
+router.put('/members/:id/deactivate', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new ValidationError('无效的成员ID');
+    }
+
+    await orgService.deleteMember(id, currentUser);
+    res.json({ success: true, message: '成员已停用' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 删除成员（支持软删除和物理删除）
+router.delete('/members/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new ValidationError('无效的成员ID');
+    }
+
+    // 检查是否是物理删除
+    const permanent = req.query.permanent === 'true';
+
+    if (permanent) {
+      await orgService.hardDeleteMember(id, currentUser);
+      res.json({ success: true, message: '成员已永久删除' });
+    } else {
+      await orgService.deleteMember(id, currentUser);
+      res.json({ success: true, message: '成员已停用' });
+    }
   } catch (error) {
     next(error);
   }
@@ -340,6 +487,217 @@ router.get('/recommend-assignee', async (req: Request, res: Response, next: Next
 
     const recommendations = await orgService.getAssigneeRecommendations(taskType);
     res.json({ success: true, data: recommendations });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 能力矩阵 ==========
+
+// 获取能力矩阵
+router.post('/capabilities/matrix', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const params = req.body || {};
+    const matrix = await orgService.getCapabilityMatrix(params);
+    res.json({ success: true, data: matrix });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 提交能力评估
+router.post('/capabilities/assess', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = await orgService.submitCapabilityAssessment(req.body, currentUser.id);
+    res.status(201).json({ success: true, data: { id } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 获取成员能力历史
+router.get('/members/:id/capabilities/history', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) {
+      throw new ValidationError('无效的成员ID');
+    }
+
+    const history = await orgService.getCapabilityHistory(userId);
+    res.json({ success: true, data: history });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 智能分配 ==========
+
+// 获取分配建议
+router.post('/assignment/suggest', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { taskId, dimensions, minScore } = req.body;
+    if (!taskId) {
+      throw new ValidationError('任务ID不能为空');
+    }
+
+    const suggestions = await orgService.getAssignmentSuggestions(taskId, dimensions, minScore);
+    res.json({ success: true, data: suggestions });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 批量获取分配建议
+router.post('/assignment/suggest-batch', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { taskIds } = req.body;
+    if (!taskIds || !Array.isArray(taskIds)) {
+      throw new ValidationError('任务ID列表不能为空');
+    }
+
+    const suggestions = await orgService.batchAssignmentSuggestions(taskIds);
+    res.json({ success: true, data: suggestions });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 能力发展计划 ==========
+
+// 获取成员发展计划
+router.get('/members/:id/development-plans', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) {
+      throw new ValidationError('无效的成员ID');
+    }
+
+    const plans = await orgService.getDevelopmentPlans(userId);
+    res.json({ success: true, data: plans });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 创建发展计划
+router.post('/development-plans', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = await orgService.createDevelopmentPlan(req.body, currentUser.id);
+    res.status(201).json({ success: true, data: { id } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 任务类型-能力模型映射 ==========
+
+// 获取所有任务类型映射
+router.get('/task-type-mappings', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const mappings = await orgService.getTaskTypeMappings();
+    res.json({ success: true, data: mappings });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 获取单个任务类型映射
+router.get('/task-type-mappings/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new ValidationError('无效的映射ID');
+    }
+
+    const mapping = await orgService.getTaskTypeMappingById(id);
+    if (!mapping) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: '任务类型映射不存在' }
+      });
+    }
+
+    res.json({ success: true, data: mapping });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 创建任务类型映射
+router.post('/task-type-mappings', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = await orgService.createTaskTypeMapping(req.body, currentUser);
+    res.status(201).json({ success: true, data: { id } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 更新任务类型映射
+router.put('/task-type-mappings/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new ValidationError('无效的映射ID');
+    }
+
+    const updated = await orgService.updateTaskTypeMapping(id, req.body, currentUser);
+    res.json({ success: true, data: { updated } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 删除任务类型映射
+router.delete('/task-type-mappings/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new ValidationError('无效的映射ID');
+    }
+
+    await orgService.deleteTaskTypeMapping(id, currentUser);
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }

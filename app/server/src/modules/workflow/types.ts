@@ -26,8 +26,8 @@ export interface PlanChange {
 export interface CreatePlanChangeRequest {
   task_id: string;
   change_type: string;
-  old_value?: string;
-  new_value?: string;
+  old_value?: string | null;
+  new_value?: string | null;
   reason: string;
 }
 
@@ -66,7 +66,10 @@ export interface CreateDelayRecordRequest {
 
 // ============ 通知相关 ============
 
-export type NotificationType = 'approval' | 'approval_result' | 'delay' | 'system';
+export type NotificationType =
+  | 'approval' | 'approval_result' | 'approval_timeout'
+  | 'delay' | 'delay_warning' | 'task_delayed'
+  | 'daily_summary' | 'system';
 
 export interface Notification {
   id: string;

@@ -28,6 +28,12 @@ export interface Project {
 export interface ProjectListItem extends Omit<Project, 'member_ids'> {
   member_count: number;
   milestone_count: number;
+  // 成员摘要（用于前端显示头像组）
+  members: Array<{
+    id: number;
+    name: string;
+    avatar?: string;
+  }>;
 }
 
 export interface CreateProjectRequest {

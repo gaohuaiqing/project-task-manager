@@ -1,5 +1,6 @@
 // app/server/src/modules/org/service.ts
 import { v4 as uuidv4 } from 'uuid';
+import * as bcrypt from 'bcryptjs';
 import { OrgRepository } from './repository';
 import { ValidationError, ForbiddenError } from '../../core/errors';
 import type { User } from '../../core/types';
@@ -10,7 +11,9 @@ import type {
   CreateMemberRequest, UpdateMemberRequest, MemberQueryOptions,
   CreateCapabilityModelRequest, UpdateCapabilityModelRequest,
   CreateMemberCapabilityRequest, UpdateMemberCapabilityRequest,
-  DimensionScore
+  DimensionScore,
+  TaskTypeMapping,
+  CreateTaskTypeMappingRequest,
 } from './types';
 
 export class OrgService {
@@ -131,6 +134,199 @@ export class OrgService {
 
   async getDepartmentMembers(departmentId: number): Promise<Member[]> {
     return this.repo.getDepartmentMembers(departmentId);
+  }
+
+  async createMember(data: CreateMemberRequest, currentUser: User): Promise<{ id: number; initialPassword: string }> {
+    // 验证权限
+    if (currentUser.role !== 'admin' && currentUser.role !== 'tech_manager' && currentUser.role !== 'dept_manager') {
+      throw new ForbiddenError('无权限创建成员');
+    }
+
+    // 验证必填字段
+    if (!data.username) {
+      throw new ValidationError('用户名不能为空');
+    }
+    if (!data.real_name) {
+      throw new ValidationError('真实姓名不能为空');
+    }
+    if (!data.role) {
+      throw new ValidationError('角色不能为空');
+    }
+
+    // 检查用户名是否已存在
+    const exists = await this.repo.usernameExists(data.username);
+    if (exists) {
+      throw new ValidationError('用户名已存在');
+    }
+
+    // 生成初始密码
+    const initialPassword = this.generateRandomPassword();
+    const hashedPassword = await bcrypt.hash(initialPassword, 10);
+
+    const id = await this.repo.createMember({
+      username: data.username,
+      password: hashedPassword,
+      real_name: data.real_name,
+      role: data.role,
+      department_id: data.department_id || null,
+      email: data.email,
+      phone: data.phone,
+    });
+
+    return { id, initialPassword };
+  }
+
+  async updateMember(id: number, data: UpdateMemberRequest, currentUser: User): Promise<boolean> {
+    // 验证权限
+    if (currentUser.role !== 'admin' && currentUser.role !== 'tech_manager' && currentUser.role !== 'dept_manager') {
+      throw new ForbiddenError('无权限更新成员');
+    }
+
+    // 验证成员存在
+    const member = await this.repo.getMemberById(id);
+    if (!member) {
+      throw new ValidationError('成员不存在');
+    }
+
+    return this.repo.updateMember(id, data);
+  }
+
+  async deleteMember(id: number, currentUser: User): Promise<void> {
+    // 验证权限
+    if (currentUser.role !== 'admin') {
+      throw new ForbiddenError('只有管理员可以删除成员');
+    }
+
+    // 不能删除自己
+    if (id === currentUser.id) {
+      throw new ValidationError('不能删除自己的账户');
+    }
+
+    // 验证成员存在
+    const member = await this.repo.getMemberById(id);
+    if (!member) {
+      throw new ValidationError('成员不存在');
+    }
+
+    const deleted = await this.repo.deleteMember(id);
+    if (!deleted) {
+      throw new ValidationError('删除成员失败');
+    }
+  }
+
+  /**
+   * 获取成员删除检查数据
+   * 返回删除前需要检查的关联数据统计
+   */
+  async getMemberDeletionCheck(id: number, currentUser: User): Promise<{
+    canDelete: boolean;
+    canDeactivate: boolean;
+    warnings: string[];
+    blockingReasons: string[];
+    stats: {
+      projects: number;
+      tasks: number;
+      approvals: number;
+      capabilityRecords: number;
+    };
+    managedDepts?: { id: number; name: string }[];
+  }> {
+    // 验证权限
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
+      throw new ForbiddenError('只有管理员或部门经理可以查看删除检查');
+    }
+
+    // 验证成员存在
+    const member = await this.repo.getMemberById(id);
+    if (!member) {
+      throw new ValidationError('成员不存在');
+    }
+
+    const checkData = await this.repo.getMemberDeletionCheck(id);
+
+    const warnings: string[] = [];
+    const blockingReasons: string[] = [];
+
+    // 检查是否是部门经理
+    if (checkData.isDeptManager) {
+      const deptNames = checkData.managedDepts.map(d => d.name).join('、');
+      blockingReasons.push(`用户是「${deptNames}」的部门经理，需先移除经理职务`);
+    }
+
+    // 检查进行中的任务
+    if (checkData.taskCount > 0) {
+      warnings.push(`该用户有 ${checkData.taskCount} 个进行中的任务`);
+    }
+
+    // 检查参与的项目
+    if (checkData.projectCount > 0) {
+      warnings.push(`该用户参与了 ${checkData.projectCount} 个项目`);
+    }
+
+    // 软删除始终可以执行（只要有权限）
+    const canDeactivate = currentUser.role === 'admin';
+
+    // 物理删除需要满足条件
+    const canDelete = currentUser.role === 'admin' && blockingReasons.length === 0;
+
+    return {
+      canDelete,
+      canDeactivate,
+      warnings,
+      blockingReasons,
+      stats: {
+        projects: checkData.projectCount,
+        tasks: checkData.taskCount,
+        approvals: checkData.approvalCount,
+        capabilityRecords: checkData.capabilityRecords,
+      },
+      managedDepts: checkData.managedDepts.length > 0 ? checkData.managedDepts : undefined,
+    };
+  }
+
+  /**
+   * 物理删除成员
+   * 仅管理员可用，需要先通过删除检查
+   */
+  async hardDeleteMember(id: number, currentUser: User): Promise<void> {
+    // 仅管理员可以物理删除
+    if (currentUser.role !== 'admin') {
+      throw new ForbiddenError('只有管理员可以物理删除成员');
+    }
+
+    // 不能删除自己
+    if (id === currentUser.id) {
+      throw new ValidationError('不能删除自己的账户');
+    }
+
+    // 验证成员存在
+    const member = await this.repo.getMemberById(id);
+    if (!member) {
+      throw new ValidationError('成员不存在');
+    }
+
+    // 执行删除检查
+    const checkData = await this.repo.getMemberDeletionCheck(id);
+
+    // 阻止条件检查
+    if (checkData.isDeptManager) {
+      throw new ValidationError('该用户是部门经理，需先移除经理职务');
+    }
+
+    // 执行物理删除
+    const deleted = await this.repo.hardDeleteMember(id);
+    if (!deleted) {
+      throw new ValidationError('删除成员失败');
+    }
+  }
+
+  private generateRandomPassword(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
+    let password = '';
+    for (let i = 0; i < 12; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return password;
   }
 
   // ========== 能力模型管理 ==========
@@ -324,5 +520,174 @@ export class OrgService {
     // 获取推荐列表
     const modelIds = models.map(m => m.model_id);
     return this.repo.getRecommendations(modelIds);
+  }
+
+  // ========== 能力矩阵 ==========
+
+  async getCapabilityMatrix(params: { departmentId?: number; dimensions?: string[] }): Promise<any[]> {
+    // 获取所有成员的能力数据
+    const members = await this.repo.getMembers({
+      department_id: params.departmentId,
+      is_active: true,
+      page: 1,
+      pageSize: 1000,
+    });
+
+    // 获取每个成员的能力
+    const result = [];
+    for (const member of members.items) {
+      const capabilities = await this.repo.getMemberCapabilities(member.id);
+      if (capabilities.length > 0) {
+        result.push({
+          memberId: member.id,
+          memberName: member.real_name,
+          departmentId: member.department_id,
+          capabilities: capabilities.map(c => ({
+            modelId: c.model_id,
+            modelName: c.model_name,
+            overallScore: c.overall_score,
+            dimensionScores: c.dimension_scores,
+          })),
+        });
+      }
+    }
+
+    return result;
+  }
+
+  async submitCapabilityAssessment(data: any, evaluatedBy: number): Promise<string> {
+    return this.addMemberCapability(data.userId, data, evaluatedBy);
+  }
+
+  async getCapabilityHistory(userId: number): Promise<any[]> {
+    // 返回成员的能力评定历史
+    const capabilities = await this.repo.getMemberCapabilities(userId);
+    return capabilities.map(c => ({
+      id: c.id,
+      modelId: c.model_id,
+      modelName: c.model_name,
+      overallScore: c.overall_score,
+      evaluatedAt: c.evaluated_at,
+      evaluatedBy: c.evaluated_by,
+    }));
+  }
+
+  // ========== 智能分配 ==========
+
+  async getAssignmentSuggestions(taskId: string, dimensions?: string[], minScore?: number): Promise<any> {
+    // 获取任务详情以确定所需能力
+    // 这里简化实现：返回所有有能力的成员
+    const members = await this.repo.getMembers({ is_active: true, page: 1, pageSize: 100 });
+    const suggestions = [];
+
+    for (const member of members.items) {
+      const capabilities = await this.repo.getMemberCapabilities(member.id);
+      if (capabilities.length > 0) {
+        const avgScore = capabilities.reduce((sum, c) => sum + c.overall_score, 0) / capabilities.length;
+        if (!minScore || avgScore >= minScore) {
+          suggestions.push({
+            memberId: member.id,
+            memberName: member.real_name,
+            score: avgScore,
+            reasons: ['有相关能力评定记录'],
+          });
+        }
+      }
+    }
+
+    return {
+      taskId,
+      suggestions: suggestions.sort((a, b) => b.score - a.score).slice(0, 5),
+    };
+  }
+
+  async batchAssignmentSuggestions(taskIds: string[]): Promise<any[]> {
+    const results = [];
+    for (const taskId of taskIds) {
+      const suggestion = await this.getAssignmentSuggestions(taskId);
+      results.push(suggestion);
+    }
+    return results;
+  }
+
+  // ========== 能力发展计划 ==========
+
+  async getDevelopmentPlans(userId: number): Promise<any[]> {
+    // 返回成员的发展计划
+    // 目前返回空数组，等待后续实现
+    return [];
+  }
+
+  async createDevelopmentPlan(data: any, createdBy: number): Promise<string> {
+    // 创建发展计划
+    const id = uuidv4();
+    // 存储发展计划（待实现数据库表）
+    return id;
+  }
+
+  // ========== 任务类型映射管理 ==========
+
+  async getTaskTypeMappings(): Promise<TaskTypeMapping[]> {
+    return this.repo.getTaskTypeMappings();
+  }
+
+  async getTaskTypeMappingById(id: number): Promise<TaskTypeMapping | null> {
+    return this.repo.getTaskTypeMappingById(id);
+  }
+
+  async createTaskTypeMapping(data: CreateTaskTypeMappingRequest, currentUser: User): Promise<number> {
+    // 验证权限
+    if (currentUser.role !== 'admin') {
+      throw new ForbiddenError('只有管理员可以创建任务类型映射');
+    }
+
+    // 验证能力模型存在
+    const model = await this.repo.getCapabilityModelById(data.model_id);
+    if (!model) {
+      throw new ValidationError('能力模型不存在');
+    }
+
+    return this.repo.createTaskTypeMapping(data);
+  }
+
+  async updateTaskTypeMapping(id: number, data: Partial<CreateTaskTypeMappingRequest>, currentUser: User): Promise<boolean> {
+    // 验证权限
+    if (currentUser.role !== 'admin') {
+      throw new ForbiddenError('只有管理员可以更新任务类型映射');
+    }
+
+    // 验证映射存在
+    const existing = await this.repo.getTaskTypeMappingById(id);
+    if (!existing) {
+      throw new ValidationError('任务类型映射不存在');
+    }
+
+    // 如果更新了模型ID，验证模型存在
+    if (data.model_id) {
+      const model = await this.repo.getCapabilityModelById(data.model_id);
+      if (!model) {
+        throw new ValidationError('能力模型不存在');
+      }
+    }
+
+    return this.repo.updateTaskTypeMapping(id, data);
+  }
+
+  async deleteTaskTypeMapping(id: number, currentUser: User): Promise<void> {
+    // 验证权限
+    if (currentUser.role !== 'admin') {
+      throw new ForbiddenError('只有管理员可以删除任务类型映射');
+    }
+
+    // 验证映射存在
+    const existing = await this.repo.getTaskTypeMappingById(id);
+    if (!existing) {
+      throw new ValidationError('任务类型映射不存在');
+    }
+
+    const deleted = await this.repo.deleteTaskTypeMapping(id);
+    if (!deleted) {
+      throw new ValidationError('删除任务类型映射失败');
+    }
   }
 }

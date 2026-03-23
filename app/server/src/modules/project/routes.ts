@@ -19,10 +19,45 @@ function requireUser(req: Request): User {
   return user;
 }
 
+// ========== 节假日管理（放在 /:id 之前，避免路由冲突）==========
+
+// 获取节假日
+router.get('/holidays', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+    const holidays = await projectService.getHolidays(year);
+    res.json({ success: true, data: holidays });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 创建节假日
+router.post('/holidays', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    await projectService.createHoliday(req.body, currentUser);
+    res.status(201).json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 删除节假日
+router.delete('/holidays/:date', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    await projectService.deleteHoliday(req.params.date, currentUser);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ========== 项目管理 ==========
 
 // 获取项目列表
-router.get('/projects', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = getCurrentUser(req);
     const options: any = {
@@ -46,7 +81,7 @@ router.get('/projects', async (req: Request, res: Response, next: NextFunction) 
 });
 
 // 获取项目详情
-router.get('/projects/:id', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const project = await projectService.getProjectById(req.params.id);
     if (!project) {
@@ -75,7 +110,7 @@ router.get('/projects/:id', async (req: Request, res: Response, next: NextFuncti
 });
 
 // 获取项目统计
-router.get('/projects/:id/stats', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id/stats', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const stats = await projectService.getProjectStats(req.params.id);
     res.json({ success: true, data: stats });
@@ -85,7 +120,7 @@ router.get('/projects/:id/stats', async (req: Request, res: Response, next: Next
 });
 
 // 创建项目
-router.post('/projects', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     const id = await projectService.createProject(req.body, currentUser);
@@ -96,7 +131,7 @@ router.post('/projects', async (req: Request, res: Response, next: NextFunction)
 });
 
 // 更新项目
-router.put('/projects/:id', async (req: Request, res: Response, next: NextFunction) => {
+router.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     const result = await projectService.updateProject(req.params.id, req.body, currentUser);
@@ -115,7 +150,7 @@ router.put('/projects/:id', async (req: Request, res: Response, next: NextFuncti
 });
 
 // 删除项目
-router.delete('/projects/:id', async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     await projectService.deleteProject(req.params.id, currentUser);
@@ -128,7 +163,7 @@ router.delete('/projects/:id', async (req: Request, res: Response, next: NextFun
 // ========== 里程碑管理 ==========
 
 // 获取项目里程碑
-router.get('/projects/:id/milestones', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id/milestones', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const milestones = await projectService.getMilestones(req.params.id);
     res.json({ success: true, data: milestones });
@@ -138,7 +173,7 @@ router.get('/projects/:id/milestones', async (req: Request, res: Response, next:
 });
 
 // 创建里程碑
-router.post('/projects/:id/milestones', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/milestones', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     const id = await projectService.createMilestone(req.params.id, req.body, currentUser);
@@ -173,7 +208,7 @@ router.delete('/milestones/:id', async (req: Request, res: Response, next: NextF
 // ========== 时间线管理 ==========
 
 // 获取项目时间线
-router.get('/projects/:id/timelines', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id/timelines', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const timelines = await projectService.getTimelines(req.params.id);
     res.json({ success: true, data: timelines });
@@ -183,7 +218,7 @@ router.get('/projects/:id/timelines', async (req: Request, res: Response, next: 
 });
 
 // 创建时间线
-router.post('/projects/:id/timelines', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/timelines', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     const id = await projectService.createTimeline(req.params.id, req.body, currentUser);
@@ -263,7 +298,7 @@ router.delete('/timeline-tasks/:id', async (req: Request, res: Response, next: N
 // ========== 项目成员管理 ==========
 
 // 获取项目成员
-router.get('/projects/:id/members', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id/members', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const members = await projectService.getProjectMembers(req.params.id);
     res.json({ success: true, data: members });
@@ -273,7 +308,7 @@ router.get('/projects/:id/members', async (req: Request, res: Response, next: Ne
 });
 
 // 添加项目成员
-router.post('/projects/:id/members', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/members', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     const added = await projectService.addProjectMember(req.params.id, req.body, currentUser);
@@ -284,7 +319,7 @@ router.post('/projects/:id/members', async (req: Request, res: Response, next: N
 });
 
 // 移除项目成员
-router.delete('/projects/:id/members/:userId', async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/:id/members/:userId', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     await projectService.removeProjectMember(
@@ -292,41 +327,6 @@ router.delete('/projects/:id/members/:userId', async (req: Request, res: Respons
       parseInt(req.params.userId),
       currentUser
     );
-    res.json({ success: true });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// ========== 节假日管理 ==========
-
-// 获取节假日
-router.get('/holidays', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const year = req.query.year ? parseInt(req.query.year as string) : undefined;
-    const holidays = await projectService.getHolidays(year);
-    res.json({ success: true, data: holidays });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// 创建节假日
-router.post('/holidays', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    await projectService.createHoliday(req.body, currentUser);
-    res.status(201).json({ success: true });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// 删除节假日
-router.delete('/holidays/:date', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    await projectService.deleteHoliday(req.params.date, currentUser);
     res.json({ success: true });
   } catch (error) {
     next(error);

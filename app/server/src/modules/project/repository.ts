@@ -45,8 +45,8 @@ export class ProjectRepository {
       params.push(options.project_type);
     }
     if (options?.member_id) {
-      conditions.push('FIND_IN_SET(?, p.member_ids) > 0');
-      params.push(options.member_id.toString());
+      conditions.push('JSON_CONTAINS(p.member_ids, ?)');
+      params.push(JSON.stringify(options.member_id));
     }
     if (options?.search) {
       conditions.push('(p.code LIKE ? OR p.name LIKE ?)');
@@ -70,22 +70,65 @@ export class ProjectRepository {
 
     const [rows] = await pool.execute<ProjectRow[]>(
       `SELECT p.*,
-        (LENGTH(p.member_ids) - LENGTH(REPLACE(p.member_ids, ',', '')) + 1) as member_count_calc,
+        COALESCE(JSON_LENGTH(p.member_ids), 0) as member_count_calc,
         (SELECT COUNT(*) FROM milestones m WHERE m.project_id = p.id) as milestone_count_calc
        FROM projects p
        ${whereClause}
        ORDER BY p.updated_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, pageSize, offset]
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params
     );
+
+    // 获取所有项目ID
+    const projectIds = rows.map(r => r.id);
+
+    // 批量获取项目成员摘要
+    const memberSummaries = projectIds.length > 0
+      ? await this.getProjectMemberSummaries(projectIds)
+      : new Map<string, Array<{ id: number; name: string; avatar?: string }>>();
 
     const items: ProjectListItem[] = rows.map(r => ({
       ...r,
-      member_count: r.member_ids ? (r.member_ids.match(/,/g) || []).length + 1 : 0,
+      member_count: (r as any).member_count_calc || 0,
       milestone_count: (r as any).milestone_count_calc || 0,
+      members: memberSummaries.get(r.id) || [],
     }));
 
     return { items, total };
+  }
+
+  /**
+   * 批量获取多个项目的成员摘要
+   */
+  private async getProjectMemberSummaries(projectIds: string[]): Promise<Map<string, Array<{ id: number; name: string; avatar?: string }>>> {
+    const pool = getPool();
+    const result = new Map<string, Array<{ id: number; name: string; avatar?: string }>>();
+
+    if (projectIds.length === 0) return result;
+
+    const placeholders = projectIds.map(() => '?').join(',');
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT pm.project_id, u.id, u.real_name as name, u.avatar
+       FROM project_members pm
+       JOIN users u ON pm.user_id = u.id
+       WHERE pm.project_id IN (${placeholders})
+       ORDER BY pm.project_id, pm.role DESC, u.real_name`,
+      projectIds
+    );
+
+    for (const row of rows) {
+      const projectId = row.project_id;
+      if (!result.has(projectId)) {
+        result.set(projectId, []);
+      }
+      result.get(projectId)!.push({
+        id: row.id,
+        name: row.name,
+        avatar: row.avatar,
+      });
+    }
+
+    return result;
   }
 
   async getProjectById(id: string): Promise<Project | null> {
@@ -106,17 +149,17 @@ export class ProjectRepository {
     return rows[0] || null;
   }
 
-  async createProject(data: CreateProjectRequest & { id: string }): Promise<string> {
+  async createProject(data: CreateProjectRequest): Promise<number> {
     const pool = getPool();
-    const memberIdsStr = data.member_ids?.join(',') || null;
+    const memberIdsStr = data.member_ids ? JSON.stringify(data.member_ids) : null;
 
-    await pool.execute(
-      `INSERT INTO projects (id, code, name, description, status, project_type, planned_start_date, planned_end_date, member_ids, progress, task_count, completed_task_count, version)
-       VALUES (?, ?, ?, ?, 'planning', ?, ?, ?, ?, 0, 0, 0, 1)`,
-      [data.id, data.code, data.name, data.description || null, data.project_type, data.planned_start_date, data.planned_end_date, memberIdsStr]
+    const [result] = await pool.execute<ResultSetHeader>(
+      `INSERT INTO projects (code, name, description, status, project_type, planned_start_date, planned_end_date, member_ids, progress, task_count, completed_task_count, version)
+       VALUES (?, ?, ?, 'planning', ?, ?, ?, ?, 0, 0, 0, 1)`,
+      [data.code, data.name, data.description || null, data.project_type, data.planned_start_date || null, data.planned_end_date || null, memberIdsStr]
     );
 
-    return data.id;
+    return result.insertId;
   }
 
   async updateProject(id: string, data: UpdateProjectRequest & { version: number }): Promise<{ updated: boolean; conflict: boolean }> {
@@ -206,10 +249,11 @@ export class ProjectRepository {
 
   async createMilestone(data: CreateMilestoneRequest & { id: string; project_id: string }): Promise<string> {
     const pool = getPool();
+    // 同时设置 target_date 和 planned_date（planned_date 是旧字段，保持兼容）
     await pool.execute(
-      `INSERT INTO milestones (id, project_id, name, target_date, description, status, completion_percentage)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-      [data.id, data.project_id, data.name, data.target_date, data.description || null, data.completion_percentage || 0]
+      `INSERT INTO milestones (id, project_id, name, target_date, planned_date, description, status, completion_percentage)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      [data.id, data.project_id, data.name, data.target_date, data.target_date, data.description || null, data.completion_percentage || 0]
     );
     return data.id;
   }
@@ -261,6 +305,15 @@ export class ProjectRepository {
       [projectId]
     );
     return rows;
+  }
+
+  async getTimelineById(id: string): Promise<Timeline | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<TimelineRow[]>(
+      'SELECT * FROM timelines WHERE id = ?',
+      [id]
+    );
+    return rows[0] || null;
   }
 
   async createTimeline(data: CreateTimelineRequest & { id: string; project_id: string }): Promise<string> {
@@ -321,6 +374,15 @@ export class ProjectRepository {
       [timelineId]
     );
     return rows;
+  }
+
+  async getTimelineTaskById(id: string): Promise<TimelineTask | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<TimelineTaskRow[]>(
+      'SELECT * FROM timeline_tasks WHERE id = ?',
+      [id]
+    );
+    return rows[0] || null;
   }
 
   async createTimelineTask(data: CreateTimelineTaskRequest & { id: string; timeline_id: string }): Promise<string> {
@@ -425,13 +487,13 @@ export class ProjectRepository {
     const pool = getPool();
     if (year) {
       const [rows] = await pool.execute<HolidayRow[]>(
-        "SELECT * FROM holidays WHERE YEAR(date) = ? ORDER BY date",
+        "SELECT id, holiday_date as date, name, CASE WHEN is_workday = 1 THEN 'workday' ELSE 'legal' END as type FROM holidays WHERE year = ? ORDER BY holiday_date",
         [year]
       );
       return rows;
     }
     const [rows] = await pool.execute<HolidayRow[]>(
-      'SELECT * FROM holidays ORDER BY date'
+      "SELECT id, holiday_date as date, name, CASE WHEN is_workday = 1 THEN 'workday' ELSE 'legal' END as type FROM holidays ORDER BY holiday_date"
     );
     return rows;
   }
@@ -439,9 +501,11 @@ export class ProjectRepository {
   async createHoliday(data: CreateHolidayRequest): Promise<boolean> {
     const pool = getPool();
     try {
+      const isWorkday = data.type === 'workday' ? 1 : 0;
+      const year = new Date(data.date).getFullYear();
       await pool.execute(
-        'INSERT INTO holidays (date, name, type) VALUES (?, ?, ?)',
-        [data.date, data.name, data.type]
+        'INSERT INTO holidays (holiday_date, name, is_workday, year) VALUES (?, ?, ?, ?)',
+        [data.date, data.name, isWorkday, year]
       );
       return true;
     } catch {
@@ -452,7 +516,7 @@ export class ProjectRepository {
   async deleteHoliday(date: string): Promise<boolean> {
     const pool = getPool();
     const [result] = await pool.execute<ResultSetHeader>(
-      'DELETE FROM holidays WHERE date = ?',
+      'DELETE FROM holidays WHERE holiday_date = ?',
       [date]
     );
     return result.affectedRows > 0;

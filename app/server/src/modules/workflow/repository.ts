@@ -230,4 +230,261 @@ export class WorkflowRepository {
       await this.createNotification({ id, user_id: userId, ...data });
     }
   }
+
+  // ========== 定时任务辅助方法 ==========
+
+  /**
+   * 标记超时审批（超过指定天数）
+   */
+  async markTimeoutApprovals(timeoutDays: number): Promise<number> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE plan_changes
+       SET status = 'timeout'
+       WHERE status = 'pending'
+       AND created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
+      [timeoutDays]
+    );
+    return result.affectedRows;
+  }
+
+  /**
+   * 获取超时的审批列表
+   */
+  async getTimeoutApprovals(): Promise<PlanChange[]> {
+    const pool = getPool();
+    const [rows] = await pool.execute<PlanChangeRow[]>(
+      `SELECT * FROM plan_changes WHERE status = 'timeout'`
+    );
+    return rows;
+  }
+
+  /**
+   * 获取需要预警的任务（在预警天数内即将到期）
+   */
+  async getTasksNeedingWarning(): Promise<Array<{ id: string; description: string; assignee_id: number | null }>> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.id, t.description, t.assignee_id
+       FROM wbs_tasks t
+       WHERE t.status = 'in_progress'
+       AND t.end_date IS NOT NULL
+       AND DATEDIFF(t.end_date, CURDATE()) BETWEEN 0 AND t.warning_days
+       AND NOT EXISTS (
+         SELECT 1 FROM notifications n
+         WHERE n.link = CONCAT('/tasks/', t.id)
+         AND n.type = 'delay_warning'
+         AND DATE(n.created_at) = CURDATE()
+       )`
+    );
+    return rows as Array<{ id: string; description: string; assignee_id: number | null }>;
+  }
+
+  /**
+   * 获取已延期的任务（超过截止日期但未完成）
+   */
+  async getDelayedTasks(): Promise<Array<{
+    id: string;
+    description: string;
+    assignee_id: number | null;
+    assignee_name: string | null;
+    project_id: string;
+  }>> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.id, t.description, t.assignee_id, u.real_name as assignee_name, t.project_id
+       FROM wbs_tasks t
+       LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE t.status IN ('in_progress', 'delay_warning')
+       AND t.end_date IS NOT NULL
+       AND t.end_date < CURDATE()
+       AND t.actual_end_date IS NULL`
+    );
+    return rows as Array<{
+      id: string;
+      description: string;
+      assignee_id: number | null;
+      assignee_name: string | null;
+      project_id: string;
+    }>;
+  }
+
+  /**
+   * 更新任务状态
+   */
+  async updateTaskStatus(taskId: string, status: string): Promise<boolean> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      'UPDATE wbs_tasks SET status = ?, version = version + 1 WHERE id = ?',
+      [status, taskId]
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * 获取项目的项目经理
+   */
+  async getProjectManagers(projectId: string): Promise<Array<{ id: number; real_name: string }>> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT u.id, u.real_name
+       FROM users u
+       JOIN projects p ON u.department_id = p.department_id
+       WHERE p.id = ?
+       AND u.role IN ('admin', 'tech_manager', 'department_manager')`,
+      [projectId]
+    );
+    return rows as Array<{ id: number; real_name: string }>;
+  }
+
+  /**
+   * 获取有活跃任务的用户
+   */
+  async getUsersWithActiveTasks(): Promise<Array<{ id: number }>> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT DISTINCT assignee_id as id
+       FROM wbs_tasks
+       WHERE assignee_id IS NOT NULL
+       AND status IN ('not_started', 'in_progress', 'delay_warning', 'delayed')`
+    );
+    return rows as Array<{ id: number }>;
+  }
+
+  /**
+   * 获取用户的任务摘要
+   */
+  async getUserTaskSummary(userId: number): Promise<{
+    total: number;
+    pending: number;
+    inProgress: number;
+    delayed: number;
+  }> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'not_started' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as inProgress,
+        SUM(CASE WHEN status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as delayed
+       FROM wbs_tasks
+       WHERE assignee_id = ?`,
+      [userId]
+    );
+    return rows[0] as { total: number; pending: number; inProgress: number; delayed: number };
+  }
+
+  // ========== 审批流程辅助方法 ==========
+
+  /**
+   * 获取任务的所有审批记录
+   */
+  async getPlanChangesByTask(taskId: string, status?: ApprovalStatus): Promise<PlanChange[]> {
+    const pool = getPool();
+    let query = `SELECT pc.*,
+                        t.description as task_description,
+                        u.real_name as user_name,
+                        a.real_name as approver_name
+                 FROM plan_changes pc
+                 LEFT JOIN wbs_tasks t ON pc.task_id = t.id
+                 LEFT JOIN users u ON pc.user_id = u.id
+                 LEFT JOIN users a ON pc.approver_id = a.id
+                 WHERE pc.task_id = ?`;
+    const params: (string | number)[] = [taskId];
+
+    if (status) {
+      query += ' AND pc.status = ?';
+      params.push(status);
+    }
+
+    query += ' ORDER BY pc.created_at DESC';
+
+    const [rows] = await pool.execute<PlanChangeRow[]>(query, params);
+    return rows;
+  }
+
+  /**
+   * 获取任务基本信息
+   */
+  async getTaskById(taskId: string): Promise<{ id: string; project_id: string; version: number; last_plan_refresh_at: Date | null; delay_count: number } | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT id, project_id, version, last_plan_refresh_at, delay_count FROM wbs_tasks WHERE id = ?',
+      [taskId]
+    );
+    return rows.length > 0 ? (rows[0] as { id: string; project_id: string; version: number; last_plan_refresh_at: Date | null; delay_count: number }) : null;
+  }
+
+  /**
+   * 更新任务字段（带白名单验证）
+   * 仅允许更新特定字段
+   */
+  async updateTaskField(
+    taskId: string,
+    field: string,
+    value: string | number | null
+  ): Promise<boolean> {
+    // 白名单验证：只允许更新这些字段
+    const allowedFields = ['start_date', 'duration', 'predecessor_id', 'lag_days'];
+    if (!allowedFields.includes(field)) {
+      throw new Error(`不允许更新字段: ${field}`);
+    }
+
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE wbs_tasks SET ${field} = ?, version = version + 1 WHERE id = ?`,
+      [value, taskId]
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * 批量更新任务字段（审批通过后）
+   */
+  async updateTaskFields(
+    taskId: string,
+    updates: Record<string, string | number | null>
+  ): Promise<boolean> {
+    // 白名单验证
+    const allowedFields = ['start_date', 'duration', 'predecessor_id', 'lag_days'];
+    const fields = Object.keys(updates).filter(f => allowedFields.includes(f));
+
+    if (fields.length === 0) {
+      return false;
+    }
+
+    const pool = getPool();
+    const setClauses = fields.map(f => `${f} = ?`).join(', ');
+    const values = fields.map(f => updates[f]);
+    values.push(taskId);
+
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE wbs_tasks SET ${setClauses}, version = version + 1 WHERE id = ?`,
+      values
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * 增加任务计数器
+   */
+  async incrementTaskCounter(taskId: string, counter: 'delay_count' | 'plan_change_count' | 'progress_record_count'): Promise<void> {
+    const pool = getPool();
+    await pool.execute(
+      `UPDATE wbs_tasks SET ${counter} = ${counter} + 1 WHERE id = ?`,
+      [taskId]
+    );
+  }
+
+  /**
+   * 清除任务的待审批数据
+   */
+  async clearPendingChanges(taskId: string): Promise<boolean> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE wbs_tasks SET pending_changes = NULL, pending_change_type = NULL, version = version + 1 WHERE id = ?`,
+      [taskId]
+    );
+    return result.affectedRows > 0;
+  }
 }

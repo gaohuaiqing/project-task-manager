@@ -71,8 +71,8 @@ export class TaskRepository {
        LEFT JOIN projects p ON t.project_id = p.id
        ${whereClause}
        ORDER BY t.wbs_code
-       LIMIT ? OFFSET ?`,
-      [...params, pageSize, offset]
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params
     );
 
     return { items: rows, total };
@@ -87,29 +87,41 @@ export class TaskRepository {
     return rows[0] || null;
   }
 
+  /**
+   * 根据WBS编码获取任务
+   */
+  async getTaskByWbsCode(projectId: string, wbsCode: string): Promise<WBSTask | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<TaskRow[]>(
+      'SELECT * FROM wbs_tasks WHERE project_id = ? AND wbs_code = ?',
+      [projectId, wbsCode]
+    );
+    return rows[0] || null;
+  }
+
   async createTask(data: CreateTaskRequest & { id: string; wbs_code: string; status: TaskStatus }): Promise<string> {
     const pool = getPool();
     await pool.execute(
       `INSERT INTO wbs_tasks (
         id, project_id, parent_id, wbs_code, wbs_level, description, status, task_type, priority,
-        assignee_id, start_date, duration, is_six_day_week, warning_days, predecessor_id, lag_days,
+        assignee_id, start_date, duration, is_six_day_week, warning_days, predecessor_id, dependency_type, lag_days,
         redmine_link, full_time_ratio, delay_count, plan_change_count, progress_record_count, version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 1)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 1)`,
       [
         data.id, data.project_id, data.parent_id || null, data.wbs_code, data.wbs_level, data.description,
         data.status, data.task_type || 'other', data.priority || 'medium', data.assignee_id || null,
         data.start_date || null, data.duration || null, data.is_six_day_week ?? false,
-        data.warning_days || 3, data.predecessor_id || null, data.lag_days || null,
+        data.warning_days || 3, data.predecessor_id || null, data.dependency_type || 'FS', data.lag_days || null,
         data.redmine_link || null, data.full_time_ratio ?? 100
       ]
     );
     return data.id;
   }
 
-  async updateTask(id: string, data: UpdateTaskRequest & { version: number }): Promise<{ updated: boolean; conflict: boolean }> {
+  async updateTask(id: string, data: UpdateTaskRequest & { version: number; last_plan_refresh_at?: Date; planned_duration?: number; actual_duration?: number; actual_cycle?: number }): Promise<{ updated: boolean; conflict: boolean }> {
     const pool = getPool();
     const fields: string[] = [];
-    const values: (string | number | boolean | null)[] = [];
+    const values: (string | number | boolean | Date | null)[] = [];
 
     if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description); }
     if (data.task_type !== undefined) { fields.push('task_type = ?'); values.push(data.task_type); }
@@ -120,11 +132,20 @@ export class TaskRepository {
     if (data.is_six_day_week !== undefined) { fields.push('is_six_day_week = ?'); values.push(data.is_six_day_week); }
     if (data.warning_days !== undefined) { fields.push('warning_days = ?'); values.push(data.warning_days); }
     if (data.predecessor_id !== undefined) { fields.push('predecessor_id = ?'); values.push(data.predecessor_id); }
+    if ((data as any).dependency_type !== undefined) { fields.push('dependency_type = ?'); values.push((data as any).dependency_type); }
     if (data.lag_days !== undefined) { fields.push('lag_days = ?'); values.push(data.lag_days); }
     if (data.actual_start_date !== undefined) { fields.push('actual_start_date = ?'); values.push(data.actual_start_date); }
     if (data.actual_end_date !== undefined) { fields.push('actual_end_date = ?'); values.push(data.actual_end_date); }
     if (data.redmine_link !== undefined) { fields.push('redmine_link = ?'); values.push(data.redmine_link); }
     if (data.full_time_ratio !== undefined) { fields.push('full_time_ratio = ?'); values.push(data.full_time_ratio); }
+    if (data.last_plan_refresh_at !== undefined) { fields.push('last_plan_refresh_at = ?'); values.push(data.last_plan_refresh_at); }
+    // 计算字段
+    if ((data as any).planned_duration !== undefined) { fields.push('planned_duration = ?'); values.push((data as any).planned_duration); }
+    if ((data as any).actual_duration !== undefined) { fields.push('actual_duration = ?'); values.push((data as any).actual_duration); }
+    if ((data as any).actual_cycle !== undefined) { fields.push('actual_cycle = ?'); values.push((data as any).actual_cycle); }
+    // 待审批变更字段
+    if ((data as any).pending_changes !== undefined) { fields.push('pending_changes = ?'); values.push(JSON.stringify((data as any).pending_changes)); }
+    if ((data as any).pending_change_type !== undefined) { fields.push('pending_change_type = ?'); values.push((data as any).pending_change_type); }
 
     if (fields.length === 0) {
       return { updated: false, conflict: false };
@@ -207,15 +228,21 @@ export class TaskRepository {
 
   async getProgressRecords(taskId: string): Promise<ProgressRecord[]> {
     const pool = getPool();
-    const [rows] = await pool.execute<ProgressRecordRow[]>(
-      `SELECT pr.*, u.real_name as recorder_name
-       FROM progress_records pr
-       JOIN users u ON pr.recorded_by = u.id
-       WHERE pr.task_id = ?
-       ORDER BY pr.created_at DESC`,
-      [taskId]
-    );
-    return rows;
+    try {
+      const [rows] = await pool.execute<ProgressRecordRow[]>(
+        `SELECT pr.*, u.real_name as recorder_name
+         FROM progress_records pr
+         JOIN users u ON pr.recorded_by = u.id
+         WHERE pr.task_id = ?
+         ORDER BY pr.created_at DESC`,
+        [taskId]
+      );
+      return rows;
+    } catch (error) {
+      // 表不存在时返回空数组
+      console.warn('progress_records表不存在，返回空数组');
+      return [];
+    }
   }
 
   async createProgressRecord(data: { id: string; task_id: string; content: string; recorded_by: number }): Promise<string> {
@@ -252,10 +279,106 @@ export class TaskRepository {
       `SELECT
         COUNT(*) as total,
         SUM(CASE WHEN status IN ('early_completed', 'on_time_completed', 'overdue_completed') THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as delayed
+        SUM(CASE WHEN status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as delayed_count
        FROM wbs_tasks WHERE project_id = ?`,
       [projectId]
     );
-    return rows[0] as { total: number; completed: number; delayed: number };
+    const result = rows[0] as { total: number; completed: number; delayed_count: number };
+    return { total: result.total, completed: result.completed, delayed: result.delayed_count };
+  }
+
+  // ========== 循环依赖检测辅助方法 ==========
+
+  /**
+   * 获取同项目所有任务用于循环依赖检测
+   */
+  async getAllTasksForCycleDetection(taskId: string): Promise<Array<{ id: string; predecessor_id: string | null }>> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.id, t.predecessor_id
+       FROM wbs_tasks t
+       WHERE t.project_id = (SELECT project_id FROM wbs_tasks WHERE id = ?)`,
+      [taskId]
+    );
+    return rows as Array<{ id: string; predecessor_id: string | null }>;
+  }
+
+  // ========== 级联更新辅助方法 ==========
+
+  /**
+   * 获取以指定任务为前置的所有后续任务
+   * P0修复：包含 dependency_type 字段以支持4种依赖类型的级联更新
+   */
+  async getSuccessorTasks(taskId: string): Promise<Array<{
+    id: string;
+    predecessor_id: string | null;
+    start_date: Date | string | null;
+    duration: number | null;
+    lag_days: number | null;
+    is_six_day_week: boolean;
+    dependency_type: string;
+  }>> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, predecessor_id, start_date, duration, lag_days, is_six_day_week, dependency_type
+       FROM wbs_tasks
+       WHERE predecessor_id = ?`,
+      [taskId]
+    );
+    return rows as Array<{
+      id: string;
+      predecessor_id: string | null;
+      start_date: Date | string | null;
+      duration: number | null;
+      lag_days: number | null;
+      is_six_day_week: boolean;
+      dependency_type: string;
+    }>;
+  }
+
+  /**
+   * 获取项目内所有任务
+   */
+  async getTasksByProject(projectId: string): Promise<Array<{ id: string; predecessor_id: string | null; start_date: Date | string | null; duration: number | null; lag_days: number | null; is_six_day_week: boolean }>> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, predecessor_id, start_date, duration, lag_days, is_six_day_week
+       FROM wbs_tasks
+       WHERE project_id = ?`,
+      [projectId]
+    );
+    return rows as Array<{ id: string; predecessor_id: string | null; start_date: Date | string | null; duration: number | null; lag_days: number | null; is_six_day_week: boolean }>;
+  }
+
+  /**
+   * 批量更新任务日期
+   */
+  async updateTaskDates(taskId: string, dates: { start_date?: string; end_date?: string }): Promise<boolean> {
+    const pool = getPool();
+    const fields: string[] = [];
+    const values: (string | null)[] = [];
+
+    if (dates.start_date !== undefined) {
+      fields.push('start_date = ?');
+      values.push(dates.start_date);
+    }
+    if (dates.end_date !== undefined) {
+      fields.push('end_date = ?');
+      values.push(dates.end_date);
+    }
+
+    if (fields.length === 0) {
+      return false;
+    }
+
+    fields.push('version = version + 1');
+    values.push(taskId);
+
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE wbs_tasks SET ${fields.join(', ')} WHERE id = ?`,
+      values
+    );
+
+    return result.affectedRows > 0;
   }
 }
