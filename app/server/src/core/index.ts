@@ -5,3 +5,4 @@ export * from './db';
 export * from './cache';
 export * from './logger';
 export * from './contracts';
+export * from './audit';

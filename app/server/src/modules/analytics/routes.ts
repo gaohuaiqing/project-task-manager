@@ -4,6 +4,8 @@ import { AnalyticsService } from './service';
 import { ValidationError } from '../../core/errors';
 import type { User } from '../../core/types';
 import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig } from './types';
+import { auditService } from '../../core/audit';
+import type { AuditCategory } from '../../core/types';
 
 const router = Router();
 const analyticsService = new AnalyticsService();
@@ -226,6 +228,118 @@ router.get('/templates/:type', async (req: Request, res: Response, next: NextFun
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${req.params.type}_template.xlsx"`);
     res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 审计日志 ==========
+
+/**
+ * 获取审计日志列表
+ * 权限: admin, dept_manager
+ */
+router.get('/audit-logs', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+
+    // 权限检查: 只有 admin 和 dept_manager 可查看
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
+      res.status(403).json({ success: false, message: '无权限查看审计日志' });
+      return;
+    }
+
+    const result = await auditService.query({
+      category: req.query.category as AuditCategory,
+      action: req.query.action as string,
+      userId: req.query.userId ? parseInt(req.query.userId as string) : undefined,
+      startDate: req.query.startDate as string,
+      endDate: req.query.endDate as string,
+      search: req.query.search as string,
+      page: req.query.page ? parseInt(req.query.page as string) : 1,
+      pageSize: req.query.pageSize ? parseInt(req.query.pageSize as string) : 50,
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * 获取审计日志筛选选项
+ */
+router.get('/audit-logs/options', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
+      res.status(403).json({ success: false, message: '无权限查看审计日志' });
+      return;
+    }
+
+    const actionTypes = auditService.getActionTypes();
+
+    res.json({
+      success: true,
+      data: {
+        categories: [
+          { value: 'security', label: '安全' },
+          { value: 'project', label: '项目' },
+          { value: 'task', label: '任务' },
+          { value: 'org', label: '组织' },
+          { value: 'config', label: '配置' },
+        ],
+        actionTypes,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * 导出审计日志
+ */
+router.get('/audit-logs/export', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
+      res.status(403).json({ success: false, message: '无权限导出审计日志' });
+      return;
+    }
+
+    // 查询数据（限制最多1000条）
+    const result = await auditService.query({
+      category: req.query.category as AuditCategory,
+      action: req.query.action as string,
+      userId: req.query.userId ? parseInt(req.query.userId as string) : undefined,
+      startDate: req.query.startDate as string,
+      endDate: req.query.endDate as string,
+      search: req.query.search as string,
+      page: 1,
+      pageSize: 1000,
+    });
+
+    // 转换为 CSV
+    const headers = ['时间', '用户', '角色', '分类', '操作', '详情', 'IP地址'];
+    const rows = result.items.map((log) => [
+      log.created_at instanceof Date ? log.created_at.toISOString() : log.created_at,
+      log.actor_username || '',
+      log.actor_role || '',
+      log.category,
+      log.action,
+      (log.details || '').replace(/"/g, '""'),
+      log.ip_address || '',
+    ]);
+
+    const csv = [headers.join(','), ...rows.map((r) => r.map((c) => `"${c}"`).join(','))].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="audit_logs_${new Date().toISOString().split('T')[0]}.csv"`);
+    // 添加 BOM 以支持中文
+    res.send('\ufeff' + csv);
   } catch (error) {
     next(error);
   }

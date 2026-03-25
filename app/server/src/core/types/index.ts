@@ -3,3 +3,4 @@ export * from './user.types';
 export * from './project.types';
 export * from './task.types';
 export * from './api.types';
+export * from './audit.types';

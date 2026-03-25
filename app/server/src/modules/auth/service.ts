@@ -3,6 +3,7 @@ import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthRepository } from './repository';
 import { AuthError, ForbiddenError, ValidationError } from '../../core/errors';
+import { audit } from '../../core/audit';
 import type { User, Permission, Session } from '../../core/types';
 import type { LoginRequest, LoginResponse, AuthContext, CreateUserRequest, UpdateUserRequest, UserListOptions, UserListResponse } from './types';
 
@@ -68,6 +69,20 @@ export class AuthService {
       await this.notifyNewDeviceLogin(user, activeSessions, ip, userAgent);
     }
 
+    // 记录登录审计日志
+    audit.log({
+      userId: user.id,
+      username: user.real_name,
+      userRole: user.role,
+      category: 'security',
+      action: 'LOGIN',
+      tableName: 'sessions',
+      recordId: sessionId,
+      details: `用户登录成功，IP: ${ip}`,
+      ipAddress: ip,
+      userAgent: userAgent,
+    });
+
     // 返回不含密码的用户信息
     const { password: _, ...userWithoutPassword } = user;
     const permissions = await this.repo.getPermissionsByRole(user.role);
@@ -112,7 +127,9 @@ export class AuthService {
 
     // 检查是否需要续期
     let renewed = false;
-    const expiresAt = new Date(session.expires_at * 1000);
+    const expiresAt = session.expires_at instanceof Date
+      ? session.expires_at
+      : new Date(session.expires_at);
     const now = new Date();
     const minutesUntilExpiry = (expiresAt.getTime() - now.getTime()) / (1000 * 60);
 
@@ -143,6 +160,25 @@ export class AuthService {
   }
 
   async logout(sessionId: string): Promise<void> {
+    // 获取会话信息用于审计日志
+    const session = await this.repo.findSession(sessionId);
+    if (session) {
+      const user = await this.repo.findById(session.user_id);
+      if (user) {
+        audit.log({
+          userId: user.id,
+          username: user.real_name,
+          userRole: user.role,
+          category: 'security',
+          action: 'LOGOUT',
+          tableName: 'sessions',
+          recordId: sessionId,
+          details: `用户登出，IP: ${session.ip_address || 'unknown'}`,
+          ipAddress: session.ip_address || undefined,
+          userAgent: session.user_agent || undefined,
+        });
+      }
+    }
     await this.repo.terminateSession(sessionId, 'user_logout');
   }
 
@@ -162,13 +198,6 @@ export class AuthService {
       throw new ForbiddenError('无权终止此会话');
     }
     await this.repo.terminateSession(sessionId, reason);
-  }
-
-  /**
-   * 获取用户的所有活跃会话
-   */
-  async getUserSessions(userId: number): Promise<Session[]> {
-    return this.repo.getActiveSessionsByUser(userId);
   }
 
   // ========== 用户管理 ==========

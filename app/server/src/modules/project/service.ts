@@ -2,6 +2,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { ProjectRepository } from './repository';
 import { ValidationError, ForbiddenError } from '../../core/errors';
+import { audit } from '../../core/audit';
 import type { User } from '../../core/types';
 import type {
   Project, ProjectListItem, Milestone, Timeline, TimelineTask,
@@ -68,6 +69,18 @@ export class ProjectService {
       }
     }
 
+    // 记录审计日志
+    audit.log({
+      userId: currentUser.id,
+      username: currentUser.real_name,
+      userRole: currentUser.role,
+      category: 'project',
+      action: 'CREATE',
+      tableName: 'projects',
+      recordId: String(id),
+      details: `创建项目: ${data.name} (${data.code})`,
+    });
+
     return String(id);
   }
 
@@ -91,7 +104,25 @@ export class ProjectService {
       throw new ValidationError('结束日期不能早于开始日期');
     }
 
-    return this.repo.updateProject(id, { ...data, version: data.version || project.version });
+    const result = await this.repo.updateProject(id, { ...data, version: data.version || project.version });
+
+    // 记录审计日志
+    if (result.updated) {
+      audit.log({
+        userId: currentUser.id,
+        username: currentUser.real_name,
+        userRole: currentUser.role,
+        category: 'project',
+        action: 'UPDATE',
+        tableName: 'projects',
+        recordId: id,
+        details: `更新项目: ${project.name}`,
+        beforeData: { name: project.name, status: project.status },
+        afterData: data,
+      });
+    }
+
+    return result;
   }
 
   async deleteProject(id: string, currentUser: User): Promise<void> {
@@ -116,6 +147,18 @@ export class ProjectService {
     if (!deleted) {
       throw new ValidationError('删除项目失败');
     }
+
+    // 记录审计日志
+    audit.log({
+      userId: currentUser.id,
+      username: currentUser.real_name,
+      userRole: currentUser.role,
+      category: 'project',
+      action: 'DELETE',
+      tableName: 'projects',
+      recordId: id,
+      details: `删除项目: ${project.name} (${project.code})`,
+    });
   }
 
   // ========== 里程碑管理 ==========

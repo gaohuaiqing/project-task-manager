@@ -93,3 +93,90 @@ export const analyticsApi = {
   getTaskStatistics,
   getDelayAnalysis,
 };
+
+// ============ 审计日志 API ============
+
+export interface AuditLog {
+  audit_id: string;
+  actor_user_id: number | null;
+  actor_username: string | null;
+  actor_role: string | null;
+  category: 'security' | 'project' | 'task' | 'org' | 'config';
+  action: string;
+  table_name: string;
+  record_id: string | null;
+  details: string | null;
+  before_data: Record<string, unknown> | null;
+  after_data: Record<string, unknown> | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export interface AuditLogQueryParams {
+  category?: string;
+  action?: string;
+  userId?: number;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface AuditLogListResult {
+  items: AuditLog[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface AuditLogOptions {
+  categories: Array<{ value: string; label: string }>;
+  actionTypes: Array<{ value: string; label: string; category: string }>;
+}
+
+/**
+ * 获取审计日志列表
+ */
+export async function getAuditLogs(params: AuditLogQueryParams = {}): Promise<AuditLogListResult> {
+  const response = await apiClient.get<ApiResponse<AuditLogListResult>>(`${BASE_PATH}/audit-logs`, {
+    params,
+  });
+  return response.data;
+}
+
+/**
+ * 获取审计日志筛选选项
+ */
+export async function getAuditLogOptions(): Promise<AuditLogOptions> {
+  const response = await apiClient.get<ApiResponse<AuditLogOptions>>(`${BASE_PATH}/audit-logs/options`);
+  return response.data;
+}
+
+/**
+ * 导出审计日志
+ */
+export async function exportAuditLogs(params: AuditLogQueryParams = {}): Promise<void> {
+  const response = await apiClient.get(`${BASE_PATH}/audit-logs/export`, {
+    params,
+    responseType: 'blob',
+  });
+
+  // 创建下载链接
+  const blob = new Blob([response as unknown as BlobPart], { type: 'text/csv;charset=utf-8' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `audit_logs_${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
+export const auditLogApi = {
+  getAuditLogs,
+  getAuditLogOptions,
+  exportAuditLogs,
+};
