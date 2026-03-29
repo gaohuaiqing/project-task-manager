@@ -22,6 +22,7 @@ import {
   AlignJustify,
   Download,
   Upload,
+  MapPin,
 } from 'lucide-react';
 import type { TimelineZoomLevel } from '@/types/timeline';
 import { cn } from '@/lib/utils';
@@ -49,6 +50,8 @@ export interface TimelineToolbarProps {
   onImport?: () => void;
   /** 是否只读 */
   readOnly?: boolean;
+  /** 跳转到今天回调 */
+  onGoToToday?: () => void;
 }
 
 // ============ 组件实现 ============
@@ -64,11 +67,12 @@ export function TimelineToolbar({
   onExport,
   onImport,
   readOnly = false,
+  onGoToToday,
 }: TimelineToolbarProps) {
   return (
     <div
       className={cn(
-        'flex items-center gap-2 px-4 py-2',
+        'flex items-center gap-2 px-4 py-2 h-12',
         'bg-white border-t',
         'text-sm'
       )}
@@ -109,6 +113,23 @@ export function TimelineToolbar({
       </div>
 
       <Separator orientation="vertical" className="h-6" />
+
+      {/* 📍 今天按钮 */}
+      {onGoToToday && (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onGoToToday}
+            className="gap-1.5 h-8"
+            title="定位到今天 (T)"
+          >
+            <MapPin className="h-4 w-4" />
+            今天
+          </Button>
+          <Separator orientation="vertical" className="h-6" />
+        </>
+      )}
 
       {/* 任务操作 */}
       {!readOnly && (
