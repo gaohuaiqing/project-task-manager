@@ -100,6 +100,13 @@ export function TimelineTaskBar({
     return task.startDate === task.endDate;
   }, [task.startDate, task.endDate]);
 
+  // 格式化日期显示
+  const milestoneDateLabel = useMemo(() => {
+    if (!isMilestone) return '';
+    const date = new Date(task.startDate);
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  }, [isMilestone, task.startDate]);
+
   // 计算光标样式
   const cursorStyle = useMemo(() => {
     if (readOnly) return 'default';
@@ -204,9 +211,16 @@ export function TimelineTaskBar({
             'z-50'
           )}
         >
-          {task.title}
+          <div className="font-medium">{task.title}</div>
           <div className="text-gray-300">
-            {task.startDate} ~ {task.endDate}
+            {isMilestone ? (
+              <>
+                {task.startDate}
+                {task.progress !== undefined && task.progress > 0 && ` · 进度 ${task.progress}%`}
+              </>
+            ) : (
+              `${task.startDate} ~ ${task.endDate}`
+            )}
           </div>
         </div>
       )}
@@ -215,11 +229,14 @@ export function TimelineTaskBar({
       {isMilestone && (
         <div
           className={cn(
-            'absolute inset-0 flex items-center justify-center',
-            'text-white text-xs font-bold'
+            'absolute inset-0 flex flex-col items-center justify-center',
+            'text-white text-xs font-medium'
           )}
         >
-          ◇
+          {/* 白色圆点 */}
+          <div className="w-2 h-2 bg-white rounded-full mb-0.5" />
+          {/* 日期显示 */}
+          <span className="text-[10px] opacity-90">1天</span>
         </div>
       )}
     </div>
