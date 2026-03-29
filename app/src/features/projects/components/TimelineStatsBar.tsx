@@ -40,18 +40,18 @@ export function TimelineStatsBar({
         className
       )}
     >
-      {/* 时间轴数 */}
+      {/* 时间轴 */}
       <div className="flex items-center gap-2">
-        <span className="text-muted-foreground">时间轴数:</span>
+        <span className="text-muted-foreground">时间轴:</span>
         <span className="font-medium">{timelineCount}</span>
       </div>
 
       {/* 分隔符 */}
       <div className="w-px h-4 bg-gray-200" />
 
-      {/* 任务数 */}
+      {/* 任务 */}
       <div className="flex items-center gap-2">
-        <span className="text-muted-foreground">任务数:</span>
+        <span className="text-muted-foreground">任务:</span>
         <span className="font-medium">{taskCount}</span>
       </div>
 
