@@ -13,29 +13,29 @@ import { cn } from '@/lib/utils';
 
 const STATUS_COLORS: Record<TimelineTaskStatus, { bg: string; text: string; border: string }> = {
   not_started: {
-    bg: 'bg-gray-100',
-    text: 'text-gray-600',
-    border: 'border-gray-300',
+    bg: 'bg-gray-400',
+    text: 'text-white',
+    border: 'border-gray-500',
   },
   in_progress: {
-    bg: 'bg-blue-100',
-    text: 'text-blue-600',
-    border: 'border-blue-300',
+    bg: 'bg-blue-500',
+    text: 'text-white',
+    border: 'border-blue-600',
   },
   completed: {
-    bg: 'bg-green-100',
-    text: 'text-green-600',
-    border: 'border-green-300',
+    bg: 'bg-green-500',
+    text: 'text-white',
+    border: 'border-green-600',
   },
   delayed: {
-    bg: 'bg-red-100',
-    text: 'text-red-600',
-    border: 'border-red-300',
+    bg: 'bg-red-500',
+    text: 'text-white',
+    border: 'border-red-600',
   },
   cancelled: {
-    bg: 'bg-slate-100',
-    text: 'text-slate-500',
-    border: 'border-slate-200',
+    bg: 'bg-slate-400 opacity-60',
+    text: 'text-gray-600',
+    border: 'border-slate-300',
   },
 };
 
@@ -135,16 +135,15 @@ export function TimelineTaskBar({
       onContextMenu={onContextMenu}
     >
       {/* 进度条背景 */}
-      {!isMilestone && (
+      {!isMilestone && task.progress > 0 && (
         <div
           className={cn(
             'absolute inset-0 rounded-md overflow-hidden',
-            'opacity-30'
           )}
         >
           <div
-            className="h-full bg-current-color"
-            style={{ width: `${progressWidth}px` }}
+            className="h-full bg-white/30"
+            style={{ width: `${task.progress}%` }}
           />
         </div>
       )}
