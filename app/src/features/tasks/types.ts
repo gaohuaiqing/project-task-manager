@@ -159,6 +159,8 @@ export interface WBSTask {
 /** WBS任务列表项（带子任务） */
 export interface WBSTaskListItem extends WBSTask {
   children?: WBSTaskListItem[];
+  /** 实时计算的状态（用于显示，优先于数据库中的 status） */
+  computedStatus?: TaskStatus;
 }
 
 /** 兼容旧代码的别名 */
@@ -202,11 +204,11 @@ export interface TaskStats {
 
 /** 任务查询参数 */
 export interface TaskQueryParams {
-  projectId?: string;
-  status?: TaskStatus;
-  taskType?: TaskType;
-  priority?: TaskPriority;
-  assigneeId?: number;
+  projectId?: string | string[];     // 支持多选
+  status?: TaskStatus | TaskStatus[];  // 支持多选
+  taskType?: TaskType | TaskType[];    // 支持多选
+  priority?: TaskPriority | TaskPriority[];  // 支持多选
+  assigneeId?: number | number[];      // 支持多选
   parentId?: string | null;
   search?: string;
   page?: number;

@@ -1,6 +1,6 @@
 /**
  * 任务筛选器组件
- * 支持搜索、项目、负责人、状态、优先级筛选
+ * 支持搜索、项目、负责人、状态、优先级多选筛选
  */
 import { useMemo } from 'react';
 import { X } from 'lucide-react';
@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { MultiSelect, type MultiSelectOption } from '@/components/ui/multi-select';
 import type { TaskQueryParams, TaskStatus, TaskPriority, TaskType } from '../types';
 import {
   TASK_STATUS_LABELS,
@@ -44,7 +45,7 @@ interface TaskFilterBarProps {
 }
 
 /** 所有状态选项 */
-const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
+const STATUS_OPTIONS: MultiSelectOption[] = [
   { value: 'not_started', label: TASK_STATUS_LABELS.not_started },
   { value: 'in_progress', label: TASK_STATUS_LABELS.in_progress },
   { value: 'delay_warning', label: TASK_STATUS_LABELS.delay_warning },
@@ -57,7 +58,7 @@ const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
 ];
 
 /** 所有优先级选项 */
-const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
+const PRIORITY_OPTIONS: MultiSelectOption[] = [
   { value: 'urgent', label: TASK_PRIORITY_LABELS.urgent },
   { value: 'high', label: TASK_PRIORITY_LABELS.high },
   { value: 'medium', label: TASK_PRIORITY_LABELS.medium },
@@ -65,7 +66,7 @@ const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
 ];
 
 /** 所有任务类型选项 */
-const TASK_TYPE_OPTIONS: { value: TaskType; label: string }[] = [
+const TASK_TYPE_OPTIONS: MultiSelectOption[] = [
   { value: 'firmware', label: TASK_TYPE_LABELS.firmware },
   { value: 'board', label: TASK_TYPE_LABELS.board },
   { value: 'driver', label: TASK_TYPE_LABELS.driver },
@@ -80,6 +81,13 @@ const TASK_TYPE_OPTIONS: { value: TaskType; label: string }[] = [
   { value: 'other', label: TASK_TYPE_LABELS.other },
 ];
 
+/** 辅助函数：确保值为数组格式 */
+function ensureArray(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  return [value];
+}
+
 export function TaskFilterBar({
   filters,
   onFiltersChange,
@@ -87,19 +95,32 @@ export function TaskFilterBar({
   members = [],
   showProjectFilter = true,
 }: TaskFilterBarProps) {
+  // 项目选项
+  const projectOptions: MultiSelectOption[] = useMemo(
+    () => projects.map((p) => ({ value: String(p.id), label: p.name })),
+    [projects]
+  );
+
+  // 成员选项
+  const memberOptions: MultiSelectOption[] = useMemo(
+    () => members.map((m) => ({ value: String(m.id), label: m.name })),
+    [members]
+  );
+
   // 检查是否有活跃的筛选条件
   const hasActiveFilters = useMemo(() => {
+    const arrLen = (v: any) => (Array.isArray(v) ? v.length : v ? 1 : 0);
     return !!(
       filters.search ||
-      filters.projectId ||
-      filters.assigneeId ||
-      filters.status ||
-      filters.priority ||
-      filters.taskType
+      arrLen(filters.projectId) ||
+      arrLen(filters.assigneeId) ||
+      arrLen(filters.status) ||
+      arrLen(filters.priority) ||
+      arrLen(filters.taskType)
     );
   }, [filters]);
 
-  // 更新单个筛选字段
+  // 更新单值筛选字段
   const updateFilter = <K extends keyof TaskQueryParams>(
     key: K,
     value: TaskQueryParams[K]
@@ -110,10 +131,19 @@ export function TaskFilterBar({
     });
   };
 
+  // 更新多选筛选字段
+  const updateMultiFilter = (key: 'projectId' | 'assigneeId' | 'status' | 'priority' | 'taskType', value: string[]) => {
+    onFiltersChange({
+      ...filters,
+      [key]: value.length > 0 ? value : undefined,
+    });
+  };
+
   // 清除所有筛选
   const clearFilters = () => {
     onFiltersChange({
-      projectId: filters.projectId, // 保留项目筛选（如果是项目详情页）
+      // 保留项目筛选（如果是项目详情页且原来有值）
+      ...(showProjectFilter ? {} : { projectId: filters.projectId }),
     });
   };
 
@@ -129,107 +159,56 @@ export function TaskFilterBar({
         />
       </div>
 
-      {/* 项目筛选 */}
+      {/* 项目筛选 - 多选 */}
       {showProjectFilter && (
-        <Select
-          value={filters.projectId || 'all'}
-          onValueChange={(value) =>
-            updateFilter('projectId', value === 'all' ? undefined : value)
-          }
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="全部项目" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全部项目</SelectItem>
-            {projects.map((project) => (
-              <SelectItem key={String(project.id)} value={String(project.id)}>
-                {project.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <MultiSelect
+          options={projectOptions}
+          value={ensureArray(filters.projectId)}
+          onChange={(value) => updateMultiFilter('projectId', value)}
+          placeholder="项目"
+          triggerClassName="w-40"
+        />
       )}
 
-      {/* 负责人筛选 */}
-      <Select
-        value={filters.assigneeId ? String(filters.assigneeId) : 'all'}
-        onValueChange={(value) =>
-          updateFilter('assigneeId', value === 'all' ? undefined : Number(value))
-        }
-      >
-        <SelectTrigger className="w-32">
-          <SelectValue placeholder="负责人" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">全部人员</SelectItem>
-          {members.map((member) => (
-            <SelectItem key={String(member.id)} value={String(member.id)}>
-              {member.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* 负责人筛选 - 多选 */}
+      <MultiSelect
+        options={memberOptions}
+        value={ensureArray(filters.assigneeId?.toString ?
+          (Array.isArray(filters.assigneeId)
+            ? filters.assigneeId.map(String)
+            : [String(filters.assigneeId)])
+          : [])}
+        onChange={(value) => updateMultiFilter('assigneeId', value.map(Number))}
+        placeholder="负责人"
+        triggerClassName="w-32"
+      />
 
-      {/* 状态筛选 */}
-      <Select
-        value={filters.status || 'all'}
-        onValueChange={(value) =>
-          updateFilter('status', value === 'all' ? undefined : (value as TaskStatus))
-        }
-      >
-        <SelectTrigger className="w-32">
-          <SelectValue placeholder="状态" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">全部状态</SelectItem>
-          {STATUS_OPTIONS.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* 状态筛选 - 多选 */}
+      <MultiSelect
+        options={STATUS_OPTIONS}
+        value={ensureArray(filters.status as any)}
+        onChange={(value) => updateMultiFilter('status', value)}
+        placeholder="状态"
+        triggerClassName="w-32"
+      />
 
-      {/* 优先级筛选 */}
-      <Select
-        value={filters.priority || 'all'}
-        onValueChange={(value) =>
-          updateFilter('priority', value === 'all' ? undefined : (value as TaskPriority))
-        }
-      >
-        <SelectTrigger className="w-28">
-          <SelectValue placeholder="优先级" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">全部</SelectItem>
-          {PRIORITY_OPTIONS.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* 优先级筛选 - 多选 */}
+      <MultiSelect
+        options={PRIORITY_OPTIONS}
+        value={ensureArray(filters.priority as any)}
+        onChange={(value) => updateMultiFilter('priority', value)}
+        placeholder="优先级"
+        triggerClassName="w-28"
+      />
 
-      {/* 任务类型筛选 */}
-      <Select
-        value={filters.taskType || 'all'}
-        onValueChange={(value) =>
-          updateFilter('taskType', value === 'all' ? undefined : (value as TaskType))
-        }
-      >
-        <SelectTrigger className="w-32">
-          <SelectValue placeholder="任务类型" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">全部类型</SelectItem>
-          {TASK_TYPE_OPTIONS.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* 任务类型筛选 - 多选 */}
+      <MultiSelect
+        options={TASK_TYPE_OPTIONS}
+        value={ensureArray(filters.taskType as any)}
+        onChange={(value) => updateMultiFilter('taskType', value)}
+        placeholder="任务类型"
+        triggerClassName="w-32"
+      />
 
       {/* 清除筛选按钮 */}
       {hasActiveFilters && (

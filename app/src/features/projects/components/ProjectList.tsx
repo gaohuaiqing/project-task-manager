@@ -33,8 +33,10 @@ const statusOptions: { value: ProjectStatus | 'all'; label: string }[] = [
 
 const typeOptions: { value: ProjectType | 'all'; label: string }[] = [
   { value: 'all', label: '全部类型' },
-  { value: 'product_development', label: '产品开发' },
-  { value: 'functional_management', label: '职能管理' },
+  { value: 'product_dev', label: '产品开发' },
+  { value: 'func_mgmt', label: '职能管理' },
+  { value: 'material_sub', label: '物料改代' },
+  { value: 'quality_handle', label: '质量处理' },
 ];
 
 export function ProjectList({ onCreateProject, onEditProject, onDeleteProject }: ProjectListProps) {

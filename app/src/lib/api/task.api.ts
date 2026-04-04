@@ -27,18 +27,54 @@ import {
 } from '@/features/tasks/types';
 
 /**
+ * 递归转换任务及其子任务
+ */
+function toFrontendListRecursive(items: WBSTaskListItem[]): WBSTaskListItem[] {
+  return items.map(item => {
+    const converted = toFrontend(item) as WBSTaskListItem;
+    // 递归转换 children
+    if (item.children && item.children.length > 0) {
+      converted.children = toFrontendListRecursive(item.children as WBSTaskListItem[]);
+    }
+    return converted;
+  });
+}
+
+/**
+ * 将查询参数转换为后端格式（处理数组参数）
+ * 注：axios 请求拦截器会自动转换 camelCase -> snake_case
+ * 这里只需要处理数组参数的格式转换
+ */
+function toBackendQueryParams(params: TaskQueryParams): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue;
+
+    // 数组参数转为逗号分隔字符串
+    if (Array.isArray(value)) {
+      result[key] = value.join(',');
+    } else {
+      result[key] = value;
+    }
+  }
+
+  return result;
+}
+
+/**
  * 获取任务列表（WBS树结构）
  */
 export async function getTasks(params: TaskQueryParams = {}): Promise<TaskListResponse> {
-  // 转换参数为后端格式
-  const backendParams = toBackend(params);
+  // 转换参数为后端格式（支持数组参数）
+  const backendParams = toBackendQueryParams(params);
   const response = await apiClient.get<ApiResponse<{ items: WBSTaskListItem[]; total: number; page: number; pageSize: number }>>(
     `${BASE_PATH}`,
     { params: backendParams }
   );
   const data = response.data;
   return {
-    items: toFrontendList(data.items),
+    items: toFrontendListRecursive(data.items),
     total: data.total,
     page: data.page,
     pageSize: data.pageSize,
@@ -60,7 +96,7 @@ export async function getTaskByWbsCode(projectId: string, wbsCode: string): Prom
   try {
     const response = await apiClient.get<ApiResponse<WBSTask>>(
       `${BASE_PATH}/by-wbs-code/${encodeURIComponent(wbsCode)}`,
-      { params: { project_id: projectId } }
+      { params: { projectId } }  // 拦截器会自动转换为 project_id
     );
     return toFrontend(response.data);
   } catch {
@@ -170,11 +206,9 @@ export function buildWBSTree(tasks: WBSTask[]): WBSTaskListItem[] {
  * 获取项目的完整WBS树
  */
 export async function getWBSTree(projectId: string): Promise<WBSTaskListItem[]> {
-  const response = await apiClient.get<ApiResponse<WBSTaskListItem[]>>(
-    `${BASE_PATH}/tree/${projectId}`
-  );
-  const tasks = toFrontendList(response.data);
-  return buildWBSTree(tasks);
+  // 使用 getTasks API 按项目 ID 获取任务，然后构建树结构
+  const result = await getTasks({ projectId, pageSize: 1000 }); // 获取该项目的所有任务
+  return buildWBSTree(result.items);
 }
 
 export const taskApi = {

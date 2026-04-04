@@ -18,39 +18,51 @@ const BASE_PATH = '/org';
 
 /**
  * 后端成员数据结构
+ * 注：axios 拦截器已将 snake_case 转换为 camelCase
  */
 interface BackendMember {
   id: number;
   username: string;
-  real_name: string;
+  realName: string;  // 拦截器已转换 real_name -> realName
   role: 'admin' | 'tech_manager' | 'dept_manager' | 'engineer';
-  department_id: number | null;
+  gender: 'male' | 'female' | 'other' | null;
+  departmentId: number | null;  // 拦截器已转换 department_id -> departmentId
   email: string | null;
   phone: string | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-  department_name?: string;
+  isActive: boolean;  // 拦截器已转换 is_active -> isActive
+  isBuiltin: boolean;  // 拦截器已转换 is_builtin -> isBuiltin
+  deletedAt: string | null;  // 拦截器已转换 deleted_at -> deletedAt
+  deletedBy: number | null;  // 拦截器已转换 deleted_by -> deletedBy
+  createdAt: string;  // 拦截器已转换 created_at -> createdAt
+  updatedAt: string;  // 拦截器已转换 updated_at -> updatedAt
+  departmentName?: string;  // 拦截器已转换 department_name -> departmentName
 }
 
 /**
  * 将后端成员数据转换为前端格式
+ * 注：axios 拦截器已将 snake_case 转换为 camelCase
  */
 function transformMember(backend: BackendMember): Member {
   return {
     id: backend.id,
-    name: backend.real_name || backend.username || '未知用户',
+    username: backend.username, // 工号
+    name: backend.realName || backend.username || '未知用户',
     email: backend.email || '',
-    departmentId: backend.department_id,
-    departmentName: backend.department_name || null,
+    phone: backend.phone || null,
+    gender: backend.gender,
+    departmentId: backend.departmentId,
+    departmentName: backend.departmentName || null,
     position: null, // 后端暂无此字段
     role: backend.role === 'dept_manager' ? 'department_manager' : backend.role,
-    status: backend.is_active ? 'active' : 'inactive',
-    joinDate: backend.created_at,
+    status: backend.isActive ? 'active' : 'inactive',
+    isBuiltin: backend.isBuiltin || false,
+    deletedAt: backend.deletedAt,
+    deletedBy: backend.deletedBy,
+    joinDate: backend.createdAt,
     avatar: null,
     saturation: 0, // 后端暂无此字段，默认为 0
-    createdAt: backend.created_at,
-    updatedAt: backend.updated_at,
+    createdAt: backend.createdAt,
+    updatedAt: backend.updatedAt,
   };
 }
 
@@ -58,13 +70,19 @@ function transformMember(backend: BackendMember): Member {
 
 export interface Member {
   id: number;
+  username: string; // 工号
   name: string;
   email: string;
+  phone: string | null;
+  gender: 'male' | 'female' | 'other' | null;
   departmentId: number | null;
   departmentName: string | null;
   position: string | null;
   role: 'admin' | 'tech_manager' | 'department_manager' | 'engineer';
   status: 'active' | 'inactive';
+  isBuiltin: boolean;
+  deletedAt: string | null;
+  deletedBy: number | null;
   joinDate: string | null;
   avatar: string | null;
   saturation: number;
@@ -73,7 +91,7 @@ export interface Member {
 }
 
 export interface MemberListParams {
-  department_id?: number;
+  departmentId?: number;  // 请求拦截器会自动转换为 department_id
   role?: Member['role'];
   status?: Member['status'];
   search?: string;
@@ -115,15 +133,19 @@ export async function getMember(id: number): Promise<Member> {
 /**
  * 后端部门数据结构（蛇形命名）
  */
+/**
+ * 后端部门数据结构
+ * 注：axios 拦截器已将 snake_case 转换为 camelCase
+ */
 interface BackendDepartment {
   id: number;
   name: string;
-  parent_id: number | null;
-  manager_id: number | null;
-  created_at: string;
-  updated_at: string;
+  parentId: number | null;  // 拦截器已转换 parent_id -> parentId
+  managerId: number | null;  // 拦截器已转换 manager_id -> managerId
+  createdAt: string;  // 拦截器已转换 created_at -> createdAt
+  updatedAt: string;  // 拦截器已转换 updated_at -> updatedAt
   children?: BackendDepartment[];
-  member_count?: number;
+  memberCount?: number;  // 拦截器已转换 member_count -> memberCount
 }
 
 export interface Department {
@@ -139,16 +161,17 @@ export interface Department {
 
 /**
  * 将后端部门数据转换为前端格式（递归处理children）
+ * 注：axios 拦截器已将 snake_case 转换为 camelCase
  */
 function transformDepartment(backend: BackendDepartment): Department {
   return {
     id: backend.id,
     name: backend.name,
-    parentId: backend.parent_id,
-    managerId: backend.manager_id,
+    parentId: backend.parentId,
+    managerId: backend.managerId,
     managerName: null, // 后端暂未返回此字段
-    memberCount: backend.member_count || 0,
-    createdAt: backend.created_at,
+    memberCount: backend.memberCount || 0,
+    createdAt: backend.createdAt,
     children: backend.children?.map(transformDepartment) || [],
   };
 }
@@ -204,16 +227,38 @@ export interface UpdateDepartmentRequest {
 }
 
 export async function createDepartment(data: CreateDepartmentRequest): Promise<{ id: number }> {
-  const response = await apiClient.post<ApiResponse<{ id: number }>>(`${BASE_PATH}/departments`, data);
+  // 拦截器会自动转换 camelCase -> snake_case
+  const payload = {
+    name: data.name,
+    parentId: data.parentId ?? null,    // 拦截器会转换为 parent_id
+    managerId: data.managerId ?? null,  // 拦截器会转换为 manager_id
+    description: data.description,
+  };
+  const response = await apiClient.post<ApiResponse<{ id: number }>>(`${BASE_PATH}/departments`, payload);
   return response.data;
 }
 
 export async function updateDepartment(id: number, data: UpdateDepartmentRequest): Promise<void> {
-  await apiClient.put<ApiResponse<void>>(`${BASE_PATH}/departments/${id}`, data);
+  // 拦截器会自动转换 camelCase -> snake_case
+  const payload: Record<string, unknown> = {};
+  if (data.name !== undefined) {
+    payload.name = data.name;
+  }
+  if (data.parentId !== undefined) {
+    payload.parentId = data.parentId;  // 拦截器会转换为 parent_id
+  }
+  if (data.managerId !== undefined) {
+    payload.managerId = data.managerId;  // 拦截器会转换为 manager_id
+  }
+  if (data.description !== undefined) {
+    payload.description = data.description;
+  }
+  await apiClient.put<ApiResponse<void>>(`${BASE_PATH}/departments/${id}`, payload);
 }
 
-export async function deleteDepartment(id: number): Promise<void> {
-  await apiClient.delete<ApiResponse<void>>(`${BASE_PATH}/departments/${id}`);
+export async function deleteDepartment(id: number): Promise<{ deletedDepartments: number; deletedMembers: number }> {
+  const response = await apiClient.delete<ApiResponse<{ deletedDepartments: number; deletedMembers: number }>>(`${BASE_PATH}/departments/${id}`);
+  return response.data;
 }
 
 // ========== 成员 CRUD ==========
@@ -222,6 +267,8 @@ export interface CreateMemberRequest {
   username: string;
   displayName: string;
   email: string;
+  phone?: string;
+  gender?: 'male' | 'female' | 'other';
   departmentId?: number | null;
   position?: string;
   role: 'admin' | 'tech_manager' | 'department_manager' | 'engineer';
@@ -230,6 +277,8 @@ export interface CreateMemberRequest {
 export interface UpdateMemberRequest {
   displayName?: string;
   email?: string;
+  phone?: string;
+  gender?: 'male' | 'female' | 'other';
   departmentId?: number | null;
   position?: string;
   role?: 'admin' | 'tech_manager' | 'department_manager' | 'engineer';
@@ -242,12 +291,15 @@ export interface CreateMemberResponse {
 }
 
 export async function createMember(data: CreateMemberRequest): Promise<{ id: number; initialPassword: string }> {
-  // 转换字段名：displayName -> real_name, departmentId -> department_id
+  // 语义映射：displayName -> realName（拦截器会转换为 real_name）
+  // 其他字段拦截器会自动转换 camelCase -> snake_case
   const payload = {
     username: data.username,
-    real_name: data.displayName,
+    realName: data.displayName,  // 拦截器会转换为 real_name
     email: data.email,
-    department_id: data.departmentId,
+    phone: data.phone,
+    gender: data.gender,
+    departmentId: data.departmentId,  // 拦截器会转换为 department_id
     position: data.position,
     role: data.role,
   };
@@ -259,16 +311,22 @@ export async function createMember(data: CreateMemberRequest): Promise<{ id: num
 }
 
 export async function updateMember(id: number, data: UpdateMemberRequest): Promise<void> {
-  // 转换字段名：displayName -> real_name, departmentId -> department_id
+  // 构建请求体，拦截器会自动转换 camelCase -> snake_case
   const payload: Record<string, unknown> = {};
   if (data.displayName !== undefined) {
-    payload.real_name = data.displayName;
+    payload.realName = data.displayName;  // 拦截器会转换为 real_name
   }
   if (data.email !== undefined) {
     payload.email = data.email;
   }
+  if (data.phone !== undefined) {
+    payload.phone = data.phone;
+  }
+  if (data.gender !== undefined) {
+    payload.gender = data.gender;
+  }
   if (data.departmentId !== undefined) {
-    payload.department_id = data.departmentId;
+    payload.departmentId = data.departmentId;  // 拦截器会转换为 department_id
   }
   if (data.position !== undefined) {
     payload.position = data.position;
@@ -278,7 +336,7 @@ export async function updateMember(id: number, data: UpdateMemberRequest): Promi
     payload.role = data.role === 'department_manager' ? 'dept_manager' : data.role;
   }
   if (data.status !== undefined) {
-    payload.is_active = data.status === 'active';
+    payload.isActive = data.status === 'active';  // 拦截器会转换为 is_active
   }
   await apiClient.put<ApiResponse<void>>(`${BASE_PATH}/members/${id}`, payload);
 }
@@ -325,6 +383,16 @@ export async function deactivateMember(id: number): Promise<void> {
  */
 export async function hardDeleteMember(id: number): Promise<void> {
   await apiClient.delete<ApiResponse<void>>(`${BASE_PATH}/members/${id}?permanent=true`);
+}
+
+/**
+ * 重置成员密码
+ */
+export async function resetMemberPassword(id: number): Promise<{ newPassword: string }> {
+  const response = await apiClient.post<ApiResponse<{ newPassword: string }>>(
+    `/auth/users/${id}/reset-password`
+  );
+  return response.data;
 }
 
 // ========== 能力模型 ==========
@@ -410,13 +478,17 @@ export async function createDevelopmentPlan(data: {
 /**
  * 后端能力模型数据结构（蛇形命名）
  */
+/**
+ * 后端能力模型数据结构
+ * 注：axios 拦截器已将 snake_case 转换为 camelCase
+ */
 interface BackendCapabilityModel {
   id: string;
   name: string;
   description: string | null;
   dimensions: CapabilityDimension[];
-  created_at: string;
-  updated_at: string;
+  createdAt: string;  // 拦截器已转换 created_at -> createdAt
+  updatedAt: string;  // 拦截器已转换 updated_at -> updatedAt
 }
 
 export interface CapabilityModel {
@@ -449,14 +521,18 @@ export interface UpdateCapabilityModelRequest {
 /**
  * 将后端能力模型数据转换为前端格式
  */
+/**
+ * 将后端能力模型数据转换为前端格式
+ * 注：axios 拦截器已将 snake_case 转换为 camelCase
+ */
 function transformCapabilityModel(backend: BackendCapabilityModel): CapabilityModel {
   return {
     id: backend.id,
     name: backend.name,
     description: backend.description,
     dimensions: backend.dimensions,
-    createdAt: backend.created_at,
-    updatedAt: backend.updated_at,
+    createdAt: backend.createdAt,
+    updatedAt: backend.updatedAt,
   };
 }
 
@@ -484,18 +560,19 @@ export async function deleteCapabilityModel(id: string): Promise<void> {
 }
 
 // ========== 任务类型映射 CRUD ==========
+// 注：axios 拦截器已将 snake_case 转换为 camelCase
 
 export interface TaskTypeMapping {
   id: number;
-  task_type: string;
-  model_id: string;
-  model_name: string;
+  taskType: string;  // 拦截器已转换 task_type -> taskType
+  modelId: string;  // 拦截器已转换 model_id -> modelId
+  modelName: string;  // 拦截器已转换 model_name -> modelName
   priority: number;
 }
 
 export interface CreateTaskTypeMappingRequest {
-  task_type: string;
-  model_id: string;
+  taskType: string;
+  modelId: string;
   priority: number;
 }
 
@@ -529,23 +606,91 @@ export async function deleteTaskTypeMapping(id: number): Promise<void> {
 }
 
 // ========== 智能推荐 ==========
+// 注：响应拦截器会自动转换 snake_case -> camelCase
 
 export interface AssigneeRecommendation {
-  user_id: number;
-  real_name: string;
-  department_name: string | null;
-  model_name: string;
-  overall_score: number;
-  match_level: 'excellent' | 'good' | 'fair';
-  current_tasks: number;
+  userId: number;
+  realName: string;
+  gender: 'male' | 'female' | 'other' | null;
+  departmentName: string | null;
+  modelName: string;
+  overallScore: number;
+  matchLevel: 'excellent' | 'good' | 'fair';
+  currentTasks: number;
 }
 
 export async function getAssigneeRecommendations(taskType: string): Promise<AssigneeRecommendation[]> {
   const response = await apiClient.get<ApiResponse<AssigneeRecommendation[]>>(
     `${BASE_PATH}/recommend-assignee`,
-    { params: { task_type: taskType } }
+    { params: { taskType } }
   );
-  return response.data;
+  return response.data ?? [];
+}
+
+// ========== 导入导出功能 ==========
+
+/**
+ * 下载组织架构导入模板
+ */
+export async function downloadOrganizationTemplate(): Promise<void> {
+  const blob = await apiClient.get(`${BASE_PATH}/export/template/organization`, {
+    responseType: 'blob',
+  });
+  // 注意：由于 axios 拦截器返回 response.data，所以这里 blob 已经是 Blob 类型
+  const url = window.URL.createObjectURL(blob as Blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', 'organization_template.xlsx');
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+/**
+ * 导出组织架构数据
+ */
+export async function exportOrganization(): Promise<void> {
+  const blob = await apiClient.get(`${BASE_PATH}/export/organization`, {
+    responseType: 'blob',
+  });
+  // 注意：由于 axios 拦截器返回 response.data，所以这里 blob 已经是 Blob 类型
+  const url = window.URL.createObjectURL(blob as Blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `organization_${new Date().toISOString().split('T')[0]}.xlsx`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+/**
+ * 导入组织架构数据
+ */
+export async function importOrganization(file: File): Promise<{
+  success: boolean;
+  message: string;
+  departments: number;
+  members: number;
+}> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await apiClient.post<ApiResponse<{
+    message: string;
+    departments: number;
+    members: number;
+  }>>(`${BASE_PATH}/import/organization`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+
+  return {
+    success: true,
+    ...response.data,
+  };
 }
 
 export const orgApi = {
@@ -564,6 +709,7 @@ export const orgApi = {
   deactivateMember,
   hardDeleteMember,
   getMemberDeletionCheck,
+  resetMemberPassword,
   // 能力模型 CRUD
   getCapabilityModels,
   getCapabilityModel,
@@ -589,4 +735,8 @@ export const orgApi = {
   // 发展计划
   getDevelopmentPlans,
   createDevelopmentPlan,
+  // 导入导出
+  downloadOrganizationTemplate,
+  exportOrganization,
+  importOrganization,
 };

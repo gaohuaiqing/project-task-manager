@@ -1,5 +1,22 @@
 import { apiClient } from '@/lib/api';
-import type { LoginRequest, LoginResponse, User } from './types';
+import type { LoginRequest, LoginResponse, User, Permission } from './types';
+
+/**
+ * 认证 API 响应包装类型
+ */
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+}
+
+/**
+ * /auth/me 返回的数据结构
+ */
+interface MeResponse {
+  user: User;
+  sessionId: string;
+  permissions: Permission[];
+}
 
 /**
  * 认证 API
@@ -21,9 +38,19 @@ export const authApi = {
 
   /**
    * 获取当前用户
+   * 注意：后端返回 { success: true, data: { user, sessionId, permissions } }
+   * apiClient 拦截器返回 response.data，即整个包装对象
+   * 这里需要提取 data.user 并附加 permissions
    */
   getCurrentUser: async (): Promise<User> => {
-    return apiClient.get('/auth/me');
+    const response = await apiClient.get<ApiResponse<MeResponse>>('/auth/me');
+    // response 已经是 { success: true, data: { user, sessionId, permissions } }
+    const userData = response.data.user;
+    // 将 permissions 附加到 user 对象上，供 useAuth 使用
+    return {
+      ...userData,
+      permissions: response.data.permissions,
+    };
   },
 
   /**

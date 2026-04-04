@@ -86,7 +86,7 @@ const createInitialFormData = (): ProjectFormData => ({
   code: '',
   name: '',
   description: '',
-  projectType: 'product_development',
+  projectType: 'product_dev',
   plannedStartDate: '',
   plannedEndDate: '',
   memberIds: [],

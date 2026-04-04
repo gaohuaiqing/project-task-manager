@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Plus, Send } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import type { ProgressRecord } from '../types';
 
@@ -75,19 +75,16 @@ export function ProgressRecordsPanel({
             <div key={record.id} className="flex gap-3">
               <Avatar className="h-8 w-8">
                 <AvatarFallback className="text-xs">
-                  {getInitials(record.recorderName || '未知')}
+                  {getInitials(record.recorderName || '系统')}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-sm">
-                    {record.recorderName || '未知用户'}
+                    {record.recorderName || '系统'}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {formatDistanceToNow(new Date(record.createdAt), {
-                      addSuffix: true,
-                      locale: zhCN,
-                    })}
+                    {format(new Date(record.createdAt), 'yyyy-MM-dd HH:mm:ss', { locale: zhCN })}
                   </span>
                 </div>
                 <p className="text-sm">{record.content}</p>

@@ -22,6 +22,7 @@ import {
   type CapabilityDimension,
 } from '../types';
 import { cn } from '@/lib/utils';
+import { getAvatarUrl } from '@/utils/avatar';
 
 interface CapabilityMatrixProps {
   departmentId?: number;
@@ -93,7 +94,7 @@ export function CapabilityMatrix({ departmentId, className, onMemberClick }: Cap
                   <TableCell className="sticky left-0 bg-background">
                     <div className="flex items-center gap-3">
                       <Avatar className="h-8 w-8">
-                        <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.memberName}`} />
+                        <AvatarImage src={getAvatarUrl(profile.memberName, profile.memberGender)} />
                         <AvatarFallback>
                           {profile.memberName.charAt(0)}
                         </AvatarFallback>

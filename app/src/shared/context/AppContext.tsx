@@ -20,6 +20,7 @@ interface AppContextValue {
     displayName: string;
     email: string;
     avatar?: string;
+    role?: string;
   } | null;
   setCurrentUser: (user: AppContextValue['currentUser']) => void;
 }

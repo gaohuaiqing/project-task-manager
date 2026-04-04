@@ -105,9 +105,9 @@ function CustomNav({
 }) {
   const dayPickerContext = useDayPicker()
 
-  // 安全获取 displayMonth 和 goToMonth
-  const displayMonth = (dayPickerContext as any)?.displayMonth
-  const goToMonth = (dayPickerContext as any)?.goToMonth
+  // react-day-picker v9: 使用 months[0].date 获取当前显示月份
+  const displayMonth = dayPickerContext.months[0]?.date
+  const goToMonth = dayPickerContext.goToMonth
 
   const handleMonthChange = (month: number) => {
     if (!displayMonth || !goToMonth) return

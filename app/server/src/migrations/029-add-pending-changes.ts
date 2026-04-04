@@ -22,7 +22,6 @@ export async function up(pool: Pool): Promise<void> {
       ALTER TABLE wbs_tasks
       ADD COLUMN pending_changes JSON NULL
       COMMENT '待审批的变更数据（JSON格式）'
-      AFTER last_plan_refresh_at
     `);
 
     // 添加 pending_change_type 字段（变更类型）

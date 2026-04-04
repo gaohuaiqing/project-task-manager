@@ -14,25 +14,39 @@ export class TaskRepository {
     const conditions: string[] = [];
     const params: (string | number | null)[] = [];
 
+    // 辅助函数：添加条件（支持单值或数组）
+    const addCondition = (field: string, value: string | number | (string | number)[] | undefined) => {
+      if (!value) return;
+      if (Array.isArray(value)) {
+        if (value.length === 0) return;
+        if (value.length === 1) {
+          conditions.push(`${field} = ?`);
+          params.push(value[0] as string | number);
+        } else {
+          const placeholders = value.map(() => '?').join(', ');
+          conditions.push(`${field} IN (${placeholders})`);
+          params.push(...(value as (string | number)[]));
+        }
+      } else {
+        conditions.push(`${field} = ?`);
+        params.push(value);
+      }
+    };
+
     if (options.project_id) {
-      conditions.push('t.project_id = ?');
-      params.push(options.project_id);
+      addCondition('t.project_id', options.project_id);
     }
     if (options.status) {
-      conditions.push('t.status = ?');
-      params.push(options.status);
+      addCondition('t.status', options.status);
     }
     if (options.task_type) {
-      conditions.push('t.task_type = ?');
-      params.push(options.task_type);
+      addCondition('t.task_type', options.task_type);
     }
     if (options.priority) {
-      conditions.push('t.priority = ?');
-      params.push(options.priority);
+      addCondition('t.priority', options.priority);
     }
     if (options.assignee_id) {
-      conditions.push('t.assignee_id = ?');
-      params.push(options.assignee_id);
+      addCondition('t.assignee_id', options.assignee_id);
     }
     if (options.parent_id !== undefined) {
       if (options.parent_id === null) {
@@ -99,18 +113,20 @@ export class TaskRepository {
     return rows[0] || null;
   }
 
-  async createTask(data: CreateTaskRequest & { id: string; wbs_code: string; status: TaskStatus }): Promise<string> {
+  async createTask(data: CreateTaskRequest & { id: string; wbs_code: string; status: TaskStatus; end_date?: string; planned_duration?: number }): Promise<string> {
     const pool = getPool();
     await pool.execute(
       `INSERT INTO wbs_tasks (
         id, project_id, parent_id, wbs_code, wbs_level, description, status, task_type, priority,
-        assignee_id, start_date, duration, is_six_day_week, warning_days, predecessor_id, dependency_type, lag_days,
+        assignee_id, start_date, end_date, duration, planned_duration, is_six_day_week, warning_days, predecessor_id, dependency_type, lag_days,
         redmine_link, full_time_ratio, delay_count, plan_change_count, progress_record_count, version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 1)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 1)`,
       [
         data.id, data.project_id, data.parent_id || null, data.wbs_code, data.wbs_level, data.description,
         data.status, data.task_type || 'other', data.priority || 'medium', data.assignee_id || null,
-        data.start_date || null, data.duration || null, data.is_six_day_week ?? false,
+        data.start_date || null, data.end_date || null, data.duration || null,
+        data.planned_duration ?? null,
+        data.is_six_day_week ?? false,
         data.warning_days || 3, data.predecessor_id || null, data.dependency_type || 'FS', data.lag_days || null,
         data.redmine_link || null, data.full_time_ratio ?? 100
       ]
@@ -163,6 +179,32 @@ export class TaskRepository {
       updated: result.affectedRows > 0,
       conflict: result.affectedRows === 0
     };
+  }
+
+  /**
+   * 获取任务及其所有后代（使用MySQL CTE递归查询优化）
+   * 用于删除前获取所有将被删除的任务列表
+   */
+  async getTaskWithDescendants(id: string): Promise<WBSTask[]> {
+    const pool = getPool();
+
+    // 使用 WITH RECURSIVE CTE 一次性获取所有后代任务
+    const [rows] = await pool.execute<TaskRow[]>(
+      `
+      WITH RECURSIVE TaskTree AS (
+        -- 基础查询：获取根任务
+        SELECT * FROM wbs_tasks WHERE id = ?
+        UNION ALL
+        -- 递归查询：获取子任务
+        SELECT t.* FROM wbs_tasks t
+        INNER JOIN TaskTree tt ON t.parent_id = tt.id
+      )
+      SELECT * FROM TaskTree
+      `,
+      [id]
+    );
+
+    return rows;
   }
 
   async deleteTask(id: string): Promise<boolean> {

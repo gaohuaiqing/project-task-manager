@@ -4,13 +4,13 @@
  *
  * 功能特性：
  * - 24列完整显示（列号0-24）
- * - 行内编辑（双击/F2）
- * - 可编辑列视觉区分（微蓝灰边框）
  * - 树形结构（10级，24px缩进）
  * - 9种状态颜色Badge
  * - 单休勾选框
  * - 列显示/隐藏（localStorage持久化）
  * - 快捷键支持
+ * - 双击打开 TaskForm 编辑（统一使用 TaskForm 维护）
+ * - 基于角色的按钮级权限控制
  */
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
@@ -25,33 +25,19 @@ import {
   Eye,
   EyeOff,
   Settings,
-  Check,
-  X,
+  Download,
+  Upload,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   WBS_COLUMNS,
   STATUS_COLORS,
@@ -60,15 +46,17 @@ import {
   type TaskRowWithUI,
   type TaskStatus,
   type ColumnConfig,
-  isColumnEditable,
   formatDate,
   formatDays,
   formatLagDays,
   loadColumnVisibility,
-  saveColumnVisibility,
-  EDITABLE_COLUMNS,
+  saveColumnVisibility
 } from './columnConfig';
+import { computeTaskPermissions, type TaskPermissions } from '../hooks/usePermissions';
+import { useAuth } from '@/features/auth/hooks/useAuth';
 import type { WBSTaskListItem } from '../types';
+import { ExportDropdown } from './ExportDropdown';
+import { ImportPreviewDialog } from './ImportPreviewDialog';
 
 /** 带UI状态的任务行 */
 interface TaskRowWithUI extends WBSTaskListItem {
@@ -83,58 +71,83 @@ interface WbsTableProps {
   members: { id: number; name: string }[];
   projects: { id: string; name: string }[];
   isLoading?: boolean;
-  onCreateTask?: (parentId?: string, level?: number) => void;
+  projectId?: string;
+  projectName?: string;
+  onCreateTask?: (parentId?: string, level?: number, parentTask?: TaskRowWithUI) => void;
   onEditTask?: (task: TaskRowWithUI) => void;
   onDeleteTask?: (task: TaskRowWithUI) => void;
   onViewProgress?: (task: TaskRowWithUI) => void;
   onViewDelayHistory?: (task: TaskRowWithUI) => void;
   onViewPlanChanges?: (task: TaskRowWithUI) => void;
-  onUpdateTask?: (taskId: string, field: string, value: unknown) => Promise<void>;
+  onImportTasks?: (tasks: any[]) => Promise<void>;
 }
-
-/** 编辑状态 */
-interface EditState {
-  taskId: string;
-  field: string;
-  value: unknown;
-}
-
-/** 可编辑列样式 - 微蓝灰边框（支持深色主题） */
-const EDITABLE_CELL_CLASS = 'border-l-[3px] border-l-blue-200 dark:border-l-blue-500 bg-blue-50/30 dark:bg-blue-950/40';
-const READONLY_CELL_CLASS = 'border-l-[3px] border-l-gray-200 dark:border-l-gray-700';
 
 export function WbsTable({
   tasks,
   members,
   projects,
   isLoading,
+  projectId,
+  projectName,
   onCreateTask,
   onEditTask,
   onDeleteTask,
   onViewProgress,
   onViewDelayHistory,
   onViewPlanChanges,
-  onUpdateTask,
+  onImportTasks,
 }: WbsTableProps) {
+  // 获取当前用户（用于权限计算）
+  const { user } = useAuth();
+
   // 列可见性状态
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() =>
     loadColumnVisibility()
   );
 
-  // 展开状态
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  // 计算所有有子任务的ID（用于默认全部展开）
+  const allExpandableIds = useMemo(() => {
+    const ids = new Set<string>();
+    const collect = (items: TaskRowWithUI[]) => {
+      items.forEach(task => {
+        if (task.hasChildren) {
+          ids.add(task.id);
+          if (task.children && task.children.length > 0) {
+            collect(task.children as TaskRowWithUI[]);
+          }
+        }
+      });
+    };
+    collect(tasks);
+    return ids;
+  }, [tasks]);
 
-  // 编辑状态
-  const [editState, setEditState] = useState<EditState | null>(null);
+  // 展开状态 - 默认全部展开
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
+
+  // 当 tasks 变化时，自动展开所有行
+  useEffect(() => {
+    if (allExpandableIds.size > 0 && expandedRows.size === 0) {
+      setExpandedRows(new Set(allExpandableIds));
+    }
+  }, [allExpandableIds, expandedRows.size]);
 
   // 选中的行
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
+  // 导入预览对话框状态
+  const [importPreviewOpen, setImportPreviewOpen] = useState(false);
+  const [importFileName, setImportFileName] = useState('');
+  const [importedData, setImportedData] = useState<any[]>([]);
+  const [importErrors, setImportErrors] = useState<any[]>([]);
+  const [importStats, setImportStats] = useState({ newCount: 0, updateCount: 0 });
+  const [isImporting, setIsImporting] = useState(false);
+
+  // 文件输入引用
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // 表格引用
   const tableRef = useRef<HTMLDivElement>(null);
-
-  // 进展记录对话框
-  const [progressDialogTask, setProgressDialogTask] = useState<TaskRowWithUI | null>(null);
 
   // 可见列（过滤后）
   const visibleColumns = useMemo(() => {
@@ -150,16 +163,24 @@ export function WbsTable({
     const flatten = (items: TaskRowWithUI[], level: number = 0) => {
       items.forEach(task => {
         result.push({ task, level });
-        if (task.hasChildren && expandedRows.has(task.id)) {
-          const children = tasks.filter(t => t.parentId === task.id);
+        // 使用 children 属性直接获取子任务
+        if (task.hasChildren && task.children && task.children.length > 0 && expandedRows.has(task.id)) {
+          const children = (task.children as TaskRowWithUI[]).map(child => ({
+            ...child,
+            hasChildren: !!(child.children && child.children.length > 0),
+            children: child.children
+          }));
           flatten(children, level + 1);
         }
       });
     };
 
-    // 从根任务开始
-    const rootTasks = tasks.filter(t => !t.parentId);
-    flatten(rootTasks);
+    // 构建任务ID集合，用于判断父任务是否在当前结果中
+    const taskIdSet = new Set(tasks.map(t => t.id));
+
+    // 从"顶级任务"开始遍历
+    const topLevelTasks = tasks.filter(t => !t.parentId || !taskIdSet.has(t.parentId));
+    flatten(topLevelTasks);
 
     return result;
   }, [tasks, expandedRows]);
@@ -186,120 +207,91 @@ export function WbsTable({
     });
   }, []);
 
-  // 开始编辑
-  const startEdit = useCallback((taskId: string, field: string, currentValue: unknown) => {
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) return;
-
-    // 检查是否可编辑
-    if (!isColumnEditable(field, task)) return;
-
-    setEditState({ taskId, field, value: currentValue });
-  }, [tasks]);
-
-  // 取消编辑
-  const cancelEdit = useCallback(() => {
-    setEditState(null);
-  }, []);
-
-  // 保存编辑
-  const saveEdit = useCallback(async () => {
-    if (!editState || !onUpdateTask) return;
+  // 处理文件选择
+  const handleFileSelect = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
     try {
-      await onUpdateTask(editState.taskId, editState.field, editState.value);
-      setEditState(null);
-    } catch (error) {
-      console.error('保存失败:', error);
-    }
-  }, [editState, onUpdateTask]);
+      const { parseExcelFile } = await import('../utils/taskImporter');
+      const parsedData = await parseExcelFile(file);
 
-  // 快捷键处理
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // 如果正在编辑，处理编辑快捷键
-      if (editState) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          saveEdit();
-        } else if (e.key === 'Escape') {
-          e.preventDefault();
-          cancelEdit();
+      // 简单验证
+      const errors: any[] = [];
+      const validData: any[] = [];
+
+      parsedData.forEach((item: any) => {
+        if (!item.description?.trim()) {
+          errors.push({
+            rowNumber: item.rowNumber,
+            field: '任务描述',
+            message: '任务描述不能为空'
+          });
+        } else {
+          validData.push(item);
         }
-        return;
-      }
+      });
 
-      // 表格导航快捷键
-      if (!selectedRowId) return;
+      setImportFileName(file.name);
+      setImportedData(validData);
+      setImportErrors(errors);
+      setImportStats({
+        newCount: validData.filter(d => !d.id).length,
+        updateCount: validData.filter(d => d.id).length
+      });
+      setImportPreviewOpen(true);
+    } catch (error) {
+      console.error('解析文件失败:', error);
+      alert(`解析文件失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
 
-      switch (e.key) {
-        case 'F2':
-          e.preventDefault();
-          // 进入编辑模式（第一个可编辑列）
-          const task = tasks.find(t => t.id === selectedRowId);
-          if (task) {
-            const firstEditableCol = WBS_COLUMNS.find(col => isColumnEditable(col.id, task));
-            if (firstEditableCol) {
-              startEdit(selectedRowId, firstEditableCol.id, (task as any)[firstEditableCol.id]);
-            }
-          }
-          break;
-        case 'Insert':
-          e.preventDefault();
-          // 添加同级任务
-          if (onCreateTask) {
-            const selectedTask = tasks.find(t => t.id === selectedRowId);
-            onCreateTask(selectedTask?.parentId, selectedTask?.depth);
-          }
-          break;
-        case 'Delete':
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            // 删除任务
-            const taskToDelete = tasks.find(t => t.id === selectedRowId);
-            if (taskToDelete && onDeleteTask) {
-              onDeleteTask(taskToDelete);
-            }
-          }
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          // 折叠
-          if (expandedRows.has(selectedRowId)) {
-            toggleRow(selectedRowId);
-          }
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          // 展开
-          if (!expandedRows.has(selectedRowId)) {
-            toggleRow(selectedRowId);
-          }
-          break;
-      }
-    };
+    // 清空文件输入
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editState, selectedRowId, tasks, expandedRows, startEdit, saveEdit, cancelEdit, onCreateTask, onDeleteTask, toggleRow]);
+  // 处理导入确认
+  const handleImportConfirm = useCallback(async () => {
+    if (!onImportTasks || importedData.length === 0) return;
+
+    setIsImporting(true);
+    try {
+      await onImportTasks(importedData);
+      setImportPreviewOpen(false);
+      setImportedData([]);
+      setImportErrors([]);
+    } catch (error) {
+      console.error('导入失败:', error);
+      alert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setIsImporting(false);
+    }
+  }, [onImportTasks, importedData]);
+
+  // 下载模板
+  const handleDownloadTemplate = useCallback(() => {
+    const { downloadImportTemplate } = require('../utils/taskExporter');
+    downloadImportTemplate();
+  }, []);
 
   // 渲染状态Badge
-  const renderStatusBadge = (status: TaskStatus) => {
-    // 防御性检查：status 必须是有效值
+  const renderStatusBadge = (task: TaskRowWithUI) => {
+    const status = task.computedStatus || task.status;
+
     if (!status) {
       return (
-        <Badge className="bg-gray-100 text-gray-600 font-medium">
+        <Badge className="bg-muted text-muted-foreground font-medium">
           未设置
         </Badge>
       );
     }
 
     const config = STATUS_COLORS[status as keyof typeof STATUS_COLORS];
-    // 安全检查：如果状态配置不存在，显示默认样式
     if (!config) {
       console.warn(`[WbsTable] 未知的任务状态: ${status}`);
       return (
-        <Badge className="bg-gray-100 text-gray-600 font-medium">
+        <Badge className="bg-muted text-muted-foreground font-medium">
           {status}
         </Badge>
       );
@@ -314,18 +306,11 @@ export function WbsTable({
   // 渲染单元格内容
   const renderCellContent = (task: TaskRowWithUI, col: ColumnConfig) => {
     const value = (task as any)[col.id];
-    const isEditing = editState?.taskId === task.id && editState?.field === col.id;
-    const editable = isColumnEditable(col.id, task);
-
-    // 如果正在编辑此单元格
-    if (isEditing) {
-      return renderEditCell(task, col, value);
-    }
 
     // 根据列类型渲染
     switch (col.id) {
       case 'status':
-        return renderStatusBadge(value as TaskStatus);
+        return renderStatusBadge(task);
 
       case 'priority':
         const priority = PRIORITY_OPTIONS.find(p => p.value === value);
@@ -346,21 +331,32 @@ export function WbsTable({
         return formatDate(value);
 
       case 'duration':
+        // 只有工期有值时才显示"双休/单休"标签
+        if (value == null || value === undefined) {
+          return null;
+        }
         return (
           <div className="flex items-center gap-2">
             <span>{formatDays(value)}</span>
-            {task.isSixDayWeek && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Badge variant="outline" className="text-xs">单休</Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>每周工作6天</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger>
+                  <Badge
+                    variant="outline"
+                    className={`text-xs ${
+                      task.isSixDayWeek
+                        ? 'border-orange-200 dark:border-orange-800 text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/30'
+                        : 'border-border text-muted-foreground bg-muted/50'
+                    }`}
+                  >
+                    {task.isSixDayWeek ? '单休' : '双休'}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{task.isSixDayWeek ? '每周工作6天' : '每周工作5天'}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         );
 
@@ -373,10 +369,36 @@ export function WbsTable({
       case 'warningDays':
         return formatDays(value);
 
-      case 'plannedDuration':
-      case 'actualDuration':
-      case 'actualCycle':
+      case 'plannedDuration': {
+        // 兜底计算：计划周期 = 结束日期 - 开始日期 + 1
+        if (value == null && task.startDate && task.endDate) {
+          const start = new Date(task.startDate);
+          const end = new Date(task.endDate);
+          const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          return formatDays(days > 0 ? days : null);
+        }
         return formatDays(value);
+      }
+      case 'actualDuration': {
+        // 兜底计算：实际工期 = 实际结束 - 实际开始 + 1（日历天数）
+        if (value == null && task.actualStartDate && task.actualEndDate) {
+          const start = new Date(task.actualStartDate);
+          const end = new Date(task.actualEndDate);
+          const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          return formatDays(days > 0 ? days : null);
+        }
+        return formatDays(value);
+      }
+      case 'actualCycle': {
+        // 兜底计算：实际周期 = 实际结束 - 实际开始 + 1（日历天数）
+        if (value == null && task.actualStartDate && task.actualEndDate) {
+          const start = new Date(task.actualStartDate);
+          const end = new Date(task.actualEndDate);
+          const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          return formatDays(days > 0 ? days : null);
+        }
+        return formatDays(value);
+      }
 
       case 'delayCount':
         return (
@@ -431,109 +453,36 @@ export function WbsTable({
     }
   };
 
-  // 渲染编辑单元格
-  const renderEditCell = (task: TaskRowWithUI, col: ColumnConfig, value: unknown) => {
-    const onSave = () => saveEdit();
-    const onCancel = () => cancelEdit();
-
-    switch (col.dataType) {
-      case 'text':
-        return (
-          <Input
-            value={(editState?.value as string) ?? ''}
-            onChange={e => setEditState(prev => prev ? { ...prev, value: e.target.value } : null)}
-            onBlur={onSave}
-            onKeyDown={e => {
-              if (e.key === 'Enter') onSave();
-              if (e.key === 'Escape') onCancel();
-            }}
-            className="h-8"
-            autoFocus
-          />
-        );
-
-      case 'number':
-        return (
-          <Input
-            type="number"
-            value={(editState?.value as number) ?? ''}
-            onChange={e => setEditState(prev => prev ? { ...prev, value: Number(e.target.value) } : null)}
-            onBlur={onSave}
-            onKeyDown={e => {
-              if (e.key === 'Enter') onSave();
-              if (e.key === 'Escape') onCancel();
-            }}
-            className="h-8 w-20"
-            autoFocus
-          />
-        );
-
-      case 'date':
-        return (
-          <Input
-            type="date"
-            value={(editState?.value as string) ?? ''}
-            onChange={e => setEditState(prev => prev ? { ...prev, value: e.target.value } : null)}
-            onBlur={onSave}
-            className="h-8"
-            autoFocus
-          />
-        );
-
-      case 'select':
-        const options = col.id === 'taskType' ? TASK_TYPE_OPTIONS :
-                        col.id === 'priority' ? PRIORITY_OPTIONS :
-                        col.id === 'assigneeName' ? members.map(m => ({ value: String(m.id), label: m.name })) :
-                        col.id === 'projectName' ? projects.map(p => ({ value: p.id, label: p.name })) :
-                        [];
-
-        return (
-          <Select
-            value={String(editState?.value ?? '')}
-            onValueChange={v => {
-              setEditState(prev => prev ? { ...prev, value: v } : null);
-              setTimeout(onSave, 0);
-            }}
-            open
-          >
-            <SelectTrigger className="h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {options.map(opt => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        );
-
-      default:
-        return null;
-    }
-  };
-
-  // 渲染操作列
+  // 渲染操作列（带权限控制）
   const renderActions = (task: TaskRowWithUI) => {
+    // 使用纯函数计算权限（不能在循环中调用 hooks）
+    const permissions = computeTaskPermissions(user, task);
+
     return (
       <div className="flex items-center gap-1">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => onCreateTask?.(task.id, task.depth + 1)}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>添加子任务</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        {/* 添加子任务按钮 - 工程师只能在自己负责的任务下添加 */}
+        {(permissions.canCreateSubtask || !task.id) && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => onCreateTask?.(task.id, task.depth + 1, task)}
+                  disabled={!permissions.canCreateSubtask}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {permissions.canCreateSubtask ? '添加子任务' : '只能在自己负责的任务下添加子任务'}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
 
+        {/* 编辑按钮 - 根据权限显示 */}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -542,14 +491,18 @@ export function WbsTable({
                 size="icon"
                 className="h-7 w-7"
                 onClick={() => onEditTask?.(task)}
+                disabled={!permissions.canEdit}
               >
                 <Edit2 className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>编辑任务</TooltipContent>
+            <TooltipContent>
+              {permissions.canEdit ? '编辑任务' : '只能编辑自己负责的任务'}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
+        {/* 维护进展按钮 - 所有用户都可以查看 */}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -566,24 +519,82 @@ export function WbsTable({
           </Tooltip>
         </TooltipProvider>
 
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-destructive hover:text-destructive"
-                onClick={() => onDeleteTask?.(task)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>删除任务</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        {/* 删除按钮 - 只有管理员和经理可以删除 */}
+        {permissions.canDelete && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-destructive hover:text-destructive"
+                  onClick={() => onDeleteTask?.(task)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>删除任务</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </div>
     );
   };
+
+  // 快捷键处理
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 表格导航快捷键
+      if (!selectedRowId) return;
+
+      switch (e.key) {
+        case 'Insert':
+          e.preventDefault();
+          // 添加同级任务
+          if (onCreateTask) {
+            const selectedTask = tasks.find(t => t.id === selectedRowId);
+            onCreateTask(selectedTask?.parentId, selectedTask?.depth);
+          }
+          break;
+        case 'Delete':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            // 删除任务
+            const taskToDelete = tasks.find(t => t.id === selectedRowId);
+            if (taskToDelete && onDeleteTask) {
+              onDeleteTask(taskToDelete);
+            }
+          }
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          // 折叠
+          if (expandedRows.has(selectedRowId)) {
+            toggleRow(selectedRowId);
+          }
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          // 展开
+          if (!expandedRows.has(selectedRowId)) {
+            toggleRow(selectedRowId);
+          }
+          break;
+        case 'F2':
+        case 'Enter':
+          e.preventDefault();
+          // 打开编辑表单
+          const taskToEdit = tasks.find(t => t.id === selectedRowId);
+          if (taskToEdit && onEditTask) {
+            onEditTask(taskToEdit);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedRowId, tasks, expandedRows, toggleRow, onCreateTask, onDeleteTask, onEditTask]);
 
   // 加载状态
   if (isLoading) {
@@ -604,8 +615,50 @@ export function WbsTable({
           </div>
         </div>
 
-        {/* 列配置 */}
-        <Popover>
+        <div className="flex items-center gap-2">
+          {/* 下载模板 */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadTemplate}
+            title="下载导入模板"
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            下载模板
+          </Button>
+
+          {/* 导入 */}
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              导入
+            </Button>
+          </>
+
+          {/* 导出 */}
+          <ExportDropdown
+            tasks={tasks}
+            members={members}
+            projectName={projectName}
+            projectId={projectId}
+            disabled={isLoading || tasks.length === 0}
+            filteredCount={flatTasks.length}
+          />
+
+          {/* 列配置 */}
+          <Popover>
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm">
               <Eye className="h-4 w-4 mr-2" />
@@ -622,7 +675,6 @@ export function WbsTable({
                     size="sm"
                     className="h-6 px-2 text-xs"
                     onClick={() => {
-                      // 全选：设置所有可隐藏列为可见
                       const allVisible: Record<string, boolean> = {};
                       WBS_COLUMNS.filter(col => col.canHide).forEach(col => {
                         allVisible[col.id] = true;
@@ -638,7 +690,6 @@ export function WbsTable({
                     size="sm"
                     className="h-6 px-2 text-xs"
                     onClick={() => {
-                      // 重置：恢复默认显示（所有列可见）
                       const allVisible: Record<string, boolean> = {};
                       WBS_COLUMNS.forEach(col => {
                         allVisible[col.id] = true;
@@ -672,6 +723,7 @@ export function WbsTable({
             </div>
           </PopoverContent>
         </Popover>
+        </div>
       </div>
 
       {/* 表格 */}
@@ -681,14 +733,13 @@ export function WbsTable({
           <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700">
             <tr>
               {visibleColumns.map((col, colIndex) => {
-                const isEditable = EDITABLE_COLUMNS.includes(col.id);
                 const isFirstCol = colIndex === 0;
                 return (
                   <th
                     key={col.id}
                     style={{ width: col.width, minWidth: col.minWidth, left: isFirstCol ? 0 : undefined }}
-                    className={`px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap
-                      ${isEditable ? 'border-l-[3px] border-l-blue-200 dark:border-l-blue-500 bg-blue-50/50 dark:bg-blue-950/50' : 'border-l-[3px] border-l-gray-200 dark:border-l-gray-700'}
+                    className={`
+                      px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap
                       ${isFirstCol ? 'sticky left-0 bg-background dark:bg-gray-900 z-20 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)] dark:shadow-[2px_0_4px_-2px_rgba(0,0,0,0.3)]' : ''}
                     `}
                     title={col.tooltip}
@@ -726,7 +777,6 @@ export function WbsTable({
           {/* 表体 */}
           <tbody>
             {flatTasks.length === 0 ? (
-              // 空状态行
               <tr>
                 <td
                   colSpan={visibleColumns.length}
@@ -744,7 +794,6 @@ export function WbsTable({
             ) : (
               flatTasks.map(({ task, level }) => {
                 const isSelected = selectedRowId === task.id;
-                const isEditing = editState?.taskId === task.id;
 
                 return (
                   <tr
@@ -752,20 +801,10 @@ export function WbsTable({
                     className={`
                       group border-b border-gray-200 dark:border-gray-700 hover:bg-muted/50 transition-colors
                       ${isSelected ? 'bg-blue-50 dark:bg-blue-950/60' : ''}
-                      ${isEditing ? 'bg-yellow-50 dark:bg-yellow-950/40' : ''}
                     `}
                     onClick={() => setSelectedRowId(task.id)}
-                    onDoubleClick={(e) => {
-                      const target = e.target as HTMLElement;
-                      const colId = target.closest('td')?.dataset.colId;
-                      if (colId && isColumnEditable(colId, task)) {
-                        startEdit(task.id, colId, (task as any)[colId]);
-                      }
-                    }}
                   >
                     {visibleColumns.map((col, colIndex) => {
-                      const isEditable = EDITABLE_COLUMNS.includes(col.id);
-                      const canEdit = isColumnEditable(col.id, task);
                       const isFirstCol = colIndex === 0;
 
                       return (
@@ -775,10 +814,9 @@ export function WbsTable({
                           style={{ minWidth: col.minWidth, left: isFirstCol ? 0 : undefined }}
                           className={`
                             px-3 py-2 text-sm whitespace-nowrap
-                            ${isEditable ? (canEdit ? EDITABLE_CELL_CLASS : READONLY_CELL_CLASS) : READONLY_CELL_CLASS}
                             ${col.id === 'description' ? '' : 'text-center'}
-                            ${canEdit ? 'cursor-pointer' : ''}
-                            ${isFirstCol ? 'sticky left-0 bg-background dark:bg-gray-900 z-10 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)] dark:shadow-[2px_0_4px_-2px_rgba(0,0,0,0.3)]' : ''}
+                            cursor-pointer
+                            ${isFirstCol ? 'sticky left-0 bg-background dark:bg-gray-900 z-10 shadow-[2px_0_4px_-2px_rgba(1,0,0,0.1)] dark:shadow-[2px_0_4px_-2px_rgba(0,0,0,0.3)]' : ''}
                           `}
                         >
                           {col.id === 'actions' ? (
@@ -811,7 +849,6 @@ export function WbsTable({
                               {!task.hasChildren && <span className="w-6 shrink-0" />}
                               <span
                                 className="truncate hover:bg-blue-100 dark:hover:bg-blue-900/50 px-1 py-0.5 rounded cursor-pointer"
-                                style={{ marginLeft: task.hasChildren ? 0 : 0 }}
                               >
                                 {task.description}
                               </span>
@@ -833,12 +870,25 @@ export function WbsTable({
       {/* 快捷键提示 */}
       <div className="text-xs text-muted-foreground flex flex-wrap gap-4">
         <span>快捷键：</span>
-        <span><kbd className="px-1 bg-muted rounded">双击</kbd> 编辑单元格</span>
-        <span><kbd className="px-1 bg-muted rounded">F2</kbd> 进入编辑</span>
+        <span><kbd className="px-1 bg-muted rounded">双击</kbd> 编辑任务</span>
+        <span><kbd className="px-1 bg-muted rounded">F2/Enter</kbd> 编辑选中行</span>
         <span><kbd className="px-1 bg-muted rounded">Insert</kbd> 添加同级任务</span>
         <span><kbd className="px-1 bg-muted rounded">Ctrl+Delete</kbd> 删除任务</span>
         <span><kbd className="px-1 bg-muted rounded">←/→</kbd> 折叠/展开</span>
       </div>
+
+      {/* 导入预览对话框 */}
+      <ImportPreviewDialog
+        open={importPreviewOpen}
+        onOpenChange={setImportPreviewOpen}
+        fileName={importFileName}
+        parsedData={importedData}
+        errors={importErrors}
+        newCount={importStats.newCount}
+        updateCount={importStats.updateCount}
+        onConfirm={handleImportConfirm}
+        isLoading={isImporting}
+      />
     </div>
   );
 }

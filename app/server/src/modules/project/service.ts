@@ -97,6 +97,14 @@ export class ProjectService {
       throw new ForbiddenError('无权限更新此项目');
     }
 
+    // 如果修改了编码，验证编码唯一性（排除当前项目）
+    if (data.code && data.code !== project.code) {
+      const existing = await this.repo.getProjectByCode(data.code);
+      if (existing) {
+        throw new ValidationError('项目编码已被其他项目使用');
+      }
+    }
+
     // 验证日期
     const startDate = data.planned_start_date || project.planned_start_date;
     const endDate = data.planned_end_date || project.planned_end_date;
@@ -105,6 +113,11 @@ export class ProjectService {
     }
 
     const result = await this.repo.updateProject(id, { ...data, version: data.version || project.version });
+
+    // 如果更新成功且包含成员数据，同步更新项目成员表
+    if (result.updated && data.member_ids !== undefined) {
+      await this.syncProjectMembers(id, data.member_ids);
+    }
 
     // 记录审计日志
     if (result.updated) {
@@ -123,6 +136,31 @@ export class ProjectService {
     }
 
     return result;
+  }
+
+  /**
+   * 同步项目成员（比较新旧成员列表，增量更新）
+   */
+  private async syncProjectMembers(projectId: string, newMemberIds: number[]): Promise<void> {
+    // 获取当前成员
+    const currentMembers = await this.repo.getProjectMembers(projectId);
+    const currentMemberIds = new Set(currentMembers.map(m => m.user_id));
+    const newMemberIdSet = new Set(newMemberIds);
+
+    // 找出需要添加的成员
+    const toAdd = newMemberIds.filter(id => !currentMemberIds.has(id));
+    // 找出需要移除的成员
+    const toRemove = [...currentMemberIds].filter(id => !newMemberIdSet.has(id));
+
+    // 添加新成员
+    for (const userId of toAdd) {
+      await this.repo.addProjectMember(projectId, { user_id: userId, role: 'member' });
+    }
+
+    // 移除旧成员
+    for (const userId of toRemove) {
+      await this.repo.removeProjectMember(projectId, userId);
+    }
   }
 
   async deleteProject(id: string, currentUser: User): Promise<void> {

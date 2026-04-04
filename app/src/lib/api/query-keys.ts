@@ -46,6 +46,8 @@ export const queryKeys = {
       ['projects', 'milestone', projectId, milestoneId] as const,
     timelines: (projectId: string) => ['projects', 'timelines', projectId] as const,
     tags: (projectId: string) => ['projects', 'tags', projectId] as const,
+    members: (projectId: string) => ['projects', 'members', projectId] as const,
+    stats: (projectId: string) => ['projects', 'stats', projectId] as const,
   },
 
   // ==================== 任务管理 ====================
@@ -106,6 +108,11 @@ export const queryKeys = {
     projectProgress: (projectId: string) => ['analytics', 'projectProgress', projectId] as const,
     delayAnalysis: (params: object) => ['analytics', 'delayAnalysis', params] as const,
     reports: (type: string) => ['analytics', 'reports', type] as const,
+    // 报表分析模块
+    projectProgressReport: (projectId?: string) => ['analytics', 'reports', 'project-progress', projectId] as const,
+    taskStatisticsReport: (filters: object) => ['analytics', 'reports', 'task-statistics', filters] as const,
+    delayAnalysisReport: (filters: object) => ['analytics', 'reports', 'delay-analysis', filters] as const,
+    memberAnalysisReport: (memberId?: number) => ['analytics', 'reports', 'member-analysis', memberId] as const,
   },
 
   // ==================== 系统配置 ====================

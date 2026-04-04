@@ -65,7 +65,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         <CardDescription>请输入您的用户名和密码</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
           {error && (
             <Alert variant="destructive" className="border-0 bg-transparent p-0">
               <AlertDescription className="text-red-500 font-medium">{error}</AlertDescription>
@@ -81,7 +81,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               disabled={isLoading}
-              autoComplete="username"
+              autoComplete="off"
             />
           </div>
 
@@ -95,7 +95,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
-                autoComplete="current-password"
+                autoComplete="off"
                 className="pr-10 [&::-ms-reveal]:hidden [&::-webkit-credentials-auto-fill-button]:hidden"
               />
               <button

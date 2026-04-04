@@ -125,6 +125,9 @@ export class AuthRepository {
       const searchPattern = `%${options.search}%`;
       params.push(searchPattern, searchPattern);
     }
+    if (options.excludeBuiltin) {
+      conditions.push('(is_builtin = 0 OR is_builtin IS NULL)');
+    }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -332,10 +335,14 @@ export class AuthRepository {
         username: row.username,
         real_name: row.real_name,
         role: row.role,
+        gender: row.gender,
         department_id: row.department_id,
         email: row.email,
         phone: row.phone,
         is_active: row.is_active,
+        is_builtin: row.is_builtin,
+        deleted_at: row.deleted_at,
+        deleted_by: row.deleted_by,
         created_at: row.created_at,
         updated_at: row.updated_at,
       },

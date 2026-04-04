@@ -50,12 +50,12 @@ export function TaskTypesSettings() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedMapping, setSelectedMapping] = useState<TaskTypeMapping | null>(null);
   const [formData, setFormData] = useState<{
-    task_type: string;
-    model_id: string;
+    taskType: string;
+    modelId: string;
     priority: number;
   }>({
-    task_type: '',
-    model_id: '',
+    taskType: '',
+    modelId: '',
     priority: 1,
   });
 
@@ -81,7 +81,7 @@ export function TaskTypesSettings() {
   // 打开创建映射对话框
   const handleCreateMapping = () => {
     setSelectedMapping(null);
-    setFormData({ task_type: '', model_id: '', priority: 1 });
+    setFormData({ taskType: '', modelId: '', priority: 1 });
     setMappingDialogOpen(true);
   };
 
@@ -89,8 +89,8 @@ export function TaskTypesSettings() {
   const handleEditMapping = (mapping: TaskTypeMapping) => {
     setSelectedMapping(mapping);
     setFormData({
-      task_type: mapping.task_type,
-      model_id: mapping.model_id,
+      taskType: mapping.taskType,
+      modelId: mapping.modelId,
       priority: mapping.priority,
     });
     setMappingDialogOpen(true);
@@ -104,7 +104,7 @@ export function TaskTypesSettings() {
 
   // 提交映射表单
   const handleSubmitMapping = async () => {
-    if (!formData.task_type || !formData.model_id) {
+    if (!formData.taskType || !formData.modelId) {
       toast({ title: '错误', description: '请选择任务类型和能力模型', variant: 'destructive' });
       return;
     }
@@ -215,15 +215,15 @@ export function TaskTypesSettings() {
                     <TableCell>
                       <Badge
                         style={{
-                          backgroundColor: `${getTaskTypeColor(mapping.task_type)}20`,
-                          color: getTaskTypeColor(mapping.task_type),
+                          backgroundColor: `${getTaskTypeColor(mapping.taskType)}20`,
+                          color: getTaskTypeColor(mapping.taskType),
                         }}
                       >
-                        {getTaskTypeLabel(mapping.task_type)}
+                        {getTaskTypeLabel(mapping.taskType)}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <span className="font-medium">{mapping.model_name}</span>
+                      <span className="font-medium">{mapping.modelName}</span>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{mapping.priority}</Badge>
@@ -262,8 +262,8 @@ export function TaskTypesSettings() {
             <div className="space-y-2">
               <Label>任务类型 *</Label>
               <Select
-                value={formData.task_type}
-                onValueChange={(value) => setFormData({ ...formData, task_type: value })}
+                value={formData.taskType}
+                onValueChange={(value) => setFormData({ ...formData, taskType: value })}
                 disabled={!!selectedMapping}
               >
                 <SelectTrigger>
@@ -288,8 +288,8 @@ export function TaskTypesSettings() {
             <div className="space-y-2">
               <Label>能力模型 *</Label>
               <Select
-                value={formData.model_id}
-                onValueChange={(value) => setFormData({ ...formData, model_id: value })}
+                value={formData.modelId}
+                onValueChange={(value) => setFormData({ ...formData, modelId: value })}
                 disabled={isLoadingModels}
               >
                 <SelectTrigger>
@@ -362,10 +362,10 @@ export function TaskTypesSettings() {
               <div className="mt-4 p-3 bg-muted rounded-lg">
                 <p className="text-sm">
                   <span className="font-medium">任务类型:</span>{' '}
-                  {getTaskTypeLabel(selectedMapping.task_type)}
+                  {getTaskTypeLabel(selectedMapping.taskType)}
                 </p>
                 <p className="text-sm">
-                  <span className="font-medium">能力模型:</span> {selectedMapping.model_name}
+                  <span className="font-medium">能力模型:</span> {selectedMapping.modelName}
                 </p>
               </div>
             )}

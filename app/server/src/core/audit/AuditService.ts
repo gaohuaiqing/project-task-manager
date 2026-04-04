@@ -1,6 +1,7 @@
 // app/server/src/core/audit/AuditService.ts
 import { randomUUID } from 'crypto';
 import { getPool } from '../db';
+import { logger } from '../logger';
 import type {
   AuditCategory,
   AuditAction,
@@ -40,23 +41,37 @@ export class AuditService {
         const pool = getPool();
         const auditId = randomUUID();
 
+        // 将details转换为JSON对象
+        let detailsJson = null;
+        if (params.details) {
+          try {
+            detailsJson = typeof params.details === 'string'
+              ? JSON.parse(params.details)
+              : params.details;
+          } catch {
+            detailsJson = { message: params.details };
+          }
+        }
+
         await pool.execute(
           `INSERT INTO audit_logs (
-            audit_id, actor_user_id, actor_username, actor_role,
-            category, action, table_name, record_id,
+            audit_id, operation_type, result,
+            actor_user_id, actor_username, actor_role,
+            category, target_id, target_type, target_name,
             details, before_data, after_data,
             ip_address, user_agent, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          ) VALUES (?, ?, 'success', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             auditId,
+            params.action, // operation_type 使用 action 参数
             params.userId,
             params.username,
             params.userRole,
             params.category,
-            params.action,
-            params.tableName,
-            params.recordId || null,
-            params.details || null,
+            params.recordId ? parseInt(params.recordId) || null : null,
+            params.tableName, // target_type 使用 tableName 参数
+            params.details?.substring(0, 255) || null, // target_name 使用 details 前255字符
+            detailsJson ? JSON.stringify(detailsJson) : null,
             params.beforeData ? JSON.stringify(params.beforeData) : null,
             params.afterData ? JSON.stringify(params.afterData) : null,
             params.ipAddress || null,
@@ -64,7 +79,7 @@ export class AuditService {
           ]
         );
       } catch (error) {
-        console.error('[AuditService] 记录审计日志失败:', error);
+        logger.error('[AuditService] 记录审计日志失败: %s', error instanceof Error ? error.message : String(error));
       }
     };
 
@@ -80,23 +95,37 @@ export class AuditService {
     const pool = getPool();
     const auditId = randomUUID();
 
+    // 将details转换为JSON对象
+    let detailsJson = null;
+    if (params.details) {
+      try {
+        detailsJson = typeof params.details === 'string'
+          ? JSON.parse(params.details)
+          : params.details;
+      } catch {
+        detailsJson = { message: params.details };
+      }
+    }
+
     await pool.execute(
       `INSERT INTO audit_logs (
-        audit_id, actor_user_id, actor_username, actor_role,
-        category, action, table_name, record_id,
+        audit_id, operation_type, result,
+        actor_user_id, actor_username, actor_role,
+        category, target_id, target_type, target_name,
         details, before_data, after_data,
         ip_address, user_agent, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      ) VALUES (?, ?, 'success', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         auditId,
+        params.action,
         params.userId,
         params.username,
         params.userRole,
         params.category,
-        params.action,
+        params.recordId ? parseInt(params.recordId) || null : null,
         params.tableName,
-        params.recordId || null,
-        params.details || null,
+        params.details?.substring(0, 255) || null,
+        detailsJson ? JSON.stringify(detailsJson) : null,
         params.beforeData ? JSON.stringify(params.beforeData) : null,
         params.afterData ? JSON.stringify(params.afterData) : null,
         params.ipAddress || null,
@@ -137,7 +166,7 @@ export class AuditService {
       params.push(options.category);
     }
     if (options.action) {
-      conditions.push('al.action = ?');
+      conditions.push('al.operation_type = ?');
       params.push(options.action);
     }
     if (options.userId) {
@@ -153,9 +182,9 @@ export class AuditService {
       params.push(options.endDate + ' 23:59:59');
     }
     if (options.search) {
-      conditions.push('(al.details LIKE ? OR al.actor_username LIKE ?)');
+      conditions.push('(al.details LIKE ? OR al.actor_username LIKE ? OR al.target_name LIKE ?)');
       const searchPattern = `%${options.search}%`;
-      params.push(searchPattern, searchPattern);
+      params.push(searchPattern, searchPattern, searchPattern);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -163,25 +192,40 @@ export class AuditService {
     const pageSize = Math.min(options.pageSize || 50, 200);
     const offset = (page - 1) * pageSize;
 
-    // Count
-    const [countRows] = await pool.execute(
-      `SELECT COUNT(*) as total FROM audit_logs al ${whereClause}`,
-      params
-    ) as any[];
+    // 调试日志（仅在 debug 级别）
+    logger.debug('[AuditService] 查询参数: %j', options);
+    logger.debug('[AuditService] WHERE 条件: %s', whereClause || '(无)');
+
+    // Count - 使用 query 而不是 execute 来避免参数绑定问题
+    const countSql = `SELECT COUNT(*) as total FROM audit_logs al ${whereClause}`;
+
+    const [countRows] = await pool.query(countSql, params) as any[];
     const total = countRows[0].total;
 
-    // Data
-    const [rows] = await pool.execute(
+    // Data - 映射字段名以匹配前端期望
+    const [rows] = await pool.query(
       `SELECT
-        al.audit_id, al.actor_user_id, al.actor_username, al.actor_role,
-        al.category, al.action, al.table_name, al.record_id,
-        al.details, al.before_data, al.after_data,
-        al.ip_address, al.user_agent, al.created_at
+        al.audit_id,
+        al.actor_user_id,
+        al.actor_username,
+        al.actor_role,
+        al.category,
+        al.operation_type as action,
+        al.target_type as table_name,
+        al.target_id as record_id,
+        al.target_name,
+        al.details,
+        al.before_data,
+        al.after_data,
+        al.result,
+        al.ip_address,
+        al.user_agent,
+        al.created_at
        FROM audit_logs al
        ${whereClause}
        ORDER BY al.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, pageSize, offset]
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params
     );
 
     return {

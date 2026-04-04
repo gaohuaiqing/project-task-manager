@@ -14,8 +14,11 @@ export function useCreateTask() {
 
   return useMutation({
     mutationFn: (data: CreateTaskRequest) => taskApi.createTask(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
+    onSuccess: async () => {
+      // 使用 refetchQueries 确保等待数据重新获取完成
+      await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
+      // 刷新仪表板统计
+      queryClient.invalidateQueries({ queryKey: queryKeys.analytics.all });
     },
   });
 }
@@ -40,12 +43,13 @@ export function useUpdateTask(id?: string) {
       }
       throw new Error('Task ID is required for update');
     },
-    onSuccess: (_, variables) => {
+    onSuccess: async (_, variables) => {
       const taskId = 'id' in variables ? variables.id : id;
       if (taskId) {
         queryClient.invalidateQueries({ queryKey: queryKeys.task.detail(taskId) });
       }
-      queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
+      // 使用 refetchQueries 确保等待数据重新获取完成
+      await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
     },
   });
 }
@@ -58,8 +62,11 @@ export function useDeleteTask() {
 
   return useMutation({
     mutationFn: (id: string) => taskApi.deleteTask(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.task.all() });
+    onSuccess: async () => {
+      // 使用 refetchQueries 确保等待数据重新获取完成
+      await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
+      // 同时刷新仪表板统计
+      queryClient.invalidateQueries({ queryKey: queryKeys.analytics.all });
     },
   });
 }

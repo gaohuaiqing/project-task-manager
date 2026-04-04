@@ -7,6 +7,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -17,28 +18,37 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useAppContext } from '../context/AppContext';
+import { useAuth } from '@/features/auth';
 
 /**
- * 导航菜单项
+ * 导航菜单项配置
  */
-const navItems = [
-  { path: '/dashboard', icon: LayoutDashboard, label: '仪表板' },
-  { path: '/projects', icon: FolderKanban, label: '项目管理' },
-  { path: '/tasks', icon: ListTodo, label: '任务管理' },
-  { path: '/assignment', icon: Users, label: '智能分配' },
-  { path: '/settings', icon: Settings, label: '设置' },
-];
+const ALL_NAV_ITEMS = [
+  { path: '/dashboard', icon: LayoutDashboard, label: '仪表板', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
+  { path: '/projects', icon: FolderKanban, label: '项目管理', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
+  { path: '/tasks', icon: ListTodo, label: '任务管理', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
+  { path: '/assignment', icon: Users, label: '智能分配', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
+  { path: '/reports', icon: BarChart3, label: '报表分析', roles: ['admin', 'dept_manager', 'tech_manager'] },
+  { path: '/settings', icon: Settings, label: '设置', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
+] as const;
 
 /**
  * 侧边栏组件
  */
 export function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useAppContext();
+  const { user } = useAuth();
+
+  // 根据用户角色过滤可见的导航项
+  const navItems = ALL_NAV_ITEMS.filter(item => {
+    if (!user?.role) return false;
+    return item.roles.includes(user.role as any);
+  });
 
   return (
     <aside
       className={cn(
-        'flex h-full flex-col border-r border-border bg-card transition-all duration-300',
+        'flex h-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-300',
         sidebarCollapsed ? 'w-16' : 'w-64'
       )}
     >

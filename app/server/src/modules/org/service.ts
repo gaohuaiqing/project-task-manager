@@ -2,7 +2,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcryptjs';
 import { OrgRepository } from './repository';
+import { AuthRepository } from '../auth/repository';
 import { ValidationError, ForbiddenError } from '../../core/errors';
+import { audit } from '../../core/audit';
 import type { User } from '../../core/types';
 import type {
   Department, DepartmentTreeNode, Member,
@@ -18,6 +20,78 @@ import type {
 
 export class OrgService {
   private repo = new OrgRepository();
+  private authRepo = new AuthRepository();
+
+  // ========== 权限检查辅助方法 ==========
+
+  /**
+   * 检查用户对目标部门的访问权限
+   * admin 可以访问所有部门
+   * dept_manager 只能访问管理的部门及其子部门
+   */
+  private async checkDepartmentAccess(
+    targetDeptId: number | null,
+    currentUser: User
+  ): Promise<{ allowed: boolean; reason?: string }> {
+    // admin 可以访问所有部门
+    if (currentUser.role === 'admin') {
+      return { allowed: true };
+    }
+
+    // dept_manager 需要检查部门范围
+    if (currentUser.role === 'dept_manager') {
+      // 获取用户管理的部门
+      const managedDept = await this.repo.getManagedDepartmentByUserId(currentUser.id);
+      if (!managedDept) {
+        return { allowed: false, reason: '您不是部门经理，无权操作' };
+      }
+
+      // 目标部门为空时不允许操作
+      if (targetDeptId === null || targetDeptId === undefined) {
+        return { allowed: false, reason: '只能操作本部门及其子部门的成员' };
+      }
+
+      // 检查目标部门是否是管理部门或其子部门
+      const isAccessible = await this.repo.isChildDepartment(targetDeptId, managedDept.id);
+      if (!isAccessible) {
+        return { allowed: false, reason: '只能操作本部门及其子部门的成员' };
+      }
+
+      return { allowed: true };
+    }
+
+    // 其他角色无权访问
+    return { allowed: false, reason: '无权限操作' };
+  }
+
+  /**
+   * 检查用户对目标成员的访问权限
+   * admin 可以访问所有成员
+   * dept_manager 只能访问本部门及其子部门的成员
+   */
+  private async checkMemberAccess(
+    targetMemberId: number,
+    currentUser: User
+  ): Promise<{ allowed: boolean; reason?: string; member?: Member }> {
+    // 获取目标成员
+    const member = await this.repo.getMemberById(targetMemberId);
+    if (!member) {
+      return { allowed: false, reason: '成员不存在' };
+    }
+
+    // admin 可以访问所有成员
+    if (currentUser.role === 'admin') {
+      return { allowed: true, member };
+    }
+
+    // dept_manager 需要检查部门范围
+    if (currentUser.role === 'dept_manager') {
+      const accessCheck = await this.checkDepartmentAccess(member.department_id, currentUser);
+      return { ...accessCheck, member };
+    }
+
+    return { allowed: false, reason: '无权限操作', member };
+  }
 
   // ========== 部门管理 ==========
 
@@ -55,6 +129,17 @@ export class OrgService {
       if (!parent) {
         throw new ValidationError('父部门不存在');
       }
+
+      // dept_manager 只能在自己管理的部门下创建子部门
+      if (currentUser.role === 'dept_manager') {
+        const accessCheck = await this.checkDepartmentAccess(data.parent_id, currentUser);
+        if (!accessCheck.allowed) {
+          throw new ForbiddenError('只能在本部门及其子部门下创建新部门');
+        }
+      }
+    } else if (currentUser.role === 'dept_manager') {
+      // dept_manager 不能创建顶级部门
+      throw new ForbiddenError('部门经理只能在本部门下创建子部门');
     }
 
     return this.repo.createDepartment({
@@ -76,6 +161,14 @@ export class OrgService {
       throw new ValidationError('部门不存在');
     }
 
+    // dept_manager 只能更新本部门及其子部门
+    if (currentUser.role === 'dept_manager') {
+      const accessCheck = await this.checkDepartmentAccess(id, currentUser);
+      if (!accessCheck.allowed) {
+        throw new ForbiddenError('只能更新本部门及其子部门');
+      }
+    }
+
     // 验证父部门不是自己或自己的子部门
     if (data.parent_id) {
       if (data.parent_id === id) {
@@ -87,28 +180,48 @@ export class OrgService {
     return this.repo.updateDepartment(id, data);
   }
 
-  async deleteDepartment(id: number, currentUser: User): Promise<void> {
+  async deleteDepartment(id: number, currentUser: User): Promise<{ deletedDepartments: number; deletedMembers: number }> {
     // 验证权限
     if (currentUser.role !== 'admin') {
       throw new ForbiddenError('只有管理员可以删除部门');
     }
 
-    // 检查是否有成员
-    const hasMembers = await this.repo.hasDepartmentMembers(id);
-    if (hasMembers) {
-      throw new ValidationError('部门内有成员，无法删除');
+    // 验证部门存在
+    const dept = await this.repo.getDepartmentById(id);
+    if (!dept) {
+      throw new ValidationError('部门不存在');
     }
 
-    // 检查是否有子部门
-    const childCount = await this.repo.getChildDepartmentCount(id);
-    if (childCount > 0) {
-      throw new ValidationError('部门有子部门，无法删除');
+    // 获取所有子部门ID（递归）
+    const childDeptIds = await this.repo.getAllChildDepartmentIds(id);
+
+    // 统计
+    let deletedMembers = 0;
+
+    // 从最深层子部门开始处理（倒序）
+    // 注意：getAllChildDepartmentIds 返回的是广度优先的顺序，我们需要从后往前删除
+    for (const childId of [...childDeptIds].reverse()) {
+      // 删除子部门下的所有成员
+      const members = await this.repo.deleteMembersByDepartment(childId);
+      deletedMembers += members;
+      // 删除子部门
+      await this.repo.deleteDepartment(childId);
     }
 
+    // 删除当前部门下的所有成员
+    const members = await this.repo.deleteMembersByDepartment(id);
+    deletedMembers += members;
+
+    // 删除当前部门
     const deleted = await this.repo.deleteDepartment(id);
     if (!deleted) {
       throw new ValidationError('删除部门失败');
     }
+
+    return {
+      deletedDepartments: childDeptIds.length + 1, // 子部门 + 当前部门
+      deletedMembers
+    };
   }
 
   // ========== 成员管理 ==========
@@ -120,6 +233,7 @@ export class OrgService {
       search: options.search,
       page: options.page || 1,
       pageSize: options.pageSize || 20,
+      excludeBuiltin: options.excludeBuiltin,
     });
 
     const pageSize = options.pageSize || 20;
@@ -137,9 +251,17 @@ export class OrgService {
   }
 
   async createMember(data: CreateMemberRequest, currentUser: User): Promise<{ id: number; initialPassword: string }> {
-    // 验证权限
-    if (currentUser.role !== 'admin' && currentUser.role !== 'tech_manager' && currentUser.role !== 'dept_manager') {
+    // 验证权限 - tech_manager 不能创建成员（只能查看）
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
       throw new ForbiddenError('无权限创建成员');
+    }
+
+    // dept_manager 需要检查部门范围
+    if (currentUser.role === 'dept_manager' && data.department_id) {
+      const accessCheck = await this.checkDepartmentAccess(data.department_id, currentUser);
+      if (!accessCheck.allowed) {
+        throw new ForbiddenError(accessCheck.reason || '无权在该部门创建成员');
+      }
     }
 
     // 验证必填字段
@@ -151,6 +273,16 @@ export class OrgService {
     }
     if (!data.role) {
       throw new ValidationError('角色不能为空');
+    }
+
+    // 普通用户必须有部门
+    if (!data.department_id) {
+      throw new ValidationError('普通用户必须关联部门');
+    }
+
+    // 验证工号格式：8位数字 或 6位字母+数字
+    if (!this.validateUsername(data.username)) {
+      throw new ValidationError('工号格式不正确，应为8位数字或6位字母+数字组合');
     }
 
     // 检查用户名是否已存在
@@ -168,50 +300,113 @@ export class OrgService {
       password: hashedPassword,
       real_name: data.real_name,
       role: data.role,
+      gender: data.gender,
       department_id: data.department_id || null,
       email: data.email,
       phone: data.phone,
+      is_builtin: false, // 通过组织架构创建的都是普通用户
     });
 
     return { id, initialPassword };
   }
 
   async updateMember(id: number, data: UpdateMemberRequest, currentUser: User): Promise<boolean> {
-    // 验证权限
-    if (currentUser.role !== 'admin' && currentUser.role !== 'tech_manager' && currentUser.role !== 'dept_manager') {
+    // 验证权限 - 仅 admin 和 dept_manager 可以修改成员
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
       throw new ForbiddenError('无权限更新成员');
     }
 
-    // 验证成员存在
-    const member = await this.repo.getMemberById(id);
-    if (!member) {
-      throw new ValidationError('成员不存在');
+    // 检查成员访问权限
+    const accessCheck = await this.checkMemberAccess(id, currentUser);
+    if (!accessCheck.allowed) {
+      throw new ForbiddenError(accessCheck.reason || '无权限更新该成员');
+    }
+    const member = accessCheck.member!;
+
+    // 如果要修改部门，检查新部门的权限
+    if (data.department_id !== undefined && currentUser.role === 'dept_manager') {
+      const newDeptAccess = await this.checkDepartmentAccess(data.department_id, currentUser);
+      if (!newDeptAccess.allowed) {
+        throw new ForbiddenError('无权将成员移动到该部门');
+      }
     }
 
-    return this.repo.updateMember(id, data);
+    // 内置用户不能修改部门
+    if (member.is_builtin && data.department_id !== undefined) {
+      throw new ValidationError('内置用户不可调整部门');
+    }
+
+    // 检查是否修改了角色
+    const roleChanged = data.role && data.role !== member.role;
+
+    // 执行更新
+    const updated = await this.repo.updateMember(id, data);
+
+    // 如果角色被修改，终止该用户的所有会话，强制重新登录
+    if (roleChanged && updated) {
+      // 获取该用户的所有活跃会话
+      const sessions = await this.authRepo.getActiveSessionsByUser(id);
+      if (sessions.length > 0) {
+        const sessionIds = sessions.map(s => s.session_id);
+        await this.authRepo.terminateSessions(sessionIds, 'role_changed');
+        console.log(`[Org] User ${id} role changed from ${member.role} to ${data.role}, terminated ${sessionIds.length} sessions`);
+
+        // 记录审计日志
+        audit.log({
+          userId: currentUser.id,
+          username: currentUser.real_name,
+          userRole: currentUser.role,
+          category: 'org',
+          action: 'ROLE_CHANGE_FORCE_LOGOUT',
+          tableName: 'users',
+          recordId: String(id),
+          details: `用户 ${member.real_name} 角色从 ${member.role} 修改为 ${data.role}，已强制下线 ${sessionIds.length} 个会话`,
+        });
+      }
+    }
+
+    return updated;
   }
 
-  async deleteMember(id: number, currentUser: User): Promise<void> {
+  /**
+   * 软删除成员（停用）
+   * 设置 is_active = false，记录 deleted_at 和 deleted_by
+   */
+  async deactivateMember(id: number, currentUser: User): Promise<void> {
     // 验证权限
-    if (currentUser.role !== 'admin') {
-      throw new ForbiddenError('只有管理员可以删除成员');
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
+      throw new ForbiddenError('只有管理员或部门经理可以停用成员');
     }
 
     // 不能删除自己
     if (id === currentUser.id) {
-      throw new ValidationError('不能删除自己的账户');
+      throw new ValidationError('不能停用自己的账户');
     }
 
-    // 验证成员存在
-    const member = await this.repo.getMemberById(id);
-    if (!member) {
-      throw new ValidationError('成员不存在');
+    // 检查成员访问权限
+    const accessCheck = await this.checkMemberAccess(id, currentUser);
+    if (!accessCheck.allowed) {
+      throw new ForbiddenError(accessCheck.reason || '无权停用该成员');
+    }
+    const member = accessCheck.member!;
+
+    // 内置用户不能删除
+    if (member.is_builtin) {
+      throw new ValidationError('内置用户不可删除');
     }
 
-    const deleted = await this.repo.deleteMember(id);
+    const deleted = await this.repo.deleteMember(id, currentUser.id);
     if (!deleted) {
-      throw new ValidationError('删除成员失败');
+      throw new ValidationError('停用成员失败');
     }
+  }
+
+  /**
+   * @deprecated 使用 deactivateMember 代替
+   * 保留向后兼容
+   */
+  async deleteMember(id: number, currentUser: User): Promise<void> {
+    return this.deactivateMember(id, currentUser);
   }
 
   /**
@@ -236,16 +431,22 @@ export class OrgService {
       throw new ForbiddenError('只有管理员或部门经理可以查看删除检查');
     }
 
-    // 验证成员存在
-    const member = await this.repo.getMemberById(id);
-    if (!member) {
-      throw new ValidationError('成员不存在');
+    // 检查成员访问权限
+    const accessCheck = await this.checkMemberAccess(id, currentUser);
+    if (!accessCheck.allowed) {
+      throw new ForbiddenError(accessCheck.reason || '无权查看该成员的删除检查');
     }
+    const member = accessCheck.member!;
 
     const checkData = await this.repo.getMemberDeletionCheck(id);
 
     const warnings: string[] = [];
     const blockingReasons: string[] = [];
+
+    // 检查是否是内置用户
+    if (checkData.isBuiltin) {
+      blockingReasons.push('内置用户不可删除');
+    }
 
     // 检查是否是部门经理
     if (checkData.isDeptManager) {
@@ -263,10 +464,10 @@ export class OrgService {
       warnings.push(`该用户参与了 ${checkData.projectCount} 个项目`);
     }
 
-    // 软删除始终可以执行（只要有权限）
-    const canDeactivate = currentUser.role === 'admin';
+    // 软删除：管理员和部门经理都可以执行（但内置用户除外）
+    const canDeactivate = (currentUser.role === 'admin' || currentUser.role === 'dept_manager') && !checkData.isBuiltin;
 
-    // 物理删除需要满足条件
+    // 物理删除：仅管理员，且无阻止条件
     const canDelete = currentUser.role === 'admin' && blockingReasons.length === 0;
 
     return {
@@ -299,10 +500,16 @@ export class OrgService {
       throw new ValidationError('不能删除自己的账户');
     }
 
-    // 验证成员存在
-    const member = await this.repo.getMemberById(id);
-    if (!member) {
-      throw new ValidationError('成员不存在');
+    // 检查成员访问权限
+    const accessCheck = await this.checkMemberAccess(id, currentUser);
+    if (!accessCheck.allowed) {
+      throw new ForbiddenError(accessCheck.reason || '无权删除该成员');
+    }
+    const member = accessCheck.member!;
+
+    // 内置用户不能删除
+    if (member.is_builtin) {
+      throw new ValidationError('内置用户不可删除');
     }
 
     // 执行删除检查
@@ -318,6 +525,19 @@ export class OrgService {
     if (!deleted) {
       throw new ValidationError('删除成员失败');
     }
+  }
+
+  /**
+   * 验证工号格式
+   * 规则：8位数字 或 6位字母+数字组合
+   */
+  private validateUsername(username: string): boolean {
+    // 8位纯数字
+    const eightDigits = /^\d{8}$/;
+    // 6位字母+数字组合（至少包含1个字母和1个数字）
+    const sixAlphanumeric = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6}$/;
+
+    return eightDigits.test(username) || sixAlphanumeric.test(username);
   }
 
   private generateRandomPassword(): string {
@@ -541,6 +761,7 @@ export class OrgService {
         result.push({
           memberId: member.id,
           memberName: member.real_name,
+          memberGender: member.gender,
           departmentId: member.department_id,
           capabilities: capabilities.map(c => ({
             modelId: c.model_id,
@@ -689,5 +910,65 @@ export class OrgService {
     if (!deleted) {
       throw new ValidationError('删除任务类型映射失败');
     }
+  }
+
+  // ========== 审批人查询方法 ==========
+
+  /**
+   * 获取用户的直接主管
+   * 从用户所在部门获取部门经理
+   */
+  async getDirectSupervisor(userId: number): Promise<Member | null> {
+    return this.repo.getDirectSupervisor(userId);
+  }
+
+  /**
+   * 获取用户的技术经理
+   * 查找用户所在部门的父部门（技术组）的经理
+   */
+  async getTechManager(userId: number): Promise<Member | null> {
+    return this.repo.getTechManager(userId);
+  }
+
+  /**
+   * 获取用户的部门经理
+   * 查找用户所在部门的根部门的经理
+   */
+  async getDeptManager(userId: number): Promise<Member | null> {
+    return this.repo.getDeptManager(userId);
+  }
+
+  /**
+   * 获取系统管理员
+   */
+  async getAdmin(): Promise<Member | null> {
+    return this.repo.getAdmin();
+  }
+
+  /**
+   * 按兜底顺序查找审批人
+   * 顺序：直接主管 → 技术经理 → 部门经理 → 系统管理员
+   */
+  async findApprover(userId: number): Promise<Member | null> {
+    // 1. 查找直接主管
+    const directSupervisor = await this.repo.getDirectSupervisor(userId);
+    if (directSupervisor) {
+      return directSupervisor;
+    }
+
+    // 2. 查找技术经理
+    const techManager = await this.repo.getTechManager(userId);
+    if (techManager) {
+      return techManager;
+    }
+
+    // 3. 查找部门经理
+    const deptManager = await this.repo.getDeptManager(userId);
+    if (deptManager) {
+      return deptManager;
+    }
+
+    // 4. 返回系统管理员
+    return this.repo.getAdmin();
   }
 }

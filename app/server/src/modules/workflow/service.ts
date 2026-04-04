@@ -1,7 +1,9 @@
 // app/server/src/modules/workflow/service.ts
 import { v4 as uuidv4 } from 'uuid';
 import { WorkflowRepository } from './repository';
+import { OrgService } from '../org/service';
 import { ValidationError, ForbiddenError } from '../../core/errors';
+import { sendToUser } from '../../core/realtime';
 import {
   taskEvents,
   TaskEventType,
@@ -13,10 +15,19 @@ import type { PlanChange, DelayRecord, Notification, ApprovalStatus, CreatePlanC
 
 export class WorkflowService {
   private repo = new WorkflowRepository();
+  private orgService = new OrgService();
 
   constructor() {
     // 订阅计划变更请求事件
     this.setupEventListeners();
+  }
+
+  /**
+   * 查找审批人（兜底规则）
+   * 顺序：直接主管 → 技术经理 → 部门经理 → 系统管理员
+   */
+  async findApprover(userId: number): Promise<User | null> {
+    return this.orgService.findApprover(userId);
   }
 
   /**
@@ -251,13 +262,25 @@ export class WorkflowService {
     return this.repo.markAllNotificationsAsRead(userId);
   }
 
+  async deleteNotification(id: string, userId: number): Promise<void> {
+    await this.repo.deleteNotification(id, userId);
+  }
+
   async sendNotification(userId: number, type: CreateNotificationRequest['type'], title: string, content: string, link?: string): Promise<void> {
     const id = uuidv4();
     await this.repo.createNotification({ id, user_id: userId, type, title, content, link });
+
+    // WebSocket 实时推送
+    sendToUser(userId, 'notification', { id, type, title, content, link, isRead: false });
   }
 
   async sendNotificationsToUsers(userIds: number[], type: CreateNotificationRequest['type'], title: string, content: string, link?: string): Promise<void> {
     await this.repo.createNotificationsForUsers(userIds, { type, title, content, link });
+
+    // 批量 WebSocket 实时推送
+    for (const userId of userIds) {
+      sendToUser(userId, 'notification', { type, title, content, link, isRead: false });
+    }
   }
 
   // ========== 定时任务 ==========
@@ -291,14 +314,30 @@ export class WorkflowService {
    * 检查延期任务
    * 每日凌晨1点执行，检查所有已过截止日期但未完成的任务
    */
-  async checkDelayedTasks(): Promise<{ delayedCount: number; warningCount: number }> {
+  async checkDelayedTasks(): Promise<{ delayedCount: number; warningCount: number; recoveredCount: number }> {
     const now = new Date();
 
+    // 0. 检查需要从预警状态恢复的任务（截止日期被延长后脱离预警范围）
+    const tasksToRecover = await this.repo.getTasksToRecoverFromWarning();
+    let recoveredCount = 0;
+
+    for (const task of tasksToRecover) {
+      // 根据是否有实际开始日期决定恢复到哪个状态
+      // 符合需求文档的状态判断规则
+      const newStatus = task.actual_start_date ? 'in_progress' : 'not_started';
+      await this.repo.updateTaskStatus(task.id, newStatus);
+      recoveredCount++;
+    }
+
     // 1. 检查延期预警任务（在预警天数内）
+    // 根据需求文档：无实际完成日期且当前距离计划完成日期≤预警天数
     const warningTasks = await this.repo.getTasksNeedingWarning();
     let warningCount = 0;
 
     for (const task of warningTasks) {
+      // 更新状态为 delay_warning
+      await this.repo.updateTaskStatus(task.id, 'delay_warning');
+
       // 发送预警通知
       if (task.assignee_id) {
         await this.sendNotification(
@@ -334,7 +373,7 @@ export class WorkflowService {
         );
       }
 
-      // 通知项目经理
+      // 通知项目经理、技术经理、部门经理
       const projectManagers = await this.repo.getProjectManagers(task.project_id);
       for (const manager of projectManagers) {
         await this.sendNotification(
@@ -349,7 +388,7 @@ export class WorkflowService {
       delayedCount++;
     }
 
-    return { delayedCount, warningCount };
+    return { delayedCount, warningCount, recoveredCount };
   }
 
   /**

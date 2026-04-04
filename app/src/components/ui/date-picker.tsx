@@ -32,6 +32,9 @@ export function DatePicker({
   className,
   id,
 }: DatePickerProps) {
+  // 控制弹出层打开状态
+  const [open, setOpen] = React.useState(false);
+
   // 处理字符串类型的日期
   const selectedDate = React.useMemo(() => {
     if (!value) return undefined;
@@ -42,10 +45,14 @@ export function DatePicker({
 
   const handleSelect = (date: Date | undefined) => {
     onChange?.(date);
+    // 选择日期后关闭弹出层
+    if (date) {
+      setOpen(false);
+    }
   };
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           id={id}

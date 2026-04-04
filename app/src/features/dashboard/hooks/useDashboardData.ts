@@ -19,13 +19,38 @@ export function useDashboardStats() {
 }
 
 /**
+ * 获取仪表板统计卡片趋势（对比当前周期 vs 上期）
+ */
+export function useDashboardTrends(days: number = 7) {
+  return useQuery({
+    queryKey: ['analytics', 'dashboard-trends', days],
+    queryFn: () => analyticsApi.getDashboardTrends(days),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
  * 获取任务趋势数据
  */
 export function useTaskTrend(days: number = 30) {
+  const endDate = new Date().toISOString().split('T')[0];
+  const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
   return useQuery({
-    queryKey: queryKeys.analytics.taskTrend({ days }),
-    queryFn: () => analyticsApi.getTaskTrend({ days }),
+    queryKey: queryKeys.analytics.taskTrend({ days, startDate, endDate }),
+    queryFn: () => analyticsApi.getTaskTrend({ startDate, endDate }),
     staleTime: 10 * 60 * 1000, // 10 分钟
+  });
+}
+
+/**
+ * 获取所有项目进度
+ */
+export function useProjectProgress() {
+  return useQuery({
+    queryKey: queryKeys.analytics.projectProgress('all'),
+    queryFn: analyticsApi.getAllProjectsProgress,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -36,17 +61,6 @@ export function useTaskDistribution(params: DashboardQueryParams = {}) {
   return useQuery({
     queryKey: queryKeys.analytics.taskStatistics(params),
     queryFn: () => analyticsApi.getTaskStatistics(params),
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-/**
- * 获取项目进度数据
- */
-export function useProjectProgress() {
-  return useQuery({
-    queryKey: queryKeys.analytics.projectProgress('all'),
-    queryFn: () => analyticsApi.getProjectProgress('all'),
     staleTime: 5 * 60 * 1000,
   });
 }

@@ -165,4 +165,15 @@ router.put('/notifications/read-all', async (req: Request, res: Response, next: 
   }
 });
 
+// 删除单个通知
+router.delete('/notifications/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    await workflowService.deleteNotification(req.params.id, currentUser.id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

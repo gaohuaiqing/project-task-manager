@@ -103,6 +103,7 @@ export interface TaskSkillRequirement {
 export interface CandidateScore {
   memberId: number;
   memberName: string;
+  memberGender: 'male' | 'female' | 'other' | null;
   departmentName: string | null;
   score: number; // 0-100
   modelName: string;

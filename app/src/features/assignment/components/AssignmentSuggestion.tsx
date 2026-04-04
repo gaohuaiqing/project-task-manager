@@ -19,6 +19,7 @@ import { useAssignmentSuggestions } from '../hooks/useCapabilities';
 import type { Task, CandidateScore } from '../types';
 import { CheckCircle2, UserPlus, TrendingUp, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getAvatarUrl } from '@/utils/avatar';
 
 interface AssignmentSuggestionProps {
   tasks: Task[];
@@ -161,7 +162,7 @@ function CandidateCard({
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3">
           <Avatar>
-            <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${candidate.memberName}`} />
+            <AvatarImage src={getAvatarUrl(candidate.memberName, candidate.memberGender)} />
             <AvatarFallback>{candidate.memberName.charAt(0)}</AvatarFallback>
           </Avatar>
           <div>

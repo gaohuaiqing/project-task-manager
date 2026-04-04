@@ -8,14 +8,14 @@ import type { RowDataPacket } from 'mysql2/promise';
 
 interface HolidayRow extends RowDataPacket {
   holiday_date: Date;
-  is_working_day: boolean;
+  is_workday: boolean;
 }
 
 /**
  * 获取节假日缓存（进程级缓存）
  */
 let holidayCache: {
-  data: Map<string, boolean>; // date string -> is_working_day
+  data: Map<string, boolean>; // date string -> is_workday
   expiresAt: number;
 } | null = null;
 
@@ -35,12 +35,12 @@ async function loadHolidays(): Promise<Map<string, boolean>> {
 
   try {
     const [rows] = await pool.execute<HolidayRow[]>(
-      'SELECT holiday_date, is_working_day FROM holidays WHERE holiday_date >= CURDATE() - INTERVAL 1 YEAR'
+      'SELECT holiday_date, is_workday FROM holidays WHERE holiday_date >= CURDATE() - INTERVAL 1 YEAR'
     );
 
     rows.forEach((row) => {
       const dateStr = formatDate(row.holiday_date);
-      data.set(dateStr, row.is_working_day);
+      data.set(dateStr, row.is_workday);
     });
   } catch (error) {
     // 表不存在时，使用空的节假日数据（仅按周末判断）

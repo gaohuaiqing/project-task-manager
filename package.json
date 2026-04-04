@@ -8,6 +8,7 @@
     "app/server"
   ],
   "scripts": {
+    "prepare": "husky",
     "===================================": "紧急恢复",
     "dev": "concurrently \"npm:dev:*\" --names \"FRONTEND,BACKEND\"",
     "dev:frontend": "cd app && node --max-old-space-size=4096 ../node_modules/vite/bin/vite.js --port 5173",
@@ -68,9 +69,13 @@
     "cleanup:all": "npm run cleanup:processes && npm run cleanup:cache && npm cache clean --force"
   },
   "devDependencies": {
+    "@commitlint/cli": "^18.4.3",
+    "@commitlint/config-conventional": "^18.4.3",
     "@types/cookie-parser": "^1.4.10",
     "concurrently": "^8.2.2",
     "depcheck": "^1.4.7",
+    "husky": "^9.0.10",
+    "lint-staged": "^15.2.2",
     "prettier": "^3.1.1",
     "rimraf": "^5.0.5"
   },

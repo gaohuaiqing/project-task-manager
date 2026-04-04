@@ -4,16 +4,16 @@
  * - 4种项目类型
  * - 日期必填验证
  * - 日期先后验证
- * - 成员管理分组
+ * - 成员管理分组（树形选择器）
  * - 里程碑分组（动态增减）
  */
 import { useForm, useFieldArray } from 'react-hook-form';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -28,20 +28,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
 import { DatePickerField } from '@/components/ui/date-picker';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { PROJECT_TYPE_OPTIONS, PROJECT_TYPE_CONFIG } from '@/shared/constants';
-import { getMembers, type Member } from '@/lib/api/org.api';
+import { MemberTreeSelector } from '@/components/member-tree-selector';
 import type { Project, CreateProjectRequest, UpdateProjectRequest, ProjectType, Milestone } from '../types';
-import { Plus, X, ChevronDown, Users } from 'lucide-react';
+import { Plus, X, Loader2 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
+import { projectApi } from '@/lib/api/project.api';
+import { queryKeys } from '@/lib/api/query-keys';
 
 // 里程碑表单字段
 interface MilestoneFormData {
@@ -72,7 +67,7 @@ interface ProjectFormProps {
   onOpenChange: (open: boolean) => void;
   project?: Project | null;
   existingMilestones?: Milestone[];
-  onSubmit: (data: CreateProjectRequest | UpdateProjectRequest) => Promise<void>;
+  onSubmit: (data: CreateProjectRequest | UpdateProjectRequest) => Promise<string | boolean>;
   isLoading?: boolean;
 }
 
@@ -85,8 +80,7 @@ export function ProjectForm({
   isLoading,
 }: ProjectFormProps) {
   const isEdit = !!project;
-  const [members, setMembers] = useState<Member[]>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
+  const queryClient = useQueryClient();
 
   const {
     register,
@@ -118,17 +112,6 @@ export function ProjectForm({
   // 选中的成员ID列表
   const selectedMemberIds = watch('memberIds') || [];
 
-  // 加载成员列表
-  useEffect(() => {
-    if (open) {
-      setMembersLoading(true);
-      getMembers({ status: 'active', pageSize: 100 })
-        .then((res) => setMembers(res.items))
-        .catch(console.error)
-        .finally(() => setMembersLoading(false));
-    }
-  }, [open]);
-
   // 编辑模式：填充表单数据
   useEffect(() => {
     if (project) {
@@ -139,7 +122,7 @@ export function ProjectForm({
         projectType: project.projectType,
         startDate: project.startDate || undefined,
         deadline: project.deadline || undefined,
-        memberIds: [],
+        memberIds: project.memberIds || [], // 直接使用 memberIds 字段
         milestones: existingMilestones.map((m) => ({
           id: m.id,
           name: m.name,
@@ -162,17 +145,9 @@ export function ProjectForm({
     }
   }, [project, existingMilestones, reset]);
 
-  // 切换成员选择
-  const toggleMember = (memberId: number) => {
-    const current = selectedMemberIds;
-    if (current.includes(memberId)) {
-      setValue(
-        'memberIds',
-        current.filter((id) => id !== memberId)
-      );
-    } else {
-      setValue('memberIds', [...current, memberId]);
-    }
+  // 切换成员选择（由 MemberTreeSelector 内部处理）
+  const handleMemberChange = (ids: number[]) => {
+    setValue('memberIds', ids);
   };
 
   // 日期验证
@@ -187,6 +162,70 @@ export function ProjectForm({
     return null;
   };
 
+  /**
+   * 同步里程碑变更（编辑模式下使用）
+   * 比较现有里程碑和表单里程碑，执行增删改操作
+   */
+  const syncMilestones = async (
+    projectId: string,
+    formMilestones: MilestoneFormData[],
+    originalMilestones: Milestone[]
+  ): Promise<boolean> => {
+    const originalIds = new Set(originalMilestones.map((m) => m.id));
+    const formIds = new Set(formMilestones.filter((m) => m.id).map((m) => m.id!));
+
+    // 1. 找出需要删除的里程碑（原列表中有，表单中没有）
+    const toDelete = originalMilestones.filter((m) => !formIds.has(m.id));
+
+    // 2. 找出需要新增的里程碑（表单中没有 id 的）
+    const toCreate = formMilestones.filter((m) => !m.id);
+
+    // 3. 找出需要更新的里程碑（两边都有的）
+    const toUpdate = formMilestones.filter((m) => m.id && originalIds.has(m.id));
+
+    try {
+      // 删除
+      for (const milestone of toDelete) {
+        await projectApi.deleteMilestone(milestone.id);
+      }
+
+      // 新增
+      for (const milestone of toCreate) {
+        await projectApi.createMilestone(projectId, {
+          name: milestone.name,
+          targetDate: milestone.targetDate,
+          description: milestone.description,
+          completionPercentage: milestone.completionPercentage,
+        });
+      }
+
+      // 更新
+      for (const formMilestone of toUpdate) {
+        const original = originalMilestones.find((m) => m.id === formMilestone.id);
+        // 只有当数据有变化时才更新
+        if (
+          original &&
+          (original.name !== formMilestone.name ||
+            original.targetDate !== formMilestone.targetDate ||
+            original.description !== formMilestone.description ||
+            original.completionPercentage !== formMilestone.completionPercentage)
+        ) {
+          await projectApi.updateMilestone(formMilestone.id!, {
+            name: formMilestone.name,
+            targetDate: formMilestone.targetDate,
+            description: formMilestone.description,
+            completionPercentage: formMilestone.completionPercentage,
+          });
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.error('同步里程碑失败:', error);
+      return false;
+    }
+  };
+
   const handleFormSubmit = async (data: ProjectFormData) => {
     // 日期验证
     const dateError = validateDates(data);
@@ -195,32 +234,76 @@ export function ProjectForm({
       return;
     }
 
-    const submitData: CreateProjectRequest = {
-      code: data.code,
-      name: data.name,
-      description: data.description,
-      projectType: data.projectType,
-      startDate: data.startDate,
-      deadline: data.deadline,
-      memberIds: data.memberIds.length > 0 ? data.memberIds : undefined,
-      // 里程碑在创建后单独处理
-    };
+    let success = false;
+    if (isEdit && project) {
+      // 编辑模式：发送 UpdateProjectRequest
+      const submitData: UpdateProjectRequest = {
+        code: data.code,
+        name: data.name,
+        description: data.description,
+        projectType: data.projectType,
+        startDate: data.startDate,
+        deadline: data.deadline,
+        memberIds: data.memberIds,
+        version: project.version,
+      };
+      success = await onSubmit(submitData);
 
-    await onSubmit(submitData);
-    onOpenChange(false);
-    reset();
-  };
+      // 项目更新成功后，同步里程碑
+      if (success) {
+        await syncMilestones(project.id, data.milestones, existingMilestones);
+        // 失效里程碑查询缓存，确保页面显示最新数据
+        queryClient.invalidateQueries({ queryKey: queryKeys.project.milestones(project.id) });
+      }
+    } else {
+      // 创建模式：发送 CreateProjectRequest
+      const submitData: CreateProjectRequest = {
+        code: data.code,
+        name: data.name,
+        description: data.description,
+        projectType: data.projectType,
+        startDate: data.startDate!,
+        deadline: data.deadline!,
+        memberIds: data.memberIds.length > 0 ? data.memberIds : undefined,
+      };
+      const result = await onSubmit(submitData);
 
-  // 获取选中成员的显示名称
-  const getSelectedMemberNames = () => {
-    const selected = members.filter((m) => selectedMemberIds.includes(m.id));
-    if (selected.length === 0) return '选择项目成员';
-    if (selected.length <= 3) {
-      return selected.map((m) => m.name).join('、');
+      // 检查是否返回了新项目ID（字符串类型表示创建成功并返回ID）
+      if (typeof result === 'string') {
+        success = true;
+        const newProjectId = result;
+
+        // 创建项目成功后，创建里程碑（如果有的话）
+        if (data.milestones && data.milestones.length > 0) {
+          try {
+            for (const milestone of data.milestones) {
+              await projectApi.createMilestone(newProjectId, {
+                name: milestone.name,
+                targetDate: milestone.targetDate,
+                description: milestone.description,
+                completionPercentage: milestone.completionPercentage ?? 0,
+              });
+            }
+            // 失效里程碑查询缓存
+            queryClient.invalidateQueries({ queryKey: queryKeys.project.milestones(newProjectId) });
+          } catch (error) {
+            console.error('创建里程碑失败:', error);
+            // 里程碑创建失败不影响项目创建成功的状态
+          }
+        }
+      } else {
+        success = result;
+      }
     }
-    return `${selected.slice(0, 3).map((m) => m.name).join('、')} 等${selected.length}人`;
+
+    // 只有提交成功才关闭对话框
+    if (success) {
+      onOpenChange(false);
+      reset();
+    }
   };
 
+  
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
@@ -241,7 +324,6 @@ export function ProjectForm({
                   id="code"
                   {...register('code', { required: '请输入项目编码' })}
                   placeholder="PRJ-001"
-                  disabled={isEdit}
                 />
                 {errors.code && (
                   <p className="text-xs text-destructive">{errors.code.message}</p>
@@ -338,74 +420,11 @@ export function ProjectForm({
             <h3 className="text-sm font-medium text-muted-foreground">成员管理</h3>
             <div className="space-y-2">
               <Label>项目成员</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    className="w-full justify-between font-normal"
-                    disabled={membersLoading}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Users className="h-4 w-4" />
-                      {getSelectedMemberNames()}
-                    </span>
-                    <ChevronDown className="h-4 w-4 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[400px] p-0" align="start">
-                  <ScrollArea className="h-[300px]">
-                    <div className="p-2">
-                      {members.length === 0 ? (
-                        <p className="text-sm text-muted-foreground text-center py-4">
-                          暂无可选成员
-                        </p>
-                      ) : (
-                        members.map((member) => (
-                          <div
-                            key={member.id}
-                            className="flex items-center space-x-2 p-2 hover:bg-accent rounded-md cursor-pointer"
-                            onClick={() => toggleMember(member.id)}
-                          >
-                            <Checkbox
-                              checked={selectedMemberIds.includes(member.id)}
-                              onCheckedChange={() => toggleMember(member.id)}
-                            />
-                            <div className="flex-1">
-                              <p className="text-sm font-medium">{member.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {member.departmentName || '未分配部门'}
-                              </p>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </ScrollArea>
-                </PopoverContent>
-              </Popover>
-              {selectedMemberIds.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {members
-                    .filter((m) => selectedMemberIds.includes(m.id))
-                    .map((member) => (
-                      <Badge
-                        key={member.id}
-                        variant="secondary"
-                        className="gap-1"
-                      >
-                        {member.name}
-                        <button
-                          type="button"
-                          onClick={() => toggleMember(member.id)}
-                          className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    ))}
-                </div>
-              )}
+              <MemberTreeSelector
+                value={selectedMemberIds}
+                onChange={handleMemberChange}
+                width={500}
+              />
             </div>
           </div>
 

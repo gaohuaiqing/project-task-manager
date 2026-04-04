@@ -2,7 +2,20 @@
 import { v4 as uuidv4 } from 'uuid';
 import { TaskRepository } from './repository';
 import { ProjectRepository } from '../project/repository';
+import { AuthRepository } from '../auth/repository';
 import { ValidationError, ForbiddenError } from '../../core/errors';
+import { audit } from '../../core/audit';
+
+/**
+ * 将 Date 对象格式化为本地日期字符串 YYYY-MM-DD
+ * 避免使用 toISOString() 导致 UTC 时区偏移问题
+ */
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 import {
   calculateEndDate,
   calculateStartDateFromPredecessor,
@@ -61,6 +74,7 @@ function calculateActualCycle(actualStartDate: Date | null, actualEndDate: Date 
 export class TaskService {
   private repo = new TaskRepository();
   private projectRepo = new ProjectRepository();
+  private authRepo = new AuthRepository();
 
   constructor() {
     // 订阅任务更新事件（级联更新）
@@ -164,8 +178,8 @@ export class TaskService {
 
       // 更新任务日期
       await this.repo.updateTaskDates(successor.id, {
-        start_date: newStartDate.toISOString().split('T')[0],
-        end_date: newEndDate.toISOString().split('T')[0],
+        start_date: formatLocalDate(newStartDate),
+        end_date: formatLocalDate(newEndDate),
       });
 
       // 递归触发后续任务的级联更新
@@ -189,8 +203,14 @@ export class TaskService {
     const { items, total } = await this.repo.getTasks(options);
     const totalPages = Math.ceil(total / pageSize);
 
+    // 实时计算每个任务的状态（符合需求文档：状态应该实时判断）
+    const itemsWithComputedStatus = items.map(item => ({
+      ...item,
+      computed_status: this.calculateStatus(item as any),
+    }));
+
     // 构建树形结构
-    const tree = this.buildTaskTree(items);
+    const tree = this.buildTaskTree(itemsWithComputedStatus);
 
     return { items: tree, total, page, pageSize, totalPages };
   }
@@ -218,7 +238,14 @@ export class TaskService {
   }
 
   async getTaskById(id: string): Promise<WBSTask | null> {
-    return this.repo.getTaskById(id);
+    const task = await this.repo.getTaskById(id);
+    if (!task) return null;
+
+    // 实时计算状态（符合需求文档：状态应该实时判断）
+    return {
+      ...task,
+      computed_status: this.calculateStatus(task),
+    };
   }
 
   /**
@@ -229,9 +256,26 @@ export class TaskService {
   }
 
   async createTask(data: CreateTaskRequest, currentUser: User): Promise<string> {
-    // 验证权限
-    if (currentUser.role !== 'admin' && currentUser.role !== 'tech_manager' && currentUser.role !== 'engineer') {
+    // 验证权限 - admin/tech_manager/dept_manager/engineer 都可以创建任务
+    if (currentUser.role !== 'admin' && currentUser.role !== 'tech_manager' && currentUser.role !== 'dept_manager' && currentUser.role !== 'engineer') {
       throw new ForbiddenError('无权限创建任务');
+    }
+
+    // 工程师只能创建子任务（在已分配给自己的任务下）
+    if (currentUser.role === 'engineer') {
+      // 1. 不能创建根任务
+      if (!data.parent_id) {
+        throw new ForbiddenError('工程师只能创建子任务，请选择父任务');
+      }
+
+      // 2. 父任务必须已分配给自己
+      const parentTask = await this.repo.getTaskById(data.parent_id);
+      if (!parentTask) {
+        throw new ValidationError('父任务不存在');
+      }
+      if (parentTask.assignee_id !== currentUser.id) {
+        throw new ForbiddenError('只能在自己负责的任务下创建子任务');
+      }
     }
 
     // 验证必填字段
@@ -333,7 +377,26 @@ export class TaskService {
       status,
       is_six_day_week: isSixDayWeek,
       planned_duration: plannedDuration ?? undefined,
+      start_date: formatLocalDate(startDate),
+      end_date: formatLocalDate(endDate),
     });
+
+    // 🆕 自动创建第一条进展记录（记录任务创建时间）
+    const initialInfo = [
+      `WBS编码: ${wbsCode}`,
+      `工期: ${duration}天`,
+      data.start_date ? `计划开始: ${formatLocalDate(startDate)}` : null,
+    ].filter(Boolean).join('，');
+
+    await this.repo.createProgressRecord({
+      id: uuidv4(),
+      task_id: id,
+      content: `📝 任务创建。${initialInfo}`,
+      recorded_by: currentUser.id,
+    });
+
+    // 进展记录计数 +1
+    await this.repo.incrementTaskCounter(id, 'progress_record_count');
 
     return id;
   }
@@ -349,6 +412,18 @@ export class TaskService {
       const isMember = await this.projectRepo.isProjectMember(task.project_id, currentUser.id);
       if (!isMember) {
         throw new ForbiddenError('您不是该项目的成员，无权限修改任务');
+      }
+    }
+
+    // P0修复：工程师编辑限制 - 工程师只能编辑自己负责的任务
+    if (currentUser.role === 'engineer' && task.assignee_id !== currentUser.id) {
+      throw new ForbiddenError('工程师只能编辑自己负责的任务');
+    }
+
+    // P0修复：TASK_ASSIGN 权限检查 - 工程师不能修改任务负责人
+    if (data.assignee_id !== undefined && data.assignee_id !== task.assignee_id) {
+      if (currentUser.role === 'engineer') {
+        throw new ForbiddenError('工程师无权分配任务给其他人');
       }
     }
 
@@ -446,6 +521,30 @@ export class TaskService {
     const result = await this.repo.updateTask(id, { ...data, version: data.version || task.version });
 
     if (result.updated) {
+      // 检测负责人变更 - 权限跟随负责人规则
+      if (data.assignee_id !== undefined && data.assignee_id !== task.assignee_id) {
+        const oldAssignee = task.assignee_id;
+        const newAssignee = data.assignee_id;
+
+        // 记录审计日志（权限转移）
+        await audit.log({
+          userId: currentUser.id,
+          username: currentUser.real_name,
+          userRole: currentUser.role,
+          category: 'data',
+          action: 'UPDATE',
+          tableName: 'wbs_tasks',
+          recordId: id,
+          details: `任务负责人变更: ${oldAssignee || '未分配'} → ${newAssignee || '未分配'}，权限已转移`,
+          before_data: { assignee_id: oldAssignee },
+          after_data: { assignee_id: newAssignee },
+        });
+
+        // TODO: 发送通知给新旧负责人
+        // 通知旧负责人（如果有）- 权限已移除
+        // 通知新负责人（如果有）- 获得新任务权限
+      }
+
       // 更新任务状态
       await this.recalculateTaskStatus(id);
 
@@ -507,7 +606,7 @@ export class TaskService {
     const plannedDuration = calculatePlannedDuration(startDate, endDate);
 
     const result: Partial<UpdateTaskRequest> = {
-      start_date: startDate.toISOString().split('T')[0],
+      start_date: formatLocalDate(startDate),
       planned_duration: plannedDuration ?? undefined,
     };
 
@@ -538,7 +637,8 @@ export class TaskService {
   }
 
   async deleteTask(id: string, currentUser: User): Promise<void> {
-    if (currentUser.role !== 'admin' && currentUser.role !== 'tech_manager') {
+    // admin/tech_manager/dept_manager 可以删除任务
+    if (currentUser.role !== 'admin' && currentUser.role !== 'tech_manager' && currentUser.role !== 'dept_manager') {
       throw new ForbiddenError('无权限删除任务');
     }
 
@@ -555,10 +655,35 @@ export class TaskService {
       }
     }
 
+    // 获取所有将被删除的任务（包括子任务）
+    const tasksToDelete = await this.repo.getTaskWithDescendants(id);
+
+    // 执行删除
     const deleted = await this.repo.deleteTask(id);
     if (!deleted) {
       throw new ValidationError('删除任务失败');
     }
+
+    // 记录审计日志
+    await audit.log({
+      userId: currentUser.id,
+      username: currentUser.real_name,
+      userRole: currentUser.role,
+      category: 'data',
+      action: 'DELETE',
+      tableName: 'wbs_tasks',
+      recordId: id,
+      details: `删除任务: ${task.description} (WBS: ${task.wbs_code})，级联删除 ${tasksToDelete.length - 1} 个子任务`,
+      before_data: {
+        task: task,
+        deleted_tasks: tasksToDelete.map(t => ({
+          id: t.id,
+          wbs_code: t.wbs_code,
+          description: t.description,
+          assignee_id: t.assignee_id,
+        })),
+      },
+    });
   }
 
   // ========== 状态计算 ==========
@@ -586,28 +711,45 @@ export class TaskService {
     }
 
     const now = new Date();
+    now.setHours(0, 0, 0, 0);  // 重置时间部分，只比较日期
     const endDate = task.end_date ? new Date(task.end_date) : null;
+    if (endDate) endDate.setHours(0, 0, 0, 0);
     const actualStart = task.actual_start_date ? new Date(task.actual_start_date) : null;
+    if (actualStart) actualStart.setHours(0, 0, 0, 0);
     const actualEnd = task.actual_end_date ? new Date(task.actual_end_date) : null;
+    if (actualEnd) actualEnd.setHours(0, 0, 0, 0);
 
-    // 1. 已完成状态
-    if (actualEnd) {
-      if (endDate && actualEnd < endDate) return 'early_completed';
-      if (endDate && actualEnd.getTime() === endDate.getTime()) return 'on_time_completed';
-      if (endDate && actualEnd > endDate) return 'overdue_completed';
+    // 1. 已完成状态（规则5、6、9）
+    if (actualEnd && endDate) {
+      if (actualEnd < endDate) return 'early_completed';      // 规则5：提前完成
+      if (actualEnd.getTime() === endDate.getTime()) return 'on_time_completed';  // 规则6：按时完成
+      if (actualEnd > endDate) return 'overdue_completed';    // 规则9：超期完成
     }
 
-    // 2. 进行中
-    if (actualStart && !actualEnd) {
-      if (endDate && now > endDate) return 'delayed';
-      if (endDate) {
-        const daysLeft = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        if (daysLeft <= task.warning_days) return 'delay_warning';
-      }
+    // 2. 未完成的任务（无实际完成日期）
+    if (!actualEnd && endDate) {
+      const daysLeft = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+      // 规则8：已延迟 - 无实际完成日期且当前已超过计划完成日期
+      if (daysLeft < 0) return 'delayed';
+
+      // 规则7：延期预警 - 无实际完成日期且当前距离计划完成日期≤预警天数
+      // 注意：需求文档没有要求有实际开始日期！
+      if (daysLeft <= task.warning_days) return 'delay_warning';
+    }
+
+    // 3. 进行中（规则4）：有计划日期、实际开始日期，无实际完成日期且未超期
+    // 修复：需要检查"未超期"条件 - 如果已超期应该返回 delayed 而不是 in_progress
+    if (actualStart && (!endDate || now <= endDate)) {
       return 'in_progress';
     }
 
-    // 3. 未开始
+    // 4. 如果有实际开始日期但已超期（前面没有捕获的情况）
+    if (actualStart && endDate && now > endDate) {
+      return 'delayed';
+    }
+
+    // 5. 未开始（规则3）：没有完整计划日期或有计划日期但无实际开始日期
     return 'not_started';
   }
 
@@ -618,6 +760,32 @@ export class TaskService {
   }
 
   async addProgressRecord(taskId: string, content: string, userId: number): Promise<string> {
+    const task = await this.repo.getTaskById(taskId);
+    if (!task) {
+      throw new ValidationError('任务不存在');
+    }
+
+    // 获取用户信息进行权限检查
+    const user = await this.authRepo.findById(userId);
+    if (!user) {
+      throw new ValidationError('用户不存在');
+    }
+
+    // P1修复：权限检查 - 只有以下用户可以添加进度记录
+    // 1. 管理员角色（admin/dept_manager/tech_manager）
+    // 2. 任务负责人（assignee）
+    // 3. 项目成员
+    const isAdminRole = user.role === 'admin' || user.role === 'dept_manager' || user.role === 'tech_manager';
+    const isAssignee = task.assignee_id === userId;
+
+    if (!isAdminRole && !isAssignee) {
+      // 非管理员且非任务负责人，需要检查是否为项目成员
+      const isMember = await this.projectRepo.isProjectMember(task.project_id, userId);
+      if (!isMember) {
+        throw new ForbiddenError('只有任务负责人或项目成员可以添加进度记录');
+      }
+    }
+
     const id = uuidv4();
     await this.repo.createProgressRecord({ id, task_id: taskId, content, recorded_by: userId });
     await this.repo.incrementTaskCounter(taskId, 'progress_record_count');

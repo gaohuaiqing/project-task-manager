@@ -69,7 +69,10 @@ export interface CreateDelayRecordRequest {
 export type NotificationType =
   | 'approval' | 'approval_result' | 'approval_timeout'
   | 'delay' | 'delay_warning' | 'task_delayed'
-  | 'daily_summary' | 'system';
+  | 'daily_summary' | 'system'
+  | 'new_device'          // 新设备登录
+  | 'ip_change'           // IP地址变更
+  | 'session_terminated'; // 会话异常终止
 
 export interface Notification {
   id: string;

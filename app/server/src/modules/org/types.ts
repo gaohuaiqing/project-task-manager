@@ -31,15 +31,21 @@ export interface UpdateDepartmentRequest {
 
 // ============ 成员相关 ============
 
+export type GenderType = 'male' | 'female' | 'other';
+
 export interface Member {
   id: number;
   username: string;
   real_name: string;
   role: 'admin' | 'tech_manager' | 'dept_manager' | 'engineer';
+  gender: GenderType | null;
   department_id: number | null;
   email: string | null;
   phone: string | null;
   is_active: boolean;
+  is_builtin: boolean;
+  deleted_at: Date | null;
+  deleted_by: number | null;
   created_at: Date;
   updated_at: Date;
   department_name?: string;
@@ -49,6 +55,7 @@ export interface CreateMemberRequest {
   username: string;
   real_name: string;
   role: Member['role'];
+  gender?: GenderType;
   department_id: number;
   email?: string;
   phone?: string;
@@ -57,6 +64,7 @@ export interface CreateMemberRequest {
 export interface UpdateMemberRequest {
   real_name?: string;
   role?: Member['role'];
+  gender?: GenderType;
   department_id?: number | null;
   email?: string;
   phone?: string;
@@ -70,6 +78,7 @@ export interface MemberQueryOptions {
   search?: string;
   page?: number;
   pageSize?: number;
+  excludeBuiltin?: boolean;
 }
 
 export interface MemberListResponse {
@@ -146,6 +155,7 @@ export interface UpdateMemberCapabilityRequest {
 export interface AssigneeRecommendation {
   user_id: number;
   real_name: string;
+  gender: GenderType | null;
   department_name: string;
   model_name: string;
   overall_score: number;

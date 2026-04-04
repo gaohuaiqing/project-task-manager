@@ -71,7 +71,8 @@ export class ProjectRepository {
     const [rows] = await pool.execute<ProjectRow[]>(
       `SELECT p.*,
         COALESCE(JSON_LENGTH(p.member_ids), 0) as member_count_calc,
-        (SELECT COUNT(*) FROM milestones m WHERE m.project_id = p.id) as milestone_count_calc
+        (SELECT COUNT(*) FROM milestones m WHERE m.project_id = p.id) as milestone_count_calc,
+        (SELECT COUNT(*) FROM wbs_tasks t WHERE t.project_id = p.id) as task_count_calc
        FROM projects p
        ${whereClause}
        ORDER BY p.updated_at DESC
@@ -91,6 +92,7 @@ export class ProjectRepository {
       ...r,
       member_count: (r as any).member_count_calc || 0,
       milestone_count: (r as any).milestone_count_calc || 0,
+      task_count: (r as any).task_count_calc || 0,
       members: memberSummaries.get(r.id) || [],
     }));
 
@@ -108,7 +110,7 @@ export class ProjectRepository {
 
     const placeholders = projectIds.map(() => '?').join(',');
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT pm.project_id, u.id, u.real_name as name, u.avatar
+      `SELECT pm.project_id, u.id, u.real_name as name
        FROM project_members pm
        JOIN users u ON pm.user_id = u.id
        WHERE pm.project_id IN (${placeholders})
@@ -167,14 +169,26 @@ export class ProjectRepository {
     const fields: string[] = [];
     const values: (string | number | null)[] = [];
 
+    // Helper function to convert ISO date to MySQL DATE format
+    const toMySQLDate = (date: string | Date | null): string | null => {
+      if (!date) return null;
+      const d = new Date(date);
+      return d.toISOString().split('T')[0];
+    };
+
+    if (data.code !== undefined) { fields.push('code = ?'); values.push(data.code); }
     if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
     if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description); }
     if (data.status !== undefined) { fields.push('status = ?'); values.push(data.status); }
     if (data.project_type !== undefined) { fields.push('project_type = ?'); values.push(data.project_type); }
-    if (data.planned_start_date !== undefined) { fields.push('planned_start_date = ?'); values.push(data.planned_start_date); }
-    if (data.planned_end_date !== undefined) { fields.push('planned_end_date = ?'); values.push(data.planned_end_date); }
-    if (data.actual_start_date !== undefined) { fields.push('actual_start_date = ?'); values.push(data.actual_start_date); }
-    if (data.actual_end_date !== undefined) { fields.push('actual_end_date = ?'); values.push(data.actual_end_date); }
+    if (data.planned_start_date !== undefined) { fields.push('planned_start_date = ?'); values.push(toMySQLDate(data.planned_start_date)); }
+    if (data.planned_end_date !== undefined) { fields.push('planned_end_date = ?'); values.push(toMySQLDate(data.planned_end_date)); }
+    if (data.actual_start_date !== undefined) { fields.push('actual_start_date = ?'); values.push(toMySQLDate(data.actual_start_date)); }
+    if (data.member_ids !== undefined) {
+      fields.push('member_ids = ?');
+      values.push(data.member_ids.length > 0 ? JSON.stringify(data.member_ids) : null);
+    }
+    if (data.actual_end_date !== undefined) { fields.push('actual_end_date = ?'); values.push(toMySQLDate(data.actual_end_date)); }
 
     if (fields.length === 0) {
       return { updated: false, conflict: false };
@@ -343,6 +357,8 @@ export class ProjectRepository {
     if (data.type !== undefined) { fields.push('type = ?'); values.push(data.type); }
     if (data.visible !== undefined) { fields.push('visible = ?'); values.push(data.visible); }
     if (data.sort_order !== undefined) { fields.push('sort_order = ?'); values.push(data.sort_order); }
+    if (data.progress !== undefined) { fields.push('progress = ?'); values.push(data.progress); }
+    if (data.status !== undefined) { fields.push('status = ?'); values.push(data.status); }
 
     if (fields.length === 0) return false;
 
@@ -395,7 +411,7 @@ export class ProjectRepository {
 
     await pool.execute(
       `INSERT INTO timeline_tasks (id, timeline_id, title, description, start_date, end_date, status, priority, progress, assignee_id, source_type, source_id, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, 'not_started', ?, 0, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, ?, ?)`,
       [data.id, data.timeline_id, data.title, data.description || null, data.start_date, data.end_date, data.priority || 'medium', data.assignee_id || null, data.source_type || null, data.source_id || null, sortOrder]
     );
     return data.id;
@@ -487,13 +503,13 @@ export class ProjectRepository {
     const pool = getPool();
     if (year) {
       const [rows] = await pool.execute<HolidayRow[]>(
-        "SELECT id, holiday_date as date, name, CASE WHEN is_workday = 1 THEN 'workday' ELSE 'legal' END as type FROM holidays WHERE year = ? ORDER BY holiday_date",
+        "SELECT id, DATE_FORMAT(holiday_date, '%Y-%m-%d') as date, name, CASE WHEN is_workday = 1 THEN 'workday' ELSE 'legal' END as type FROM holidays WHERE year = ? ORDER BY holiday_date",
         [year]
       );
       return rows;
     }
     const [rows] = await pool.execute<HolidayRow[]>(
-      "SELECT id, holiday_date as date, name, CASE WHEN is_workday = 1 THEN 'workday' ELSE 'legal' END as type FROM holidays ORDER BY holiday_date"
+      "SELECT id, DATE_FORMAT(holiday_date, '%Y-%m-%d') as date, name, CASE WHEN is_workday = 1 THEN 'workday' ELSE 'legal' END as type FROM holidays ORDER BY holiday_date"
     );
     return rows;
   }

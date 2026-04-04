@@ -32,8 +32,10 @@ export function useUpdateProject(id: string) {
   return useMutation({
     mutationFn: (data: UpdateProjectRequest) => projectApi.updateProject(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.project.detail(id) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.project.list() });
+      // 使用 project.all 失效所有项目相关查询（包括带参数的列表查询）
+      queryClient.invalidateQueries({ queryKey: queryKeys.project.all });
+      // 失效任务缓存：任务中的 projectName 是 JOIN 查询返回的
+      queryClient.invalidateQueries({ queryKey: queryKeys.task.all });
     },
   });
 }
@@ -121,6 +123,52 @@ export function useRemoveProjectMember(projectId: string) {
     mutationFn: (userId: number) => projectApi.removeProjectMember(projectId, userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.project.members(projectId) });
+    },
+  });
+}
+
+// ============ 时间线 Mutations ============
+
+/**
+ * 创建时间线
+ */
+export function useCreateTimeline(projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: Parameters<typeof projectApi.createTimeline>[1]) =>
+      projectApi.createTimeline(projectId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.project.timelines(projectId) });
+    },
+  });
+}
+
+/**
+ * 更新时间线
+ */
+export function useUpdateTimeline(projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof projectApi.updateTimeline>[1] }) =>
+      projectApi.updateTimeline(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.project.timelines(projectId) });
+    },
+  });
+}
+
+/**
+ * 删除时间线
+ */
+export function useDeleteTimeline(projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => projectApi.deleteTimeline(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.project.timelines(projectId) });
     },
   });
 }

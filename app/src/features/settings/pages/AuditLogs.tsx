@@ -29,16 +29,16 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 // 操作类型颜色
 const ACTION_COLORS: Record<string, string> = {
-  LOGIN: 'bg-purple-100 text-purple-700',
-  LOGOUT: 'bg-gray-100 text-gray-700',
-  PASSWORD_CHANGE: 'bg-orange-100 text-orange-700',
-  ROLE_CHANGE: 'bg-yellow-100 text-yellow-700',
-  CREATE: 'bg-green-100 text-green-700',
-  UPDATE: 'bg-blue-100 text-blue-700',
-  DELETE: 'bg-red-100 text-red-700',
-  ASSIGN: 'bg-cyan-100 text-cyan-700',
-  APPROVE: 'bg-emerald-100 text-emerald-700',
-  REJECT: 'bg-rose-100 text-rose-700',
+  LOGIN: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300',
+  LOGOUT: 'bg-muted text-muted-foreground',
+  PASSWORD_CHANGE: 'bg-orange-100 dark:bg-orange-900/3 text-orange-700 dark:text-orange-300',
+  ROLE_CHANGE: 'bg-yellow-100 dark:bg-yellow-900/3 text-yellow-700 dark:text-yellow-300',
+  CREATE: 'bg-green-100 dark:bg-green-900/3 text-green-700 dark:text-green-300',
+  UPDATE: 'bg-blue-100 dark:bg-blue-900/3 text-blue-700 dark:text-blue-300',
+  DELETE: 'bg-red-100 dark:bg-red-900/3 text-red-700 dark:text-red-300',
+  ASSIGN: 'bg-cyan-100 dark:bg-cyan-900/3 text-cyan-700 dark:text-cyan-300',
+  APPROVE: 'bg-emerald-100 dark:bg-emerald-900/3 text-emerald-700 dark:text-emerald-300',
+  REJECT: 'bg-rose-100 dark:bg-rose-900/3 text-rose-700 dark:text-rose-300',
 };
 
 // 操作类型标签
@@ -64,6 +64,100 @@ const QUICK_DATE_OPTIONS = [
   { label: '近30天', days: 30 },
   { label: '近90天', days: 90 },
 ];
+
+/**
+ * 安全格式化时间 - 处理无效日期
+ */
+function safeFormatTime(time: string | Date | null | undefined): string {
+  if (!time) return '-';
+
+  try {
+    const date = new Date(time);
+    // 检查日期是否有效
+    if (isNaN(date.getTime())) {
+      return '-';
+    }
+    return format(date, 'yyyy-MM-dd HH:mm:ss');
+  } catch {
+    return '-';
+  }
+}
+
+/**
+ * 格式化日志详情 - 让内容更易读
+ */
+function formatLogDetails(log: AuditLog): string {
+  // 1. 尝试解析 details
+  let detailsObj: Record<string, unknown> | null = null;
+
+  if (log.details) {
+    if (typeof log.details === 'string') {
+      // 尝试解析 JSON 字符串
+      try {
+        const parsed = JSON.parse(log.details);
+        if (parsed && typeof parsed === 'object') {
+          detailsObj = parsed;
+        } else {
+          // 不是对象，直接返回字符串
+          return log.details;
+        }
+      } catch {
+        // 不是 JSON，直接返回原始字符串
+        return log.details;
+      }
+    } else if (typeof log.details === 'object') {
+      detailsObj = log.details as Record<string, unknown>;
+    }
+  }
+
+  // 2. 如果解析出对象，提取关键字段
+  if (detailsObj) {
+    // 提取 message 字段
+    if (detailsObj.message) {
+      return String(detailsObj.message);
+    }
+
+    // 提取 action + target 组合
+    if (detailsObj.action && detailsObj.target) {
+      return `${detailsObj.action} ${detailsObj.target}`;
+    }
+
+    // 提取字段变更
+    if (detailsObj.field && detailsObj.from !== undefined && detailsObj.to !== undefined) {
+      return `修改 ${detailsObj.field}: "${detailsObj.from}" → "${detailsObj.to}"`;
+    }
+
+    // 提取项目/任务名称
+    if (detailsObj.name || detailsObj.projectName || detailsObj.taskName) {
+      const name = detailsObj.name || detailsObj.projectName || detailsObj.taskName;
+      const action = ACTION_LABELS[log.action] || log.action;
+      return `${action} "${name}"`;
+    }
+  }
+
+  // 3. 根据 action 类型生成默认描述
+  const actionLabel = ACTION_LABELS[log.action] || log.action;
+  const categoryLabel = CATEGORY_LABELS[log.category] || log.category;
+
+  if (log.tableName) {
+    // 转换表名为中文
+    const tableNames: Record<string, string> = {
+      projects: '项目',
+      tasks: '任务',
+      users: '用户',
+      departments: '部门',
+      milestones: '里程碑',
+      progress_records: '进度记录',
+      capability_models: '能力模型',
+      delay_records: '延期记录',
+    };
+    const tableName = tableNames[log.tableName] || log.tableName;
+    return `${actionLabel} ${tableName}`;
+  }
+
+  // 4. 兜底：显示分类+操作
+  return `${categoryLabel} - ${actionLabel}`;
+}
 
 export function AuditLogsSettings() {
   const { user } = useAuth();
@@ -240,6 +334,16 @@ export function AuditLogsSettings() {
 
       {/* 日志列表 */}
       <div className="border rounded-lg divide-y">
+        {/* 表头 */}
+        <div className="flex items-center gap-4 px-4 py-3 bg-muted/50 text-sm font-medium text-muted-foreground">
+          <div className="whitespace-nowrap w-[170px]">时间</div>
+          <div className="whitespace-nowrap w-[80px]">用户</div>
+          <div className="whitespace-nowrap">操作</div>
+          <div className="flex-1">操作内容</div>
+          <div className="whitespace-nowrap">IP地址</div>
+        </div>
+
+        {/* 数据行 */}
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -251,22 +355,17 @@ export function AuditLogsSettings() {
         ) : (
           logs.map((log) => (
             <div
-              key={log.audit_id}
+              key={log.auditId}
               className="flex items-center gap-4 px-4 py-3 hover:bg-muted/50 transition-colors group"
             >
-              {/* 时间 */}
-              <div className="text-sm text-muted-foreground whitespace-nowrap w-[150px]">
-                {new Date(log.created_at).toLocaleString('zh-CN', {
-                  month: '2-digit',
-                  day: '2-digit',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
+              {/* 时间 - 精确到秒 */}
+              <div className="text-sm text-muted-foreground whitespace-nowrap w-[170px] font-mono">
+                {safeFormatTime(log.createdAt)}
               </div>
 
               {/* 用户 */}
               <div className="font-medium whitespace-nowrap w-[80px]">
-                {log.actor_username || '系统'}
+                {log.actorUsername || '系统'}
               </div>
 
               {/* 操作类型 */}
@@ -274,14 +373,14 @@ export function AuditLogsSettings() {
                 {ACTION_LABELS[log.action] || log.action}
               </Badge>
 
-              {/* 操作描述 */}
+              {/* 操作描述 - 格式化显示 */}
               <div className="flex-1 truncate text-sm">
-                {log.details || `${log.action} ${log.table_name}`}
+                {formatLogDetails(log)}
               </div>
 
               {/* IP地址（悬停显示） */}
               <div className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                {log.ip_address || '-'}
+                {log.ipAddress || '-'}
               </div>
             </div>
           ))

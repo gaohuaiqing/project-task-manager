@@ -89,6 +89,90 @@ export class OrgRepository {
     return rows[0].count;
   }
 
+  /**
+   * 获取所有子部门ID（递归）
+   */
+  async getAllChildDepartmentIds(departmentId: number): Promise<number[]> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT id FROM departments WHERE parent_id = ?',
+      [departmentId]
+    );
+    const childIds = rows.map(r => r.id);
+    // 递归获取子部门的子部门
+    for (const childId of childIds) {
+      const grandChildren = await this.getAllChildDepartmentIds(childId);
+      childIds.push(...grandChildren);
+    }
+    return childIds;
+  }
+
+  /**
+   * 获取用户作为经理管理的部门
+   * 返回部门ID和名称
+   */
+  async getManagedDepartmentByUserId(userId: number): Promise<{ id: number; name: string } | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT id, name FROM departments WHERE manager_id = ?',
+      [userId]
+    );
+    return rows[0] ? { id: rows[0].id, name: rows[0].name } : null;
+  }
+
+  /**
+   * 检查目标部门是否是管理部门的子部门（递归）
+   * @param targetDeptId 目标部门ID
+   * @param managedDeptId 管理的部门ID
+   */
+  async isChildDepartment(targetDeptId: number, managedDeptId: number): Promise<boolean> {
+    // 目标部门就是管理部门本身
+    if (targetDeptId === managedDeptId) return true;
+
+    // 获取所有子部门
+    const childIds = await this.getAllChildDepartmentIds(managedDeptId);
+    return childIds.includes(targetDeptId);
+  }
+
+  /**
+   * 获取用户管理的部门及其所有子部门ID
+   * @param userId 用户ID
+   * @returns 部门ID数组，如果用户不是部门经理则返回空数组
+   */
+  async getManagedDepartmentIds(userId: number): Promise<number[]> {
+    const managedDept = await this.getManagedDepartmentByUserId(userId);
+    if (!managedDept) return [];
+
+    const childIds = await this.getAllChildDepartmentIds(managedDept.id);
+    return [managedDept.id, ...childIds];
+  }
+
+  /**
+   * 将部门下的成员移动到另一个部门
+   */
+  async moveMembersToDepartment(fromDeptId: number, toDeptId: number | null): Promise<number> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      'UPDATE users SET department_id = ? WHERE department_id = ?',
+      [toDeptId, fromDeptId]
+    );
+    return result.affectedRows;
+  }
+
+  /**
+   * 批量删除部门
+   */
+  async deleteDepartments(ids: number[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const pool = getPool();
+    const placeholders = ids.map(() => '?').join(',');
+    const [result] = await pool.execute<ResultSetHeader>(
+      `DELETE FROM departments WHERE id IN (${placeholders})`,
+      ids
+    );
+    return result.affectedRows;
+  }
+
   // ========== 成员 CRUD ==========
 
   async getMembers(options: {
@@ -98,6 +182,7 @@ export class OrgRepository {
     search?: string;
     page?: number;
     pageSize?: number;
+    excludeBuiltin?: boolean;
   }): Promise<{ items: Member[]; total: number }> {
     const pool = getPool();
     const conditions: string[] = [];
@@ -120,6 +205,9 @@ export class OrgRepository {
       const searchPattern = `%${options.search}%`;
       params.push(searchPattern, searchPattern);
     }
+    if (options.excludeBuiltin) {
+      conditions.push('(u.is_builtin = 0 OR u.is_builtin IS NULL)');
+    }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -137,7 +225,8 @@ export class OrgRepository {
 
     // 使用 pool.query 代替 pool.execute 以避免 prepared statement 问题
     const [rows] = await pool.query<MemberRow[]>(
-      `SELECT u.id, u.username, u.real_name, u.role, u.department_id, u.email, u.phone, u.is_active, u.created_at, u.updated_at,
+      `SELECT u.id, u.username, u.real_name, u.role, u.gender, u.department_id, u.email, u.phone,
+              u.is_active, u.is_builtin, u.deleted_at, u.deleted_by, u.created_at, u.updated_at,
               d.name as department_name
        FROM users u
        LEFT JOIN departments d ON u.department_id = d.id
@@ -153,7 +242,8 @@ export class OrgRepository {
   async getMemberById(id: number): Promise<Member | null> {
     const pool = getPool();
     const [rows] = await pool.execute<MemberRow[]>(
-      `SELECT u.id, u.username, u.real_name, u.role, u.department_id, u.email, u.phone, u.is_active, u.created_at, u.updated_at,
+      `SELECT u.id, u.username, u.real_name, u.role, u.gender, u.department_id, u.email, u.phone,
+              u.is_active, u.is_builtin, u.deleted_at, u.deleted_by, u.created_at, u.updated_at,
               d.name as department_name
        FROM users u
        LEFT JOIN departments d ON u.department_id = d.id
@@ -166,7 +256,8 @@ export class OrgRepository {
   async getDepartmentMembers(departmentId: number): Promise<Member[]> {
     const pool = getPool();
     const [rows] = await pool.execute<MemberRow[]>(
-      `SELECT u.id, u.username, u.real_name, u.role, u.department_id, u.email, u.phone, u.is_active, u.created_at, u.updated_at
+      `SELECT u.id, u.username, u.real_name, u.role, u.gender, u.department_id, u.email, u.phone,
+              u.is_active, u.is_builtin, u.deleted_at, u.deleted_by, u.created_at, u.updated_at
        FROM users u
        WHERE u.department_id = ? AND u.is_active = 1
        ORDER BY u.id`,
@@ -180,15 +271,19 @@ export class OrgRepository {
     password: string;
     real_name: string;
     role: string;
+    gender?: string;
     department_id: number | null;
     email?: string;
     phone?: string;
+    is_builtin?: boolean;
   }): Promise<number> {
     const pool = getPool();
     const [result] = await pool.execute<ResultSetHeader>(
-      `INSERT INTO users (username, password, name, real_name, role, department_id, email, phone, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
-      [data.username, data.password, data.real_name, data.real_name, data.role, data.department_id, data.email || null, data.phone || null]
+      `INSERT INTO users (username, password, name, real_name, role, gender, department_id, email, phone, is_active, is_builtin, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW(), NOW())`,
+      [data.username, data.password, data.real_name, data.real_name, data.role,
+       data.gender || null, data.department_id, data.email || null, data.phone || null,
+       data.is_builtin ? 1 : 0]
     );
     return result.insertId;
   }
@@ -196,6 +291,7 @@ export class OrgRepository {
   async updateMember(id: number, data: {
     real_name?: string;
     role?: string;
+    gender?: string;
     department_id?: number | null;
     email?: string;
     phone?: string;
@@ -207,6 +303,7 @@ export class OrgRepository {
 
     if (data.real_name !== undefined) { fields.push('real_name = ?'); values.push(data.real_name); }
     if (data.role !== undefined) { fields.push('role = ?'); values.push(data.role); }
+    if (data.gender !== undefined) { fields.push('gender = ?'); values.push(data.gender || null); }
     if (data.department_id !== undefined) { fields.push('department_id = ?'); values.push(data.department_id); }
     if (data.email !== undefined) { fields.push('email = ?'); values.push(data.email); }
     if (data.phone !== undefined) { fields.push('phone = ?'); values.push(data.phone); }
@@ -224,12 +321,15 @@ export class OrgRepository {
     return result.affectedRows > 0;
   }
 
-  async deleteMember(id: number): Promise<boolean> {
+  /**
+   * 软删除成员
+   * 设置 is_active = 0，并记录 deleted_at 和 deleted_by
+   */
+  async deleteMember(id: number, deletedBy: number): Promise<boolean> {
     const pool = getPool();
-    // 软删除：设置 is_active = 0
     const [result] = await pool.execute<ResultSetHeader>(
-      'UPDATE users SET is_active = 0, updated_at = NOW() WHERE id = ?',
-      [id]
+      'UPDATE users SET is_active = 0, deleted_at = NOW(), deleted_by = ?, updated_at = NOW() WHERE id = ?',
+      [deletedBy, id]
     );
     return result.affectedRows > 0;
   }
@@ -240,6 +340,7 @@ export class OrgRepository {
    */
   async getMemberDeletionCheck(id: number): Promise<{
     isDeptManager: boolean;
+    isBuiltin: boolean;
     managedDepts: { id: number; name: string }[];
     projectCount: number;
     taskCount: number;
@@ -247,6 +348,13 @@ export class OrgRepository {
     capabilityRecords: number;
   }> {
     const pool = getPool();
+
+    // 检查是否是内置用户
+    const [userRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT is_builtin FROM users WHERE id = ?',
+      [id]
+    );
+    const isBuiltin = userRows.length > 0 && userRows[0].is_builtin === 1;
 
     // 检查是否是部门经理
     const [managedDepts] = await pool.execute<RowDataPacket[]>(
@@ -265,7 +373,7 @@ export class OrgRepository {
 
     // 检查负责的任务数
     const [taskRows] = await pool.execute<RowDataPacket[]>(
-      'SELECT COUNT(*) as count FROM tasks WHERE assignee_id = ? AND status NOT IN ("已完成", "已取消")',
+      'SELECT COUNT(*) as count FROM wbs_tasks WHERE assignee_id = ? AND status NOT IN ("已完成", "已取消")',
       [id]
     );
 
@@ -283,6 +391,7 @@ export class OrgRepository {
 
     return {
       isDeptManager: typedManagedDepts.length > 0,
+      isBuiltin,
       managedDepts: typedManagedDepts,
       projectCount: projectRows[0]?.count || 0,
       taskCount: taskRows[0]?.count || 0,
@@ -323,6 +432,60 @@ export class OrgRepository {
 
       await connection.commit();
       return result.affectedRows > 0;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  /**
+   * 批量删除部门下的所有成员
+   * 同时删除关联的能力评估和项目成员关系
+   */
+  async deleteMembersByDepartment(departmentId: number): Promise<number> {
+    const pool = getPool();
+
+    // 使用事务确保数据一致性
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // 获取部门下的所有用户ID
+      const [userRows] = await connection.execute<RowDataPacket[]>(
+        'SELECT id FROM users WHERE department_id = ?',
+        [departmentId]
+      );
+      const userIds = (userRows as { id: number }[]).map(r => r.id);
+
+      if (userIds.length === 0) {
+        await connection.commit();
+        return 0;
+      }
+
+      const placeholders = userIds.map(() => '?').join(',');
+
+      // 删除能力评估记录
+      await connection.execute(
+        `DELETE FROM member_capabilities WHERE user_id IN (${placeholders})`,
+        userIds
+      );
+
+      // 删除项目成员关系
+      await connection.execute(
+        `DELETE FROM project_members WHERE user_id IN (${placeholders})`,
+        userIds
+      );
+
+      // 删除用户
+      const [result] = await connection.execute<ResultSetHeader>(
+        `DELETE FROM users WHERE department_id = ?`,
+        [departmentId]
+      );
+
+      await connection.commit();
+      return result.affectedRows;
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -527,6 +690,7 @@ export class OrgRepository {
       `SELECT
         u.id as user_id,
         u.real_name,
+        u.gender,
         d.name as department_name,
         mc.model_name,
         mc.overall_score,
@@ -543,6 +707,7 @@ export class OrgRepository {
     return rows.map(row => ({
       user_id: row.user_id as number,
       real_name: row.real_name as string,
+      gender: row.gender as 'male' | 'female' | 'other' | null,
       department_name: row.department_name as string,
       model_name: row.model_name as string,
       overall_score: row.overall_score as number,
@@ -606,6 +771,90 @@ export class OrgRepository {
        JOIN capability_models cm ON ttm.model_id = cm.id
        WHERE ttm.id = ?`,
       [id]
+    );
+    return rows[0] || null;
+  }
+
+  // ========== 审批人查询方法 ==========
+
+  /**
+   * 获取用户的直接主管（部门经理）
+   * 从用户所在部门获取部门经理
+   */
+  async getDirectSupervisor(userId: number): Promise<Member | null> {
+    const pool = getPool();
+    // 获取用户所在部门的经理
+    const [rows] = await pool.execute<MemberRow[]>(
+      `SELECT u.*
+       FROM users u
+       JOIN departments d ON u.department_id = d.id
+       JOIN users target ON target.department_id = d.id
+       WHERE target.id = ? AND u.id = d.manager_id AND u.is_active = 1`,
+      [userId]
+    );
+    return rows[0] || null;
+  }
+
+  /**
+   * 获取用户所在技术组的技术经理
+   * 查找用户所在部门的父部门（技术组）的经理
+   */
+  async getTechManager(userId: number): Promise<Member | null> {
+    const pool = getPool();
+    // 获取用户所在部门的父部门（技术组）的经理
+    const [rows] = await pool.execute<MemberRow[]>(
+      `SELECT u.*
+       FROM users u
+       JOIN departments tech_group ON u.id = tech_group.manager_id
+       JOIN departments user_dept ON user_dept.parent_id = tech_group.id
+       JOIN users target ON target.department_id = user_dept.id
+       WHERE target.id = ? AND u.is_active = 1 AND u.role = 'tech_manager'`,
+      [userId]
+    );
+    return rows[0] || null;
+  }
+
+  /**
+   * 获取用户所在部门的部门经理
+   * 查找用户所在部门的根部门（部门）的经理
+   */
+  async getDeptManager(userId: number): Promise<Member | null> {
+    const pool = getPool();
+    // 获取用户所在部门的根部门的经理
+    const [rows] = await pool.execute<MemberRow[]>(
+      `SELECT u.*
+       FROM users u
+       JOIN departments dept ON u.id = dept.manager_id
+       WHERE dept.parent_id IS NULL
+       AND EXISTS (
+         SELECT 1 FROM users target
+         JOIN departments user_dept ON target.department_id = user_dept.id
+         WHERE target.id = ? AND user_dept.id IN (
+           SELECT d.id FROM departments d
+           WHERE d.parent_id = dept.id OR d.id = dept.id
+           OR EXISTS (
+             SELECT 1 FROM departments sub WHERE sub.parent_id = d.id AND sub.id = user_dept.id
+           )
+         )
+       )
+       AND u.is_active = 1 AND u.role = 'dept_manager'`,
+      [userId]
+    );
+    return rows[0] || null;
+  }
+
+  /**
+   * 获取系统管理员
+   */
+  async getAdmin(): Promise<Member | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<MemberRow[]>(
+      `SELECT u.*, d.name as department_name
+       FROM users u
+       LEFT JOIN departments d ON u.department_id = d.id
+       WHERE u.role = 'admin' AND u.is_active = 1
+       LIMIT 1`,
+      []
     );
     return rows[0] || null;
   }

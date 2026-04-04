@@ -19,7 +19,7 @@ export interface ZoomConfig {
 
 /** 预设缩放配置 */
 export const TIMELINE_ZOOM_CONFIGS: Record<TimelineZoomLevel, { dayWidth: number; label: string }> = {
-  day: { dayWidth: 60, label: '日视图' },
+  day: { dayWidth: 36, label: '日视图' },
   week: { dayWidth: 25, label: '周视图' },
   month: { dayWidth: 8, label: '月视图' },
 };
@@ -306,6 +306,24 @@ export interface ContextMenuItem {
   danger?: boolean;
   divider?: boolean;
   onClick?: () => void;
+}
+
+// ============ 里程碑相关 ============
+
+/** 里程碑状态 */
+export type MilestoneBackendStatus = 'pending' | 'achieved' | 'overdue';
+
+/** 里程碑 */
+export interface Milestone {
+  id: string;
+  projectId: string;
+  name: string;
+  description?: string;
+  targetDate: string;
+  completionPercentage?: number;
+  isCompleted?: boolean;
+  status: MilestoneBackendStatus;
+  createdAt?: string;
 }
 
 // ============ 节假日相关 ============

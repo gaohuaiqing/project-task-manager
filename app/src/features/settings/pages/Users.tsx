@@ -31,7 +31,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Search, MoreVertical, UserPlus, Loader2, Copy, Check, Star } from 'lucide-react';
+import { Search, MoreVertical, UserPlus, Loader2, Copy, Check, Star, KeyRound } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,11 +39,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useMembers, useCreateMember, useUpdateMember, useDeactivateMember, useHardDeleteMember, useMemberDeletionCheck, useDepartments } from '@/features/org/hooks/useOrg';
+import { useMembers, useCreateMember, useUpdateMember, useDeactivateMember, useHardDeleteMember, useMemberDeletionCheck, useDepartments, useResetPassword } from '@/features/org/hooks/useOrg';
 import { useToast } from '@/hooks/use-toast';
 import { MemberCapabilityDialog } from '../components/MemberCapabilityDialog';
 import type { Member, MemberDeletionCheck } from '@/lib/api/org.api';
 import { AlertTriangle, Trash2, UserX } from 'lucide-react';
+import { getAvatarUrl } from '@/utils/avatar';
 
 const roleLabels: Record<Member['role'], string> = {
   admin: '管理员',
@@ -54,8 +55,8 @@ const roleLabels: Record<Member['role'], string> = {
 
 const roleColors: Record<Member['role'], string> = {
   admin: 'bg-red-100 text-red-700',
-  tech_manager: 'bg-purple-100 text-purple-700',
-  department_manager: 'bg-blue-100 text-blue-700',
+  tech_manager: 'bg-blue-100 text-blue-700',
+  department_manager: 'bg-amber-100 text-amber-700',
   engineer: 'bg-green-100 text-green-700',
 };
 
@@ -63,6 +64,8 @@ interface MemberFormData {
   username: string;
   displayName: string;
   email: string;
+  phone: string;
+  gender: 'male' | 'female' | 'other' | null;
   departmentId: number | null;
   position: string;
   role: Member['role'];
@@ -72,9 +75,17 @@ const defaultFormData: MemberFormData = {
   username: '',
   displayName: '',
   email: '',
+  phone: '',
+  gender: null,
   departmentId: null,
   position: '',
   role: 'engineer',
+};
+
+const genderLabels: Record<string, string> = {
+  male: '男',
+  female: '女',
+  other: '其他',
 };
 
 export function UsersSettings() {
@@ -92,6 +103,10 @@ export function UsersSettings() {
   const [initialPassword, setInitialPassword] = useState<string | null>(null);
   const [passwordCopied, setPasswordCopied] = useState(false);
   const [deletionCheckData, setDeletionCheckData] = useState<MemberDeletionCheck | null>(null);
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+  const [resetPasswordMember, setResetPasswordMember] = useState<Member | null>(null);
+  const [newPassword, setNewPassword] = useState<string | null>(null);
+  const [newPasswordCopied, setNewPasswordCopied] = useState(false);
 
   // 查询
   const { data: membersData, isLoading, error } = useMembers({
@@ -108,6 +123,7 @@ export function UsersSettings() {
   const deactivateMutation = useDeactivateMember();
   const hardDeleteMutation = useHardDeleteMember();
   const deletionCheckMutation = useMemberDeletionCheck();
+  const resetPasswordMutation = useResetPassword();
 
   const members = membersData?.items || [];
 
@@ -128,6 +144,8 @@ export function UsersSettings() {
       username: member.name.toLowerCase().replace(/\s+/g, '.'),
       displayName: member.name,
       email: member.email,
+      phone: member.phone || '',
+      gender: member.gender,
       departmentId: member.departmentId,
       position: member.position || '',
       role: member.role,
@@ -152,6 +170,40 @@ export function UsersSettings() {
     setCapabilityDialogOpen(true);
   };
 
+  const handleResetPassword = async (member: Member) => {
+    setResetPasswordMember(member);
+    setNewPassword(null);
+    setNewPasswordCopied(false);
+    setResetPasswordDialogOpen(true);
+  };
+
+  const submitResetPassword = async () => {
+    if (!resetPasswordMember) return;
+
+    try {
+      const result = await resetPasswordMutation.mutateAsync(resetPasswordMember.id);
+      setNewPassword(result.newPassword);
+      toast({ title: '成功', description: '密码已重置' });
+    } catch (error: any) {
+      toast({ title: '错误', description: error.message || '重置密码失败', variant: 'destructive' });
+    }
+  };
+
+  const copyNewPassword = async () => {
+    if (newPassword) {
+      await navigator.clipboard.writeText(newPassword);
+      setNewPasswordCopied(true);
+      toast({ title: '已复制', description: '新密码已复制到剪贴板' });
+    }
+  };
+
+  const closeResetPasswordDialog = () => {
+    setResetPasswordDialogOpen(false);
+    setResetPasswordMember(null);
+    setNewPassword(null);
+    setNewPasswordCopied(false);
+  };
+
   const submitCreate = async () => {
     if (!formData.username.trim()) {
       toast({ title: '错误', description: '请输入用户名', variant: 'destructive' });
@@ -165,12 +217,18 @@ export function UsersSettings() {
       toast({ title: '错误', description: '请输入邮箱', variant: 'destructive' });
       return;
     }
+    if (!formData.departmentId) {
+      toast({ title: '错误', description: '请选择部门', variant: 'destructive' });
+      return;
+    }
 
     try {
       const result = await createMutation.mutateAsync({
         username: formData.username.trim(),
         displayName: formData.displayName.trim(),
         email: formData.email.trim(),
+        phone: formData.phone.trim() || undefined,
+        gender: formData.gender || undefined,
         departmentId: formData.departmentId,
         position: formData.position.trim() || undefined,
         role: formData.role,
@@ -197,6 +255,8 @@ export function UsersSettings() {
       await updateMutation.mutateAsync({
         displayName: formData.displayName.trim(),
         email: formData.email.trim(),
+        phone: formData.phone.trim() || undefined,
+        gender: formData.gender || undefined,
         departmentId: formData.departmentId,
         position: formData.position.trim() || undefined,
         role: formData.role,
@@ -282,12 +342,8 @@ export function UsersSettings() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>用户管理</CardTitle>
-              <CardDescription>管理系统用户账户和权限</CardDescription>
+              <CardDescription>查看和管理系统用户账户（添加成员请在组织管理中进行）</CardDescription>
             </div>
-            <Button onClick={handleCreate}>
-              <UserPlus className="h-4 w-4 mr-2" />
-              添加用户
-            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -337,6 +393,7 @@ export function UsersSettings() {
               <TableHeader>
                 <TableRow>
                   <TableHead>用户</TableHead>
+                  <TableHead>工号</TableHead>
                   <TableHead>角色</TableHead>
                   <TableHead>部门</TableHead>
                   <TableHead>状态</TableHead>
@@ -350,14 +407,24 @@ export function UsersSettings() {
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-8 w-8">
-                          <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${member.name}`} />
+                          <AvatarImage src={getAvatarUrl(member.name, member.gender)} />
                           <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium">{member.name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">{member.name}</p>
+                            {member.isBuiltin && (
+                              <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                                内置
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground">{member.email}</p>
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <code className="text-sm bg-muted px-2 py-0.5 rounded">{member.username}</code>
                     </TableCell>
                     <TableCell>
                       <Badge className={roleColors[member.role]}>
@@ -387,7 +454,7 @@ export function UsersSettings() {
                           <DropdownMenuItem onClick={() => handleCapability(member)}>
                             能力评定
                           </DropdownMenuItem>
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleResetPassword(member)}>
                             重置密码
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
@@ -409,140 +476,6 @@ export function UsersSettings() {
         </CardContent>
       </Card>
 
-      {/* 创建用户对话框 */}
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>添加用户</DialogTitle>
-          </DialogHeader>
-
-          {initialPassword ? (
-            <>
-              <DialogDescription>
-                用户创建成功！请保存以下初始密码，此密码只会显示一次。
-              </DialogDescription>
-              <div className="space-y-4 px-6 py-4">
-                <div className="p-4 bg-muted rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-2">初始密码：</p>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 p-2 bg-background rounded font-mono text-sm">
-                      {initialPassword}
-                    </code>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={copyPassword}
-                    >
-                      {passwordCopied ? (
-                        <Check className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <Copy className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button onClick={closeCreateDialog}>我已保存密码</Button>
-              </DialogFooter>
-            </>
-          ) : (
-            <>
-              <div className="space-y-4 px-6 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="username">用户名 *</Label>
-                    <Input
-                      id="username"
-                      placeholder="登录用户名"
-                      value={formData.username}
-                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="displayName">显示名称 *</Label>
-                    <Input
-                      id="displayName"
-                      placeholder="用户显示名"
-                      value={formData.displayName}
-                      onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">邮箱 *</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="user@example.com"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="department">部门</Label>
-                    <Select
-                      value={formData.departmentId?.toString() || 'none'}
-                      onValueChange={(val) =>
-                        setFormData({ ...formData, departmentId: val === 'none' ? null : parseInt(val) })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="请选择部门" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">不指定</SelectItem>
-                        {departments.map((dept) => (
-                          <SelectItem key={dept.id} value={dept.id.toString()}>
-                            {dept.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="role">角色 *</Label>
-                    <Select
-                      value={formData.role}
-                      onValueChange={(val) => setFormData({ ...formData, role: val as Member['role'] })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="admin">管理员</SelectItem>
-                        <SelectItem value="tech_manager">技术经理</SelectItem>
-                        <SelectItem value="department_manager">部门经理</SelectItem>
-                        <SelectItem value="engineer">工程师</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="position">职位</Label>
-                  <Input
-                    id="position"
-                    placeholder="如：高级工程师"
-                    value={formData.position}
-                    onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={closeCreateDialog}>
-                  取消
-                </Button>
-                <Button onClick={submitCreate} disabled={createMutation.isPending}>
-                  {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  确认添加
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
       {/* 编辑用户对话框 */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
@@ -550,22 +483,54 @@ export function UsersSettings() {
             <DialogTitle>编辑用户</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 px-6 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="editDisplayName">显示名称 *</Label>
-              <Input
-                id="editDisplayName"
-                value={formData.displayName}
-                onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="editDisplayName">显示名称 *</Label>
+                <Input
+                  id="editDisplayName"
+                  value={formData.displayName}
+                  onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editEmail">邮箱 *</Label>
+                <Input
+                  id="editEmail"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="editEmail">邮箱 *</Label>
-              <Input
-                id="editEmail"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="editPhone">电话</Label>
+                <Input
+                  id="editPhone"
+                  placeholder="手机号码"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editGender">性别</Label>
+                <Select
+                  value={formData.gender || 'none'}
+                  onValueChange={(val) =>
+                    setFormData({ ...formData, gender: val === 'none' ? null : val as 'male' | 'female' | 'other' })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="请选择" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">不指定</SelectItem>
+                    <SelectItem value="male">男</SelectItem>
+                    <SelectItem value="female">女</SelectItem>
+                    <SelectItem value="other">其他</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -739,6 +704,68 @@ export function UsersSettings() {
         onOpenChange={setCapabilityDialogOpen}
         member={capabilityMember}
       />
+
+      {/* 重置密码对话框 */}
+      <Dialog open={resetPasswordDialogOpen} onOpenChange={closeResetPasswordDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>重置密码</DialogTitle>
+            <DialogDescription>
+              用户：{resetPasswordMember?.name}
+            </DialogDescription>
+          </DialogHeader>
+
+          {newPassword ? (
+            <div className="space-y-4">
+              <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 space-y-2">
+                <p className="text-sm font-medium text-green-800 dark:text-green-200">密码已重置</p>
+                <p className="text-xs text-green-700 dark:text-green-300">请保存以下新密码，关闭后将无法再次查看</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={newPassword}
+                  readOnly
+                  className="font-mono text-lg"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={copyNewPassword}
+                >
+                  {newPasswordCopied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="py-4">
+              <p className="text-muted-foreground">
+                确定要重置该用户的密码吗？重置后用户将需要使用新密码登录。
+              </p>
+            </div>
+          )}
+
+          <DialogFooter>
+            {newPassword ? (
+              <Button onClick={closeResetPasswordDialog}>
+                关闭
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={closeResetPasswordDialog}>
+                  取消
+                </Button>
+                <Button
+                  onClick={submitResetPassword}
+                  disabled={resetPasswordMutation.isPending}
+                >
+                  {resetPasswordMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  确认重置
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

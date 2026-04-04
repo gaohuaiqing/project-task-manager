@@ -82,7 +82,10 @@ export interface CreateDelayRecordRequest {
 export type NotificationType =
   | 'approval' | 'approval_result' | 'approval_timeout'
   | 'delay' | 'delay_warning' | 'task_delayed'
-  | 'daily_summary' | 'system';
+  | 'daily_summary' | 'system'
+  | 'new_device'          // 新设备登录
+  | 'ip_change'           // IP地址变更
+  | 'session_terminated'; // 会话异常终止
 
 export interface Notification {
   id: string;
@@ -251,6 +254,13 @@ export async function markAllNotificationsAsRead(): Promise<{ count: number }> {
   return response.data;
 }
 
+/**
+ * 删除单个通知
+ */
+export async function deleteNotification(id: string): Promise<void> {
+  await apiClient.delete(`${BASE_PATH}/notifications/${id}`);
+}
+
 export const workflowApi = {
   getDelayRecords,
   addDelayRecord,
@@ -268,4 +278,5 @@ export const workflowApi = {
   getNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
+  deleteNotification,
 };

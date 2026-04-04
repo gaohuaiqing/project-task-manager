@@ -539,6 +539,9 @@ export const READONLY_COLUMNS = WBS_COLUMNS
   .filter(col => col.editType === 'readonly' || col.editType === 'computed')
   .map(col => col.id);
 
+/** 支持行内编辑的列（仅实际日期字段，其他字段通过 TaskForm 编辑） */
+export const INLINE_EDITABLE_COLUMNS = ['actualStartDate', 'actualEndDate'];
+
 /** 获取列配置 */
 export function getColumnConfig(columnId: string): ColumnConfig | undefined {
   return WBS_COLUMNS.find(col => col.id === columnId);
@@ -549,29 +552,10 @@ export function getColumnByIndex(index: number): ColumnConfig | undefined {
   return WBS_COLUMNS.find(col => col.index === index);
 }
 
-/** 检查列是否可编辑 */
+/** 检查列是否支持行内编辑（仅实际日期字段） */
 export function isColumnEditable(columnId: string, rowData?: WBSTaskRow): boolean {
-  const col = getColumnConfig(columnId);
-  if (!col) return false;
-
-  // 条件可编辑列的特殊处理
-  if (col.editType === 'conditional') {
-    switch (columnId) {
-      case 'redmineLink':
-        // 仅根任务可填（没有父任务）
-        return !rowData?.parentId;
-      case 'taskType':
-        // 只有最上层任务可改
-        return !rowData?.parentId;
-      case 'startDate':
-        // 无前置任务时可编辑
-        return !rowData?.predecessorId;
-      default:
-        return true;
-    }
-  }
-
-  return col.editType === 'editable';
+  // 设计原则：仅实际日期字段支持行内编辑，其他字段通过 TaskForm 编辑
+  return INLINE_EDITABLE_COLUMNS.includes(columnId);
 }
 
 /** 格式化日期显示 */
@@ -599,10 +583,9 @@ export function formatPercent(value?: number): string {
 
 /** 格式化提前/落后天数 */
 export function formatLagDays(days?: number): string {
-  if (days === undefined || days === null) return '';
+  if (days === undefined || days === null || days === 0) return '';
   if (days > 0) return `+${days}天`;
-  if (days < 0) return `${days}天`;
-  return '0';
+  return `${days}天`;
 }
 
 /** localStorage 键名 */

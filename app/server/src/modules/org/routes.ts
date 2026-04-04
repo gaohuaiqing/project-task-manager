@@ -108,8 +108,15 @@ router.delete('/departments/:id', async (req: Request, res: Response, next: Next
       throw new ValidationError('无效的部门ID');
     }
 
-    await orgService.deleteDepartment(id, currentUser);
-    res.json({ success: true });
+    const result = await orgService.deleteDepartment(id, currentUser);
+    res.json({
+      success: true,
+      data: {
+        message: `已删除 ${result.deletedDepartments} 个部门，${result.deletedMembers} 名成员`,
+        deletedDepartments: result.deletedDepartments,
+        deletedMembers: result.deletedMembers
+      }
+    });
   } catch (error) {
     next(error);
   }
@@ -124,6 +131,9 @@ router.get('/members', async (req: Request, res: Response, next: NextFunction) =
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
+
+    // 获取当前用户（用于过滤内置用户）
+    const currentUser = getCurrentUser(req);
 
     // 处理 status/is_active 参数
     let isActiveValue: boolean | undefined = undefined;
@@ -143,6 +153,8 @@ router.get('/members', async (req: Request, res: Response, next: NextFunction) =
       search: req.query.search as string | undefined,
       page: req.query.page ? parseInt(req.query.page as string) : 1,
       pageSize: req.query.pageSize ? parseInt(req.query.pageSize as string) : 20,
+      // 只有 admin 能看到内置用户
+      excludeBuiltin: currentUser ? currentUser.role !== 'admin' : true,
     };
 
     const result = await orgService.getMembers(options);
@@ -698,6 +710,90 @@ router.delete('/task-type-mappings/:id', async (req: Request, res: Response, nex
 
     await orgService.deleteTaskTypeMapping(id, currentUser);
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 导入导出功能 ==========
+
+import multer from 'multer';
+import { ImportExportService } from './import-export';
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB 限制
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+    ];
+    if (allowedTypes.includes(file.mimetype) || file.originalname.endsWith('.xlsx') || file.originalname.endsWith('.xls')) {
+      cb(null, true);
+    } else {
+      cb(new Error('只支持 Excel 文件 (.xlsx, .xls)'));
+    }
+  }
+});
+
+const importExportService = new ImportExportService();
+
+// 下载导入模板
+router.get('/export/template/organization', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const buffer = importExportService.generateTemplate();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=organization_template.xlsx');
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 导出组织架构
+router.get('/export/organization', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const buffer = await importExportService.exportOrganization();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=organization_${new Date().toISOString().split('T')[0]}.xlsx`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 导入组织架构
+router.post('/import/organization', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    if (!req.file) {
+      throw new ValidationError('请上传文件');
+    }
+
+    const result = await importExportService.importOrganization(req.file.buffer, currentUser);
+    const parts = [];
+    if (result.departments > 0) parts.push(`创建 ${result.departments} 个部门`);
+    if (result.members > 0) parts.push(`新增 ${result.members} 个成员`);
+    if (result.updatedMembers > 0) parts.push(`更新 ${result.updatedMembers} 个成员部门`);
+    res.json({
+      success: true,
+      data: {
+        message: parts.length > 0 ? `导入完成：${parts.join('，')}` : '导入完成：无新增数据',
+        departments: result.departments,
+        members: result.members,
+        updatedMembers: result.updatedMembers,
+        errors: result.errors,
+      }
+    });
   } catch (error) {
     next(error);
   }

@@ -3,6 +3,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { ProjectService } from './service';
 import { ValidationError } from '../../core/errors';
 import type { User } from '../../core/types';
+import type { CreateMilestoneRequest, UpdateMilestoneRequest } from './types';
 
 const router = Router();
 const projectService = new ProjectService();
@@ -176,7 +177,16 @@ router.get('/:id/milestones', async (req: Request, res: Response, next: NextFunc
 router.post('/:id/milestones', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
-    const id = await projectService.createMilestone(req.params.id, req.body, currentUser);
+    // 前端拦截器已转换为蛇形命名，直接使用
+    const body = req.body as Record<string, unknown>;
+    const mappedData: CreateMilestoneRequest = {
+      name: body.name as string,
+      target_date: body.target_date as string,
+      description: body.description as string | undefined,
+      completion_percentage: body.completion_percentage as number | undefined,
+    };
+
+    const id = await projectService.createMilestone(req.params.id, mappedData, currentUser);
     res.status(201).json({ success: true, data: { id } });
   } catch (error) {
     next(error);
@@ -187,7 +197,15 @@ router.post('/:id/milestones', async (req: Request, res: Response, next: NextFun
 router.put('/milestones/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
-    const updated = await projectService.updateMilestone(req.params.id, req.body, currentUser);
+    // 前端拦截器已转换为蛇形命名，直接使用
+    const body = req.body as Record<string, unknown>;
+    const mappedData: UpdateMilestoneRequest = {};
+    if (body.name !== undefined) mappedData.name = body.name as string;
+    if (body.target_date !== undefined) mappedData.target_date = body.target_date as string;
+    if (body.description !== undefined) mappedData.description = body.description as string;
+    if (body.completion_percentage !== undefined) mappedData.completion_percentage = body.completion_percentage as number;
+
+    const updated = await projectService.updateMilestone(req.params.id, mappedData, currentUser);
     res.json({ success: true, data: { updated } });
   } catch (error) {
     next(error);

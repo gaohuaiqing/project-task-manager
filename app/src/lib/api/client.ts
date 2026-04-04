@@ -1,4 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
+import { toFrontend, toBackend } from '@/lib/utils/transform';
+import { sanitizeObject } from '@/utils/sanitize';
 
 /**
  * API 客户端配置
@@ -34,7 +36,7 @@ function getCsrfToken(): string | null {
 }
 
 /**
- * 请求拦截器：添加 CSRF token 和禁用缓存
+ * 请求拦截器：添加 CSRF token、禁用缓存、转换命名风格
  */
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
@@ -47,28 +49,52 @@ apiClient.interceptors.request.use(
       config.headers['Cache-Control'] = 'no-cache';
       config.headers['Pragma'] = 'no-cache';
     }
+    // 转换请求体：camelCase -> snake_case
+    if (config.data && typeof config.data === 'object' && !(config.data instanceof FormData)) {
+      config.data = toBackend(config.data);
+    }
+    // 转换查询参数：camelCase -> snake_case
+    if (config.params && typeof config.params === 'object') {
+      config.params = toBackend(config.params);
+    }
     return config;
   },
   (error) => Promise.reject(error)
 );
 
 /**
- * 响应拦截器：统一错误处理
+ * 响应拦截器：自动转换命名风格、净化数据、统一错误处理
  */
 apiClient.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    // 转换响应数据：snake_case -> camelCase
+    const data = response.data;
+    if (data && typeof data === 'object') {
+      // 先转换命名风格，再净化数据防止XSS
+      const transformed = toFrontend(data);
+      // 对非密码相关的数据进行XSS净化
+      return sanitizeObject(transformed, { excludeKeys: ['password', 'newPassword', 'confirmPassword', 'token', 'secret'] });
+    }
+    return data;
+  },
   (error: AxiosError) => {
-    // 401 未认证，跳转登录
+    // 401 未认证，清除登录状态并跳转登录
     if (error.response?.status === 401) {
+      // 清除前端的登录标记
+      localStorage.removeItem('auth_session');
+      localStorage.removeItem('currentUser');
+
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }
     }
 
     // 构造统一的错误对象
+    // 后端返回格式: { success: false, error: { code, message } }
+    const errorData = error.response?.data as { error?: { code?: string; message?: string }; message?: string };
     const apiError = {
-      code: (error.response?.data as { code?: string })?.code ?? 'UNKNOWN_ERROR',
-      message: (error.response?.data as { message?: string })?.message ?? error.message,
+      code: errorData?.error?.code ?? 'UNKNOWN_ERROR',
+      message: errorData?.error?.message ?? errorData?.message ?? error.message,
       statusCode: error.response?.status ?? 0,
     };
 

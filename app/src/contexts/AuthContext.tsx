@@ -413,7 +413,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // 尝试连接后端服务
       if (USE_BACKEND) {
         try {
-          const response = await fetch('http://localhost:3001/api/login', {
+          const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
@@ -437,18 +437,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // 生成新的会话ID以防止会话固定攻击
             const newSessionId = generateSecureSessionId();
 
-            // 从本地获取用户角色和名称（后端返回的session中有role）
-            const users = getStoredUsers();
-            userData = users[username];
+            // 使用后端返回的用户数据
+            const backendUser = result.data?.user;
+            if (backendUser) {
+              // 将后端用户添加到本地存储（如果不存在）
+              const users = getStoredUsers();
+              if (!users[username]) {
+                users[username] = {
+                  password: '$backend_user', // 后端用户标记
+                  role: backendUser.role as UserRole,
+                  name: backendUser.realName || backendUser.name || username,
+                };
+                saveUsers(users);
+              }
 
-            session = {
-              userId: `user_${Date.now()}`,
-              username,
-              sessionId: newSessionId,
-              createdAt: result.session.createdAt,
-              lastAccessed: result.session.createdAt,
-              deviceId
-            };
+              userData = users[username];
+
+              session = {
+                userId: String(backendUser.id),
+                username,
+                sessionId: newSessionId,
+                createdAt: result.session.createdAt,
+                lastAccessed: result.session.createdAt,
+                deviceId
+              };
+            } else {
+              // 降级方案：使用本地用户数据
+              const users = getStoredUsers();
+              userData = users[username];
+
+              session = {
+                userId: `user_${Date.now()}`,
+                username,
+                sessionId: newSessionId,
+                createdAt: result.session.createdAt,
+                lastAccessed: result.session.createdAt,
+                deviceId
+              };
+            }
           } else {
             // 后端返回验证失败（密码错误、用户不存在等）
             console.warn('[AuthProvider] 后端验证失败:', result.message);

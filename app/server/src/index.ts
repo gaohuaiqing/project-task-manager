@@ -5,11 +5,14 @@ import { createServer } from 'http';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import cron from 'node-cron';
+import compression from 'compression';
 
 // Core 模块
 import { createPool, closePool } from './core/db';
 import { RedisCache } from './core/cache';
+import { sessionCache } from './core/cache/session-cache';
 import { logger } from './core/logger';
+import { initWebSocketServer } from './core/realtime';
 
 // 业务模块路由
 import { authRoutes } from './modules/auth';
@@ -31,6 +34,18 @@ app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   credentials: true,
 }));
+
+// 响应压缩 - 减少传输体积 60-80%
+app.use(compression({
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    return compression.filter(req, res);
+  },
+  threshold: 1024, // 超过1KB才压缩
+}));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
@@ -41,18 +56,36 @@ app.use((req, res, next) => {
   next();
 });
 
-// ========== 认证中间件 ==========
+// ========== 认证中间件（带缓存优化）==========
 app.use(async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   // 从 cookie 获取 sessionId
   const sessionId = req.cookies?.sessionId;
   if (sessionId) {
     try {
-      const { AuthService } = await import('./modules/auth');
-      const authService = new AuthService();
-      const context = await authService.getAuthContext(sessionId);
+      // 1. 先尝试从缓存获取会话
+      let context = await sessionCache.getSession(sessionId);
+
       if (context) {
+        // 缓存命中，直接使用
         (req as any).user = context.user;
         (req as any).sessionId = sessionId;
+        (req as any).permissions = context.permissions;
+      } else {
+        // 缓存未命中，从数据库获取并缓存
+        const { AuthService } = await import('./modules/auth');
+        const authService = new AuthService();
+        context = await authService.getAuthContext(sessionId);
+
+        if (context) {
+          (req as any).user = context.user;
+          (req as any).sessionId = sessionId;
+
+          // 缓存会话信息（15分钟TTL）
+          await sessionCache.setSession(sessionId, {
+            user: context.user,
+            permissions: context.permissions || [],
+          });
+        }
       }
     } catch (error) {
       logger.warn('Auth middleware error:', error);
@@ -141,6 +174,10 @@ async function startServer() {
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
+      charset: 'utf8mb4',
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
+      idleTimeout: 60000,
     });
     logger.info('Database pool initialized');
 
@@ -161,6 +198,12 @@ async function startServer() {
     } catch (e) {
       logger.warn('Redis connection failed, using memory cache fallback');
     }
+
+    // 初始化会话缓存
+    await sessionCache.connect();
+
+    // 初始化 WebSocket 服务
+    initWebSocketServer(httpServer);
 
     // 启动 HTTP 服务
     const PORT = parseInt(process.env.PORT || '3001');
@@ -214,7 +257,7 @@ function setupCronJobs() {
     try {
       logger.info('[Cron] Checking delayed tasks...');
       const result = await workflowService.checkDelayedTasks();
-      logger.info(`[Cron] Found ${result.delayedCount} delayed tasks, ${result.warningCount} warning tasks`);
+      logger.info(`[Cron] Delayed: ${result.delayedCount}, Warning: ${result.warningCount}, Recovered: ${result.recoveredCount}`);
     } catch (error) {
       logger.error('[Cron] Error checking delayed tasks:', error);
     }

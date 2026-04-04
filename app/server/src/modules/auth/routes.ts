@@ -58,6 +58,18 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// 用户管理专用中间件（仅 admin）
+function requireUserManage(req: Request, res: Response, next: NextFunction) {
+  const user = (req as any).user;
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: '需要系统管理员权限' }
+    });
+  }
+  next();
+}
+
 // 登录
 router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -206,11 +218,25 @@ router.post('/sessions/terminate-others', requireAuth, async (req: Request, res:
   }
 });
 
+// 修改密码（用户自己修改）
+router.put('/password', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user?.id;
+    const { oldPassword, newPassword } = req.body;
+
+    await authService.changePassword(userId, oldPassword, newPassword);
+    res.json({ success: true, message: '密码修改成功' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ========== 用户管理 API ==========
 
 // 获取用户列表
-router.get('/users', requireAuth, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+router.get('/users', requireAuth, requireUserManage, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const currentUser = (req as any).user;
     const options = {
       page: parseInt(req.query.page as string) || 1,
       pageSize: parseInt(req.query.pageSize as string) || 20,
@@ -220,7 +246,7 @@ router.get('/users', requireAuth, requireAdmin, async (req: Request, res: Respon
       search: req.query.search as string,
     };
 
-    const result = await authService.getUsers(options);
+    const result = await authService.getUsers(options, currentUser);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -228,7 +254,7 @@ router.get('/users', requireAuth, requireAdmin, async (req: Request, res: Respon
 });
 
 // 创建用户
-router.post('/users', requireAuth, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/users', requireAuth, requireUserManage, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await authService.createUser(req.body);
     res.status(201).json({
@@ -245,7 +271,7 @@ router.post('/users', requireAuth, requireAdmin, async (req: Request, res: Respo
 });
 
 // 更新用户
-router.put('/users/:id', requireAuth, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+router.put('/users/:id', requireAuth, requireUserManage, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = parseInt(req.params.id);
     await authService.updateUser(userId, req.body);
@@ -256,7 +282,7 @@ router.put('/users/:id', requireAuth, requireAdmin, async (req: Request, res: Re
 });
 
 // 删除用户（软删除）
-router.delete('/users/:id', requireAuth, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/users/:id', requireAuth, requireUserManage, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = parseInt(req.params.id);
     const currentUserId = (req as any).user?.id;
@@ -274,7 +300,7 @@ router.delete('/users/:id', requireAuth, requireAdmin, async (req: Request, res:
 });
 
 // 重置密码
-router.post('/users/:id/reset-password', requireAuth, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/users/:id/reset-password', requireAuth, requireUserManage, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = parseInt(req.params.id);
     const newPassword = await authService.resetPassword(userId);

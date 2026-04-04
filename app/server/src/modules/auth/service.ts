@@ -202,7 +202,11 @@ export class AuthService {
 
   // ========== 用户管理 ==========
 
-  async getUsers(options: UserListOptions): Promise<UserListResponse> {
+  async getUsers(options: UserListOptions, currentUser?: User): Promise<UserListResponse> {
+    // 只有 admin 能看到内置用户
+    if (currentUser && currentUser.role !== 'admin') {
+      options.excludeBuiltin = true;
+    }
     const { items, total } = await this.repo.getUsers(options);
     const page = options.page || 1;
     const pageSize = options.pageSize || 20;
@@ -272,6 +276,50 @@ export class AuthService {
     await this.repo.updatePassword(userId, hashedPassword);
 
     return newPassword;
+  }
+
+  /**
+   * 用户修改自己的密码
+   */
+  async changePassword(userId: number, oldPassword: string, newPassword: string): Promise<void> {
+    // 验证参数
+    if (!oldPassword || !newPassword) {
+      throw new ValidationError('旧密码和新密码不能为空');
+    }
+
+    if (newPassword.length < 8) {
+      throw new ValidationError('新密码长度至少为 8 位');
+    }
+
+    // 获取用户（包含密码）
+    const user = await this.repo.findByUsername(
+      (await this.repo.findById(userId))?.username || ''
+    );
+    if (!user) {
+      throw new ValidationError('用户不存在');
+    }
+
+    // 验证旧密码
+    const isValid = await bcrypt.compare(oldPassword, (user as any).password);
+    if (!isValid) {
+      throw new AuthError('当前密码错误');
+    }
+
+    // 哈希新密码并更新
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await this.repo.updatePassword(userId, hashedPassword);
+
+    // 记录审计日志
+    audit.log({
+      userId: user.id,
+      username: user.real_name,
+      userRole: user.role,
+      category: 'security',
+      action: 'PASSWORD_CHANGE',
+      tableName: 'users',
+      recordId: String(userId),
+      details: '用户修改密码成功',
+    });
   }
 
   // ========== 私有辅助方法 ==========

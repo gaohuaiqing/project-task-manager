@@ -47,6 +47,7 @@ export interface CreateProjectRequest {
 }
 
 export interface UpdateProjectRequest {
+  code?: string; // 项目编码（可选修改）
   name?: string;
   description?: string;
   status?: ProjectStatus;
@@ -55,6 +56,7 @@ export interface UpdateProjectRequest {
   planned_end_date?: string;
   actual_start_date?: string | null;
   actual_end_date?: string | null;
+  member_ids?: number[]; // 成员 ID 列表
   version: number; // 乐观锁
 }
 
@@ -100,6 +102,7 @@ export interface UpdateMilestoneRequest {
 // ============ 时间线相关 ============
 
 export type TimelineType = 'tech_stack' | 'team' | 'phase' | 'custom';
+export type TimelineStatus = 'not_started' | 'in_progress' | 'completed' | 'delayed';
 
 export interface Timeline {
   id: string;
@@ -110,6 +113,8 @@ export interface Timeline {
   type: TimelineType | null;
   visible: boolean;
   sort_order: number;
+  progress: number;
+  status: TimelineStatus;
   created_at: Date;
   updated_at: Date;
 }
@@ -119,6 +124,8 @@ export interface CreateTimelineRequest {
   start_date: string;
   end_date: string;
   type?: TimelineType;
+  progress?: number;
+  status?: TimelineStatus;
 }
 
 export interface UpdateTimelineRequest {
@@ -128,6 +135,8 @@ export interface UpdateTimelineRequest {
   type?: TimelineType;
   visible?: boolean;
   sort_order?: number;
+  progress?: number;
+  status?: TimelineStatus;
 }
 
 // ============ 时间线任务相关 ============

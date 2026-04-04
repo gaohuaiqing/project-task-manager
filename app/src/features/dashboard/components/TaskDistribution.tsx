@@ -33,10 +33,10 @@ const priorityLabels: Record<string, string> = {
 };
 
 const priorityColors: Record<string, string> = {
-  low: 'bg-gray-200 text-gray-700',
-  medium: 'bg-blue-100 text-blue-700',
-  high: 'bg-orange-100 text-orange-700',
-  urgent: 'bg-red-100 text-red-700',
+  low: 'bg-muted text-muted-foreground',
+  medium: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
+  high: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300',
+  urgent: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
 };
 
 export function TaskDistribution({ distribution, className }: TaskDistributionProps) {
@@ -59,8 +59,11 @@ export function TaskDistribution({ distribution, className }: TaskDistributionPr
     );
   }
 
-  const totalByStatus = Object.values(distribution.byStatus).reduce((a, b) => a + b, 0);
-  const totalByPriority = Object.values(distribution.byPriority).reduce((a, b) => a + b, 0);
+  const byStatus = distribution.byStatus || {};
+  const byPriority = distribution.byPriority || {};
+  const byAssignee = distribution.byAssignee || [];
+  const totalByStatus = Object.values(byStatus).reduce((a, b) => a + b, 0);
+  const totalByPriority = Object.values(byPriority).reduce((a, b) => a + b, 0);
 
   return (
     <Card className={className}>
@@ -75,7 +78,7 @@ export function TaskDistribution({ distribution, className }: TaskDistributionPr
         <div>
           <h4 className="text-sm font-medium mb-3 text-muted-foreground">按状态</h4>
           <div className="space-y-2">
-            {Object.entries(distribution.byStatus).map(([status, count]) => (
+            {Object.entries(byStatus).map(([status, count]) => (
               <div key={status} className="flex items-center gap-3">
                 {statusIcons[status] || <Clock className="h-4 w-4" />}
                 <span className="flex-1 text-sm">{statusLabels[status] || status}</span>
@@ -97,7 +100,7 @@ export function TaskDistribution({ distribution, className }: TaskDistributionPr
         <div>
           <h4 className="text-sm font-medium mb-3 text-muted-foreground">按优先级</h4>
           <div className="flex flex-wrap gap-2">
-            {Object.entries(distribution.byPriority).map(([priority, count]) => (
+            {Object.entries(byPriority).map(([priority, count]) => (
               <div
                 key={priority}
                 className={cn(
@@ -112,11 +115,11 @@ export function TaskDistribution({ distribution, className }: TaskDistributionPr
         </div>
 
         {/* 按成员分布 */}
-        {distribution.byAssignee.length > 0 && (
+        {byAssignee.length > 0 && (
           <div>
             <h4 className="text-sm font-medium mb-3 text-muted-foreground">按成员</h4>
             <div className="space-y-2">
-              {distribution.byAssignee.slice(0, 5).map((item) => (
+              {byAssignee.slice(0, 5).map((item) => (
                 <div key={item.id} className="flex items-center justify-between text-sm">
                   <span className="truncate">{item.name}</span>
                   <span className="font-medium">{item.count} 个任务</span>

@@ -13,6 +13,14 @@ import { runMigration030 } from './030-insert-default-capability-models';
 import { runMigration031 } from './031-insert-default-users';
 import { runMigration032 } from './032-insert-default-holidays';
 import { runMigration033 } from './033-insert-task-type-mapping';
+import { runMigration034 } from './034-create-task-delay-approvals-table';
+import { runMigration035 } from './035-add-user-fields';
+import { runMigration036 } from './036-add-audit-log-category';
+import { runMigration037 } from './037-create-timelines-tables';
+import { runMigration038 } from './038-add-audit-log-indexes';
+import { runMigration039 } from './039-add-performance-indexes';
+import { runMigration040 } from './040-add-timeline-progress-status';
+import { up as addDependencyTypeField } from './030-add-dependency-type';
 
 /**
  * 检查迁移是否已执行
@@ -361,6 +369,30 @@ async function runMigration028(): Promise<boolean> {
 }
 
 /**
+ * 迁移 030b: 添加 dependency_type 字段到 wbs_tasks 表
+ */
+async function runMigration030b(): Promise<boolean> {
+  const version = '030b';
+  const name = 'add_dependency_type_field';
+
+  if (await isMigrationExecuted(version)) {
+    console.log('📋 迁移 030b 已执行，跳过');
+    return true;
+  }
+
+  try {
+    console.log('🚀 开始执行数据库迁移 030b...');
+    await addDependencyTypeField();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 030b 完成！');
+    return true;
+  } catch (error) {
+    console.error('❌ 迁移 030b 失败:', error);
+    return false;
+  }
+}
+
+/**
  * 执行所有待运行的迁移
  */
 export async function runPendingMigrations(): Promise<void> {
@@ -375,11 +407,21 @@ export async function runPendingMigrations(): Promise<void> {
   await runMigration028();
   await runMigration029();
   await runMigration030();
+  await runMigration030b();  // 添加 dependency_type 字段
 
   // 种子数据迁移 (031-033)
   await runMigration031();  // 默认用户和成员
   await runMigration032();  // 中国节假日
   await runMigration033();  // 任务类型与能力模型映射
+
+  // 结构迁移 (034+)
+  await runMigration034();  // 任务延期审批表
+  await runMigration035();  // 用户表新增字段 (gender, is_builtin, deleted_at, deleted_by)
+  await runMigration036();  // audit_logs 添加 category 字段
+  await runMigration037();  // 时间线相关表 (timelines, timeline_tasks)
+  await runMigration038();  // audit_logs 添加性能索引
+  await runMigration039();  // 业务表性能索引
+  await runMigration040();  // 时间线添加进度和状态字段
 
   console.log('✅ 数据库迁移检查完成');
 }

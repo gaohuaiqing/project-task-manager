@@ -2,8 +2,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { AnalyticsService } from './service';
 import { ValidationError } from '../../core/errors';
+import { requirePermission } from '../../core/middleware/permission-middleware';
 import type { User } from '../../core/types';
-import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig } from './types';
+import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig, ResourceEfficiencyQueryOptions } from './types';
 import { auditService } from '../../core/audit';
 import type { AuditCategory } from '../../core/types';
 
@@ -20,18 +21,12 @@ function requireUser(req: Request): User {
   return user;
 }
 
-function isAdmin(user: User): boolean {
-  return user.role === 'admin';
-}
-
 // ========== 仪表板 ==========
 
 router.get('/dashboard/stats', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const currentUser = getCurrentUser(req);
-    const userId = currentUser?.id || 0;
-    const admin = currentUser ? isAdmin(currentUser) : false;
-    const result = await analyticsService.getDashboardStats(userId, admin);
+    const currentUser = requireUser(req);
+    const result = await analyticsService.getDashboardStats(currentUser);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -40,10 +35,12 @@ router.get('/dashboard/stats', async (req: Request, res: Response, next: NextFun
 
 router.get('/dashboard/trends', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const currentUser = requireUser(req);
     const { start_date, end_date, project_id } = req.query;
     const trends = await analyticsService.getTaskTrend(
       start_date as string,
       end_date as string,
+      currentUser,
       project_id as string
     );
     res.json({ success: true, data: trends });
@@ -52,11 +49,22 @@ router.get('/dashboard/trends', async (req: Request, res: Response, next: NextFu
   }
 });
 
-// ========== 报表分析 ==========
-
-router.get('/reports/project-progress', async (req: Request, res: Response, next: NextFunction) => {
+// 获取所有项目进度（仪表板专用）
+router.get('/dashboard/projects', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
+    const projects = await analyticsService.getAllProjectsProgress(currentUser);
+    res.json({ success: true, data: projects });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 报表分析（需要 REPORT_VIEW 权限）==========
+
+router.get('/reports/project-progress', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req)!;
     const { project_id } = req.query;
     if (!project_id) {
       throw new ValidationError('项目ID不能为空');
@@ -68,14 +76,15 @@ router.get('/reports/project-progress', async (req: Request, res: Response, next
   }
 });
 
-router.get('/reports/task-statistics', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/reports/task-statistics', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const currentUser = requireUser(req);
+    const currentUser = getCurrentUser(req)!;
     const options: ReportQueryOptions = {
       project_id: req.query.project_id as string,
       assignee_id: req.query.assignee_id ? parseInt(req.query.assignee_id as string) : undefined,
       start_date: req.query.start_date as string,
       end_date: req.query.end_date as string,
+      task_type: req.query.task_type as string,  // v1.2 新增：任务类型筛选
     };
     const report = await analyticsService.getTaskStatisticsReport(options, currentUser);
     res.json({ success: true, data: report });
@@ -84,9 +93,9 @@ router.get('/reports/task-statistics', async (req: Request, res: Response, next:
   }
 });
 
-router.get('/reports/delay-analysis', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/reports/delay-analysis', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const currentUser = requireUser(req);
+    const currentUser = getCurrentUser(req)!;
     const options: ReportQueryOptions = {
       project_id: req.query.project_id as string,
       delay_type: req.query.delay_type as any,
@@ -100,15 +109,68 @@ router.get('/reports/delay-analysis', async (req: Request, res: Response, next: 
   }
 });
 
-router.get('/reports/member-analysis', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/reports/member-analysis', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const currentUser = requireUser(req);
+    const currentUser = getCurrentUser(req)!;
     const { member_id } = req.query;
     if (!member_id) {
       throw new ValidationError('成员ID不能为空');
     }
     const report = await analyticsService.getMemberAnalysisReport(parseInt(member_id as string), currentUser);
     res.json({ success: true, data: report });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 资源效能分析报表（v1.2 新增）
+router.get('/reports/resource-efficiency', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req)!;
+    const options: ResourceEfficiencyQueryOptions = {
+      project_id: req.query.project_id as string,
+      start_date: req.query.start_date as string,
+      end_date: req.query.end_date as string,
+      department_id: req.query.department_id ? parseInt(req.query.department_id as string) : undefined,
+      tech_group_id: req.query.tech_group_id ? parseInt(req.query.tech_group_id as string) : undefined,
+      productivity_threshold: req.query.productivity_threshold ? parseFloat(req.query.productivity_threshold as string) : undefined,
+    };
+    const report = await analyticsService.getResourceEfficiencyReport(options, currentUser);
+    res.json({ success: true, data: report });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 趋势指标 ==========
+
+// 仪表板统计卡片趋势
+router.get('/dashboard/trends-summary', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const days = req.query.days ? parseInt(req.query.days as string) : 30;
+    const result = await analyticsService.getDashboardTrends(currentUser, days);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 报表时间序列趋势（需要 REPORT_VIEW 权限）
+router.get('/reports/trend', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req)!;
+    const metric = req.query.metric as 'tasks_created' | 'tasks_completed' | 'tasks_delayed' | 'project_progress';
+    if (!metric) {
+      throw new ValidationError('metric 参数不能为空');
+    }
+    const endDate = (req.query.end_date as string) || new Date().toISOString().split('T')[0];
+    const startDate = (req.query.start_date as string) || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+    const granularity = (req.query.granularity as 'day' | 'week' | 'month') || 'week';
+    const projectId = req.query.project_id as string;
+
+    const result = await analyticsService.getReportTrend(currentUser, metric, startDate, endDate, granularity, projectId);
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }
@@ -188,13 +250,21 @@ router.delete('/config/holidays/:date', async (req: Request, res: Response, next
   }
 });
 
-// ========== 导入导出 ==========
+// ========== 导入导出（需要相应权限）==========
 
-router.get('/export/:domain', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/export/:domain', requirePermission('REPORT_EXPORT'), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const currentUser = getCurrentUser(req)!;
     const { domain } = req.params;
     const format = (req.query.format as 'xlsx' | 'csv' | 'json') || 'xlsx';
-    const buffer = await analyticsService.exportData(domain, format);
+    const filters: ReportQueryOptions = {
+      project_id: req.query.project_id as string,
+      assignee_id: req.query.assignee_id ? parseInt(req.query.assignee_id as string) : undefined,
+      start_date: req.query.start_date as string,
+      end_date: req.query.end_date as string,
+      delay_type: req.query.delay_type as any,
+    };
+    const buffer = await analyticsService.exportData(domain, format, currentUser, filters);
 
     const mimeTypes: Record<string, string> = {
       xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -210,9 +280,9 @@ router.get('/export/:domain', async (req: Request, res: Response, next: NextFunc
   }
 });
 
-router.post('/import/:domain', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/import/:domain', requirePermission('DATA_IMPORT'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const currentUser = requireUser(req);
+    const currentUser = getCurrentUser(req)!;
     const { domain } = req.params;
     const { data } = req.body;
     const result = await analyticsService.importData(domain, data, currentUser);
@@ -233,22 +303,14 @@ router.get('/templates/:type', async (req: Request, res: Response, next: NextFun
   }
 });
 
-// ========== 审计日志 ==========
+// ========== 审计日志（需要 AUDIT_LOG_VIEW 权限）==========
 
 /**
  * 获取审计日志列表
- * 权限: admin, dept_manager
+ * 权限: admin, dept_manager（通过 AUDIT_LOG_VIEW 权限控制）
  */
-router.get('/audit-logs', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/audit-logs', requirePermission('AUDIT_LOG_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const currentUser = requireUser(req);
-
-    // 权限检查: 只有 admin 和 dept_manager 可查看
-    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
-      res.status(403).json({ success: false, message: '无权限查看审计日志' });
-      return;
-    }
-
     const result = await auditService.query({
       category: req.query.category as AuditCategory,
       action: req.query.action as string,
@@ -269,15 +331,8 @@ router.get('/audit-logs', async (req: Request, res: Response, next: NextFunction
 /**
  * 获取审计日志筛选选项
  */
-router.get('/audit-logs/options', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/audit-logs/options', requirePermission('AUDIT_LOG_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const currentUser = requireUser(req);
-
-    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
-      res.status(403).json({ success: false, message: '无权限查看审计日志' });
-      return;
-    }
-
     const actionTypes = auditService.getActionTypes();
 
     res.json({
@@ -301,15 +356,8 @@ router.get('/audit-logs/options', async (req: Request, res: Response, next: Next
 /**
  * 导出审计日志
  */
-router.get('/audit-logs/export', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/audit-logs/export', requirePermission('AUDIT_LOG_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const currentUser = requireUser(req);
-
-    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
-      res.status(403).json({ success: false, message: '无权限导出审计日志' });
-      return;
-    }
-
     // 查询数据（限制最多1000条）
     const result = await auditService.query({
       category: req.query.category as AuditCategory,

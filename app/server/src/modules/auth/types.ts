@@ -50,6 +50,7 @@ export interface UserListOptions {
   department_id?: number;
   is_active?: boolean;
   search?: string;
+  excludeBuiltin?: boolean;
 }
 
 export interface UserListResponse {

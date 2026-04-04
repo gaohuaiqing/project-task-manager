@@ -287,6 +287,14 @@ export const PROJECT_STATUS_OPTIONS: { value: ProjectStatus; label: string }[] =
   { value: 'delayed', label: '已延期' },
 ];
 
+// 项目状态标签映射
+export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+  planning: '计划中',
+  in_progress: '进行中',
+  completed: '已完成',
+  delayed: '已延期',
+};
+
 // ==================== 项目类型 (4种) ====================
 // 与数据库实际存储值同步
 
@@ -324,6 +332,14 @@ export const PROJECT_TYPE_OPTIONS: { value: ProjectType; label: string }[] = [
   { value: 'material_sub', label: '物料改代' },
   { value: 'quality_handle', label: '质量处理' },
 ];
+
+// 项目类型标签映射
+export const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
+  product_dev: '产品开发',
+  func_mgmt: '职能管理',
+  material_sub: '物料改代',
+  quality_handle: '质量处理',
+};
 
 // ==================== 用户角色 ====================
 

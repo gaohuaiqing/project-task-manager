@@ -82,42 +82,43 @@
     --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
-  /* 深色主题 */
+  /* 深色主题 - 冷色调深蓝风格 */
   .dark {
-    --background: 0 0% 7.5%;
-    --foreground: 0 0% 100%;
-    --card: 200 5% 11.5%;
-    --card-foreground: 0 0% 100%;
-    --popover: 200 5% 11.5%;
-    --popover-foreground: 0 0% 100%;
+    /* 背景色层次 - body < sidebar < card */
+    --background: 222 88% 5%;
+    --foreground: 210 40% 96%;
+    --card: 217 32% 12%;
+    --card-foreground: 210 40% 96%;
+    --popover: 217 32% 12%;
+    --popover-foreground: 210 40% 96%;
     /* Primary 颜色：银色略深 - 深色主题 */
     --primary: 0 0% 55%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 10% 23%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 210 10% 18%;
-    --muted-foreground: 0 0% 73%;
-    --accent: 210 10% 23%;
-    --accent-foreground: 0 0% 100%;
+    --secondary: 217 25% 18%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 217 25% 15%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 25% 18%;
+    --accent-foreground: 210 40% 96%;
     --destructive: 0 70% 65%;
     --destructive-foreground: 0 0% 100%;
-    --border: 210 10% 23%;
-    --input: 210 10% 23%;
+    --border: 213 25% 20%;
+    --input: 213 25% 20%;
     --ring: 0 0% 55%;
-    --sidebar-background: 200 5% 11.5%;
-    --sidebar-foreground: 0 0% 100%;
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 96%;
     --sidebar-primary: 0 0% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 210 10% 23%;
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 210 10% 23%;
+    --sidebar-accent: 217 25% 18%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 213 25% 18%;
     --sidebar-ring: 0 0% 55%;
 
     /* Apple 风格激活状态 - 深色主题 */
-    --sidebar-active: 210 10% 25%;
-    --sidebar-active-foreground: 0 0% 100%;
-    --nav-active: 210 10% 25%;
-    --nav-active-foreground: 0 0% 100%;
+    --sidebar-active: 217 25% 20%;
+    --sidebar-active-foreground: 210 40% 96%;
+    --nav-active: 217 25% 20%;
+    --nav-active-foreground: 210 40% 96%;
   }
 }
 

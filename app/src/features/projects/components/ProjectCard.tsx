@@ -2,7 +2,7 @@
  * 项目卡片组件
  */
 import { useNavigate } from 'react-router-dom';
-import { MoreVertical, Calendar } from 'lucide-react';
+import { MoreVertical, Calendar, ListTodo } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -93,10 +93,18 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
           {project.description || '暂无描述'}
         </p>
 
-        {/* 类型标签 */}
-        <div className="flex items-center gap-2">
+        {/* 类型标签 + 任务数量 */}
+        <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="outline" className="text-xs">
             {PROJECT_TYPE_CONFIG[project.projectType]?.label || project.projectType}
+          </Badge>
+          {/* WBS任务数量 */}
+          <Badge
+            variant={project.taskCount && project.taskCount > 0 ? "secondary" : "outline"}
+            className="text-xs flex items-center gap-1"
+          >
+            <ListTodo className="h-3 w-3" />
+            <span>{project.taskCount ?? 0} 任务</span>
           </Badge>
         </div>
 

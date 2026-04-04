@@ -2,11 +2,13 @@ import { useEffect } from 'react';
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Toaster } from 'sonner';
 import { AppProvider } from '@/shared/context/AppContext';
 import { ProtectedRoute } from '@/features/auth/components/ProtectedRoute';
 import { MainLayout } from '@/shared/layout/MainLayout';
 import { FullPageLoader } from '@/shared/components/LoadingSpinner';
 import { wsClient } from '@/lib/api';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 // 懒加载页面
 const LoginPage = lazy(() => import('@/features/auth'));
@@ -14,6 +16,7 @@ const Dashboard = lazy(() => import('@/features/dashboard'));
 const Projects = lazy(() => import('@/features/projects'));
 const Tasks = lazy(() => import('@/features/tasks'));
 const Assignment = lazy(() => import('@/features/assignment'));
+const Reports = lazy(() => import('@/features/reports'));
 const Settings = lazy(() => import('@/features/settings'));
 
 // React Query 客户端配置
@@ -43,8 +46,10 @@ export function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AppProvider>
-        <BrowserRouter>
+      <AuthProvider>
+        <AppProvider>
+          <Toaster position="top-center" richColors />
+          <BrowserRouter>
           <Suspense fallback={<FullPageLoader />}>
             <Routes>
               {/* 公开路由 */}
@@ -64,6 +69,8 @@ export function App() {
                 <Route path="/tasks" element={<Tasks />} />
                 <Route path="/tasks/:id" element={<Tasks />} />
                 <Route path="/assignment" element={<Assignment />} />
+                <Route path="/reports" element={<Reports />} />
+                <Route path="/reports/:tab" element={<Reports />} />
                 <Route path="/settings/*" element={<Settings />} />
               </Route>
 
@@ -73,7 +80,8 @@ export function App() {
             </Routes>
           </Suspense>
         </BrowserRouter>
-      </AppProvider>
+        </AppProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

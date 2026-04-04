@@ -26,13 +26,16 @@ export function useAuth(): AuthState & {
   });
 
   // 获取当前用户
-  const { data: user } = useQuery({
+  const { data: user, isLoading: isUserLoading } = useQuery({
     queryKey: queryKeys.auth.user,
     queryFn: authApi.getCurrentUser,
     enabled: hasAuthSession,
     retry: false,
     staleTime: 5 * 60 * 1000, // 5 分钟
   });
+
+  // 调试日志
+  console.log('[useAuth] hasAuthSession:', hasAuthSession, 'isUserLoading:', isUserLoading, 'user:', user?.username);
 
   // 登录
   const loginMutation = useMutation({
@@ -55,6 +58,7 @@ export function useAuth(): AuthState & {
         displayName: userData.real_name || userData.name || userData.username,
         email: userData.email,
         avatar: userData.avatar,
+        role: userData.role,
       });
 
       // 刷新用户数据
@@ -126,7 +130,7 @@ export function useAuth(): AuthState & {
   return {
     user: user ?? null,
     isAuthenticated: !!user,
-    isLoading: loginMutation.isPending || logoutMutation.isPending,
+    isLoading: loginMutation.isPending || logoutMutation.isPending || (hasAuthSession && isUserLoading),
     login,
     logout,
     hasPermission,

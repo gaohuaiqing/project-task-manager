@@ -18,17 +18,40 @@ function requireUser(req: Request): User {
   return user;
 }
 
+/**
+ * 解析数组参数（支持逗号分隔字符串或数组）
+ */
+function parseArrayParam<T extends string>(param: unknown): T[] | undefined {
+  if (!param) return undefined;
+  if (Array.isArray(param)) return param as T[];
+  const str = String(param);
+  if (!str.trim()) return undefined;
+  return str.split(',').filter(Boolean) as T[];
+}
+
+/**
+ * 解析数字数组参数
+ */
+function parseNumberArrayParam(param: unknown): number[] | undefined {
+  if (!param) return undefined;
+  if (Array.isArray(param)) return param.map(Number).filter(n => !isNaN(n));
+  const str = String(param);
+  if (!str.trim()) return undefined;
+  return str.split(',').filter(Boolean).map(Number).filter(n => !isNaN(n));
+}
+
 // ========== 任务管理 ==========
 
 // 获取任务列表
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const currentUser = requireUser(req); // 认证检查
     const options: TaskQueryOptions = {
-      project_id: req.query.project_id as string,
-      status: req.query.status as any,
-      task_type: req.query.task_type as any,
-      priority: req.query.priority as any,
-      assignee_id: req.query.assignee_id ? parseInt(req.query.assignee_id as string) : undefined,
+      project_id: parseArrayParam(req.query.project_id),
+      status: parseArrayParam(req.query.status),
+      task_type: parseArrayParam(req.query.task_type),
+      priority: parseArrayParam(req.query.priority),
+      assignee_id: parseNumberArrayParam(req.query.assignee_id),
       parent_id: req.query.parent_id === 'null' ? null : req.query.parent_id as string,
       search: req.query.search as string,
       page: req.query.page ? parseInt(req.query.page as string) : 1,
@@ -45,6 +68,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 // 获取任务详情
 router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    requireUser(req); // 认证检查
     const task = await taskService.getTaskById(req.params.id);
     if (!task) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '任务不存在' } });
@@ -98,6 +122,7 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
 // 获取进度记录
 router.get('/:id/progress', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    requireUser(req); // 认证检查
     const records = await taskService.getProgressRecords(req.params.id);
     res.json({ success: true, data: records });
   } catch (error) {
@@ -122,6 +147,7 @@ router.post('/:id/progress', async (req: Request, res: Response, next: NextFunct
 // 批量获取任务
 router.post('/batch', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    requireUser(req); // 认证检查
     const { ids } = req.body;
     const tasks = await taskService.getTasksByIds(ids || []);
     res.json({ success: true, data: tasks });
@@ -134,6 +160,7 @@ router.post('/batch', async (req: Request, res: Response, next: NextFunction) =>
 
 router.get('/stats/:projectId', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    requireUser(req); // 认证检查
     const stats = await taskService.getTaskStats(req.params.projectId);
     res.json({ success: true, data: stats });
   } catch (error) {
@@ -146,6 +173,7 @@ router.get('/stats/:projectId', async (req: Request, res: Response, next: NextFu
 // 根据WBS编码获取任务
 router.get('/by-wbs-code/:wbsCode', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    requireUser(req); // 认证检查
     const projectId = req.query.project_id as string;
     if (!projectId) {
       return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: '缺少project_id参数' } });
@@ -165,6 +193,7 @@ router.get('/by-wbs-code/:wbsCode', async (req: Request, res: Response, next: Ne
 // 获取任务的计划变更历史
 router.get('/:id/plan-changes', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    requireUser(req); // 认证检查
     // 导入 WorkflowService
     const { WorkflowService } = await import('../workflow/service');
     const workflowService = new WorkflowService();

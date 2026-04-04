@@ -32,7 +32,7 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   // 筛选状态
   const [filters, setFilters] = useState<TaskQueryParams>({
     projectId,
-    pageSize: 1000,
+    pageSize: 100, // 减小默认页面大小，提升性能
   });
 
   // 对话框状态
@@ -42,6 +42,8 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   const [selectedTask, setSelectedTask] = useState<WBSTaskListItem | null>(null);
   const [parentId, setParentId] = useState<string | null>(null);
   const [wbsLevel, setWbsLevel] = useState<number>(1);
+  const [inheritedProjectId, setInheritedProjectId] = useState<string | undefined>(undefined);
+  const [inheritedTaskType, setInheritedTaskType] = useState<string | undefined>(undefined);
   const [detailDefaultTab, setDetailDefaultTab] = useState<'progress' | 'delays' | 'changes'>('progress');
 
   // 处理筛选变化
@@ -49,7 +51,7 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     setFilters((prev) => ({
       ...newFilters,
       projectId: projectId || newFilters.projectId, // 项目详情页保持项目ID
-      pageSize: 1000,
+      pageSize: 100, // 保持较小的页面大小
     }));
   }, [projectId]);
 
@@ -72,10 +74,20 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   const updateMutation = useUpdateTask(); // 不传参数，在调用时传递 { id, data }
 
   // 处理创建任务
-  const handleCreateTask = (parentTaskId?: string, level?: number) => {
+  const handleCreateTask = (parentTaskId?: string, level?: number, parentTask?: WBSTaskListItem) => {
     setSelectedTask(null);
     setParentId(parentTaskId ?? null);
     setWbsLevel(level ?? 1);
+
+    // 如果是创建子任务，继承父任务的项目和任务类型
+    if (parentTaskId && parentTask) {
+      setInheritedProjectId(parentTask.projectId);
+      setInheritedTaskType(parentTask.taskType);
+    } else {
+      setInheritedProjectId(undefined);
+      setInheritedTaskType(undefined);
+    }
+
     setFormOpen(true);
   };
 
@@ -84,6 +96,7 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     setSelectedTask(task);
     setParentId(task.parentId);
     setWbsLevel(task.wbsLevel);
+    setInheritedProjectId(task.projectId); // 设置项目ID，确保表单能正确显示项目信息
     setFormOpen(true);
   };
 
@@ -155,21 +168,32 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   }, [tasksData, queryClient]);
 
   // 计算任务树（添加 hasChildren 和 depth）
+  // 展平嵌套的 children 结构
   const tasksWithMeta = useMemo(() => {
     if (!tasksData?.items) return [];
 
     const taskMap = new Map<string, WBSTaskListItem & { hasChildren: boolean; depth: number }>();
-    tasksData.items.forEach(task => taskMap.set(task.id, { ...task, hasChildren: false, depth: task.wbsLevel }));
 
-    // 标记有子任务的任务
-    tasksData.items.forEach(task => {
-      if (task.parentId) {
-        const parent = taskMap.get(task.parentId);
-        if (parent) {
-          parent.hasChildren = true;
+    // 递归展平任务（包括 children）
+    const flattenTasks = (tasks: WBSTaskListItem[]) => {
+      tasks.forEach(task => {
+        // 添加当前任务到 map，保留 children 用于 WbsTable
+        taskMap.set(task.id, {
+          ...task,
+          hasChildren: !!(task.children && task.children.length > 0),
+          depth: task.wbsLevel,
+          children: task.children // 保留 children 引用
+        });
+
+        // 如果有 children，递归处理
+        if (task.children && task.children.length > 0) {
+          // 递归展平 children
+          flattenTasks(task.children as WBSTaskListItem[]);
         }
-      }
-    });
+      });
+    };
+
+    flattenTasks(tasksData.items);
 
     return Array.from(taskMap.values());
   }, [tasksData]);
@@ -230,12 +254,16 @@ export default function TasksPage({ projectId }: TasksPageProps) {
           if (!open) {
             setSelectedTask(null);
             setParentId(null);
+            setInheritedProjectId(undefined);
+            setInheritedTaskType(undefined);
           }
         }}
         task={selectedTask}
-        projectId={projectId}
+        projectId={projectId || inheritedProjectId}
         parentId={parentId}
         wbsLevel={wbsLevel}
+        inheritedTaskType={inheritedTaskType}
+        isSubtask={!!parentId}
         projects={projects}
         tasks={tasksData?.items || []}
         onSubmit={handleFormSubmit}

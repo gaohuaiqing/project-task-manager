@@ -15,11 +15,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner';
 
 interface ProjectProgressData {
-  projectId: string;
-  projectName: string;
-  taskCount: number;
-  completedCount: number;
-  progress: number;
+  projectId?: string;
+  projectName?: string;
+  name?: string;  // 兼容旧数据格式
+  status?: string;
+  progress?: number;
+  totalTasks?: number;
+  completedTasks?: number;
+  deadline?: string | null;
+  members?: Array<{
+    id: number;
+    name: string;
+    avatar: string | null;
+  }>;
 }
 
 interface ProgressPieChartProps {
@@ -46,14 +54,14 @@ export function ProgressPieChart({
 }: ProgressPieChartProps) {
   const chartData = useMemo(() => {
     return data.map((item) => ({
-      name: item.projectName,
-      value: item.taskCount,
-      progress: item.progress,
+      name: item.projectName || item.name || '未命名项目',
+      value: item.totalTasks || 0,
+      progress: item.progress || 0,
     }));
   }, [data]);
 
   const totalTasks = useMemo(() => {
-    return data.reduce((sum, item) => sum + item.taskCount, 0);
+    return data.reduce((sum, item) => sum + (item.totalTasks || 0), 0);
   }, [data]);
 
   if (isLoading) {
@@ -148,68 +156,50 @@ interface StatusPieChartProps {
 export function StatusPieChart({
   data,
   isLoading,
-  title = '任务状态分布',
 }: StatusPieChartProps) {
   if (isLoading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-        </CardHeader>
-        <CardContent className="h-[300px] flex items-center justify-center">
-          <LoadingSpinner />
-        </CardContent>
-      </Card>
+      <div className="h-[300px] flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
     );
   }
 
   if (data.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-        </CardHeader>
-        <CardContent className="h-[300px] flex items-center justify-center text-muted-foreground">
-          暂无任务数据
-        </CardContent>
-      </Card>
+      <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+        暂无数据
+      </div>
     );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <ResponsiveContainer width="100%" height={300}>
-          <PieChart>
-            <Pie
-              data={data}
-              cx="50%"
-              cy="50%"
-              labelLine={false}
-              label={({ label, percent }) =>
-                `${label} (${(percent * 100).toFixed(0)}%)`
-              }
-              outerRadius={100}
-              dataKey="count"
-            >
-              {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Pie>
-            <Tooltip
-              contentStyle={{
-                backgroundColor: '#fff',
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px',
-              }}
-            />
-            <Legend />
-          </PieChart>
-        </ResponsiveContainer>
-      </CardContent>
-    </Card>
+    <ResponsiveContainer width="100%" height={300}>
+      <PieChart>
+        <Pie
+          data={data}
+          cx="50%"
+          cy="50%"
+          labelLine={false}
+          label={({ label, percent }) =>
+            `${label} (${(percent * 100).toFixed(0)}%)`
+          }
+          outerRadius={100}
+          dataKey="count"
+        >
+          {data.map((entry, index) => (
+            <Cell key={`cell-${index}`} fill={entry.color} />
+          ))}
+        </Pie>
+        <Tooltip
+          contentStyle={{
+            backgroundColor: '#fff',
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+          }}
+        />
+        <Legend />
+      </PieChart>
+    </ResponsiveContainer>
   );
 }

@@ -221,6 +221,15 @@ export class WorkflowRepository {
     return result.affectedRows;
   }
 
+  async deleteNotification(id: string, userId: number): Promise<boolean> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      'DELETE FROM notifications WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
+    return result.affectedRows > 0;
+  }
+
   // ========== 批量通知 ==========
 
   async createNotificationsForUsers(userIds: number[], data: Omit<CreateNotificationRequest, 'user_id'>): Promise<void> {
@@ -261,14 +270,17 @@ export class WorkflowRepository {
 
   /**
    * 获取需要预警的任务（在预警天数内即将到期）
+   * 根据需求文档：无实际完成日期且当前距离计划完成日期≤预警天数
+   * 注意：不需要有实际开始日期，未开始的任务也可能触发预警
    */
   async getTasksNeedingWarning(): Promise<Array<{ id: string; description: string; assignee_id: number | null }>> {
     const pool = getPool();
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT t.id, t.description, t.assignee_id
        FROM wbs_tasks t
-       WHERE t.status = 'in_progress'
+       WHERE t.status IN ('not_started', 'in_progress', 'delay_warning')
        AND t.end_date IS NOT NULL
+       AND t.actual_end_date IS NULL
        AND DATEDIFF(t.end_date, CURDATE()) BETWEEN 0 AND t.warning_days
        AND NOT EXISTS (
          SELECT 1 FROM notifications n
@@ -322,7 +334,24 @@ export class WorkflowRepository {
   }
 
   /**
-   * 获取项目的项目经理
+   * 获取需要从预警状态恢复的任务
+   * 条件：状态为 delay_warning，但剩余天数已超过预警天数（截止日期被延长）
+   * 返回 actual_start_date 用于判断恢复到哪个状态
+   */
+  async getTasksToRecoverFromWarning(): Promise<Array<{ id: string; description: string; actual_start_date: Date | null }>> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, description, actual_start_date
+       FROM wbs_tasks
+       WHERE status = 'delay_warning'
+       AND end_date IS NOT NULL
+       AND DATEDIFF(end_date, CURDATE()) > warning_days`
+    );
+    return rows as Array<{ id: string; description: string; actual_start_date: Date | null }>;
+  }
+
+  /**
+   * 获取项目的管理人员（项目经理、技术经理、部门经理）
    */
   async getProjectManagers(projectId: string): Promise<Array<{ id: number; real_name: string }>> {
     const pool = getPool();

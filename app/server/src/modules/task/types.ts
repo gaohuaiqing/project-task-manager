@@ -62,6 +62,8 @@ export interface WBSTask {
   pending_changes: PendingChangeData | null;
   /** 待审批变更类型 */
   pending_change_type: string | null;
+  /** 实时计算的状态（用于显示，优先于数据库中的 status） */
+  computed_status?: TaskStatus;
   version: number;
   created_at: Date;
   updated_at: Date;
@@ -122,11 +124,11 @@ export interface UpdateTaskRequest {
 }
 
 export interface TaskQueryOptions {
-  project_id?: string;
-  status?: TaskStatus;
-  task_type?: TaskType;
-  priority?: TaskPriority;
-  assignee_id?: number;
+  project_id?: string | string[];      // 支持多选
+  status?: TaskStatus | TaskStatus[];  // 支持多选
+  task_type?: TaskType | TaskType[];   // 支持多选
+  priority?: TaskPriority | TaskPriority[];  // 支持多选
+  assignee_id?: number | number[];     // 支持多选
   parent_id?: string | null;
   search?: string;
   page?: number;

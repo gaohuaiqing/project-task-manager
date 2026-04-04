@@ -42,6 +42,13 @@ export function TaskDetailDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 当对话框打开或 defaultTab 变化时，更新 activeTab
+  useEffect(() => {
+    if (open) {
+      setActiveTab(defaultTab);
+    }
+  }, [open, defaultTab]);
+
   // 加载数据
   useEffect(() => {
     if (!open || !task) {

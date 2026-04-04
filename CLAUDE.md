@@ -194,7 +194,8 @@ Test/frontend/unit/components/Component.test.tsx
    - 日志文件必须放在 logs/ 目录
    - 这些目录已被 .gitignore 忽略
 
----
+4. **终端输出要求**
+   - 请始终使用中文进行思考和回复，包括内部推理过程
 
 ## 📝 示例对话
 

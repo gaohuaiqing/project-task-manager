@@ -16,6 +16,7 @@ import {
   deactivateMember,
   hardDeleteMember,
   getMemberDeletionCheck,
+  resetMemberPassword,
   getCapabilityModels,
   getCapabilityModel,
   createCapabilityModel,
@@ -148,7 +149,8 @@ export function useCreateMember() {
     mutationFn: (data: CreateMemberRequest): Promise<CreateMemberResponse> =>
       createMember(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.org.members() });
+      // 使用前缀匹配，失效所有成员相关查询
+      queryClient.invalidateQueries({ queryKey: ['org', 'members'] });
     },
   });
 }
@@ -163,7 +165,10 @@ export function useUpdateMember(id: number) {
     mutationFn: (data: UpdateMemberRequest) => updateMember(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.org.member(id) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.org.members() });
+      // 使用前缀匹配，失效所有成员相关查询
+      queryClient.invalidateQueries({ queryKey: ['org', 'members'] });
+      // 失效任务缓存：任务中的 assigneeName 是 JOIN 查询返回的
+      queryClient.invalidateQueries({ queryKey: queryKeys.task.all });
     },
   });
 }
@@ -177,7 +182,8 @@ export function useDeleteMember() {
   return useMutation({
     mutationFn: (id: number) => deleteMember(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.org.members() });
+      // 使用前缀匹配，失效所有成员相关查询
+      queryClient.invalidateQueries({ queryKey: ['org', 'members'] });
     },
   });
 }
@@ -200,7 +206,8 @@ export function useDeactivateMember() {
   return useMutation({
     mutationFn: (id: number) => deactivateMember(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.org.members() });
+      // 使用前缀匹配，失效所有成员相关查询
+      queryClient.invalidateQueries({ queryKey: ['org', 'members'] });
     },
   });
 }
@@ -214,8 +221,18 @@ export function useHardDeleteMember() {
   return useMutation({
     mutationFn: (id: number) => hardDeleteMember(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.org.members() });
+      // 使用前缀匹配，失效所有成员相关查询
+      queryClient.invalidateQueries({ queryKey: ['org', 'members'] });
     },
+  });
+}
+
+/**
+ * 重置成员密码
+ */
+export function useResetPassword() {
+  return useMutation({
+    mutationFn: (id: number) => resetMemberPassword(id),
   });
 }
 

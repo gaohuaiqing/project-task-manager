@@ -9,31 +9,26 @@ import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { authApi } from '@/features/auth/api';
+import { getAvatarUrl } from '@/utils/avatar';
 
 export function ProfileSettings() {
   const { user } = useAuth();
-  const [displayName, setDisplayName] = useState(user?.displayName || '');
-  const [email, setEmail] = useState(user?.email || '');
-
-  const handleSave = async () => {
-    // TODO: 实现保存逻辑
-    console.log('Save profile:', { displayName, email });
-  };
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>个人资料</CardTitle>
-          <CardDescription>更新您的个人信息</CardDescription>
+          <CardDescription>查看您的个人信息</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* 头像 */}
           <div className="flex items-center gap-6">
             <Avatar className="h-20 w-20">
-              <AvatarImage src={user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.username}`} />
+              <AvatarImage src={user?.avatar || getAvatarUrl(user?.realName || user?.username || '', user?.gender ?? null)} />
               <AvatarFallback className="text-2xl">
-                {user?.displayName?.charAt(0) || user?.username?.charAt(0)}
+                {user?.realName?.charAt(0) || user?.username?.charAt(0)}
               </AvatarFallback>
             </Avatar>
             <div className="space-y-2">
@@ -63,10 +58,11 @@ export function ProfileSettings() {
               <Label htmlFor="displayName">显示名称</Label>
               <Input
                 id="displayName"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="请输入显示名称"
+                value={user?.realName || ''}
+                disabled
+                className="bg-muted"
               />
+              <p className="text-xs text-muted-foreground">需要管理员或部门经理修改</p>
             </div>
 
             <div className="space-y-2">
@@ -74,10 +70,11 @@ export function ProfileSettings() {
               <Input
                 id="email"
                 type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="请输入邮箱"
+                value={user?.email || ''}
+                disabled
+                className="bg-muted"
               />
+              <p className="text-xs text-muted-foreground">需要管理员或部门经理修改</p>
             </div>
 
             <div className="space-y-2">
@@ -85,15 +82,11 @@ export function ProfileSettings() {
               <Input
                 value={user?.role === 'admin' ? '管理员' :
                      user?.role === 'tech_manager' ? '技术经理' :
-                     user?.role === 'department_manager' ? '部门经理' : '工程师'}
+                     user?.role === 'dept_manager' ? '部门经理' : '工程师'}
                 disabled
                 className="bg-muted"
               />
             </div>
-          </div>
-
-          <div className="flex justify-end">
-            <Button onClick={handleSave}>保存更改</Button>
           </div>
         </CardContent>
       </Card>
@@ -118,9 +111,12 @@ function ChangePasswordForm() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
     setError('');
+    setSuccess('');
 
     if (!currentPassword || !newPassword || !confirmPassword) {
       setError('请填写所有字段');
@@ -137,8 +133,21 @@ function ChangePasswordForm() {
       return;
     }
 
-    // TODO: 实现密码修改逻辑
-    console.log('Change password');
+    setLoading(true);
+    try {
+      await authApi.changePassword({
+        oldPassword: currentPassword,
+        newPassword: newPassword,
+      });
+      setSuccess('密码修改成功');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err: any) {
+      setError(err.message || '密码修改失败');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -146,6 +155,12 @@ function ChangePasswordForm() {
       {error && (
         <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">
           {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="text-sm text-green-600 bg-green-50 p-3 rounded-md">
+          {success}
         </div>
       )}
 
@@ -182,7 +197,9 @@ function ChangePasswordForm() {
         />
       </div>
 
-      <Button onClick={handleSubmit}>修改密码</Button>
+      <Button onClick={handleSubmit} disabled={loading}>
+        {loading ? '修改中...' : '修改密码'}
+      </Button>
     </div>
   );
 }

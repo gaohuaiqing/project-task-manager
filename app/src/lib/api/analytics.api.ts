@@ -5,7 +5,7 @@ import apiClient from './client';
 import type { ApiResponse } from '@/types/api';
 import type {
   DashboardStats,
-  TaskTrend,
+  TrendDataPoint,
   ProjectProgressItem,
   TaskDistribution,
   DashboardQueryParams,
@@ -15,6 +15,7 @@ const BASE_PATH = '/analytics';
 
 /**
  * 获取仪表板统计数据
+ * 注：响应拦截器会自动转换 snake_case -> camelCase
  */
 export async function getDashboardStats(): Promise<DashboardStats> {
   const response = await apiClient.get<ApiResponse<DashboardStats>>(`${BASE_PATH}/dashboard/stats`);
@@ -23,55 +24,42 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
 /**
  * 获取任务趋势数据
+ * 注：请求拦截器会自动转换 camelCase -> snake_case
  */
-export async function getTaskTrend(params: DashboardQueryParams = {}): Promise<TaskTrend> {
-  const response = await apiClient.get<ApiResponse<TaskTrend>>(`${BASE_PATH}/dashboard/trends`, {
-    params,
-  });
-  return response.data;
+export async function getTaskTrend(params: DashboardQueryParams = {}): Promise<TrendDataPoint[]> {
+  const response = await apiClient.get<ApiResponse<TrendDataPoint[]>>(
+    `${BASE_PATH}/dashboard/trends`,
+    { params }
+  );
+  return response.data ?? [];
 }
 
 /**
- * 获取项目进度报表
+ * 获取所有项目进度（仪表板专用）
+ * 注：响应拦截器会自动转换 snake_case -> camelCase
  */
-export async function getProjectProgress(projectId: string): Promise<ProjectProgressItem> {
-  const response = await apiClient.get<ApiResponse<ProjectProgressItem>>(
-    `${BASE_PATH}/reports/project-progress`,
-    { params: { project_id: projectId } }
+export async function getAllProjectsProgress(): Promise<ProjectProgressItem[]> {
+  const response = await apiClient.get<ApiResponse<ProjectProgressItem[]>>(
+    `${BASE_PATH}/dashboard/projects`
   );
-  return response.data;
+  return response.data ?? [];
 }
 
 /**
  * 获取任务统计报表
+ * 注：响应拦截器会自动转换 snake_case -> camelCase
  */
 export async function getTaskStatistics(params: DashboardQueryParams = {}): Promise<TaskDistribution> {
-  const response = await apiClient.get<ApiResponse<any>>(
+  const response = await apiClient.get<ApiResponse<TaskDistribution>>(
     `${BASE_PATH}/reports/task-statistics`,
     { params }
   );
-  const data = response.data;
-
-  // 转换后端数据格式为前端格式
-  return {
-    byStatus: {
-      pending: data.total_tasks || 0,
-      in_progress: 0,
-      completed: 0,
-      delayed: 0,
-    },
-    byPriority: data.priority_distribution || {},
-    byType: {},
-    byAssignee: (data.assignee_distribution || []).map((item: any) => ({
-      id: item.assignee_id || 0,
-      name: item.assignee_name || '未分配',
-      count: item.task_count || 0,
-    })),
-  };
+  return response.data;
 }
 
 /**
  * 获取延期分析报表
+ * 注：请求拦截器会自动转换 camelCase -> snake_case
  */
 export async function getDelayAnalysis(params: DashboardQueryParams = {}): Promise<{
   totalDelayed: number;
@@ -86,31 +74,71 @@ export async function getDelayAnalysis(params: DashboardQueryParams = {}): Promi
   return response.data;
 }
 
+/**
+ * 获取仪表板统计卡片趋势（对比当前周期 vs 上期）
+ */
+export async function getDashboardTrends(days: number = 7): Promise<Record<string, {
+  current: number;
+  trend: {
+    value: number;
+    previousValue: number;
+    change: number;
+    changePercent: number;
+    direction: 'up' | 'down' | 'flat';
+    isPositive: boolean;
+  };
+}>> {
+  const response = await apiClient.get<ApiResponse<any>>(
+    `${BASE_PATH}/dashboard/trends-summary`,
+    { params: { days } }
+  );
+  return response.data ?? {};
+}
+
+/**
+ * 获取报表时间序列趋势数据
+ */
+export async function getReportTrend(params: {
+  metric: string;
+  startDate?: string;
+  endDate?: string;
+  granularity?: 'day' | 'week' | 'month';
+  projectId?: string;
+}): Promise<Array<{ date: string; value: number }>> {
+  const response = await apiClient.get<ApiResponse<any>>(
+    `${BASE_PATH}/reports/trend`,
+    { params }
+  );
+  return response.data ?? [];
+}
+
 export const analyticsApi = {
   getDashboardStats,
   getTaskTrend,
-  getProjectProgress,
+  getAllProjectsProgress,
   getTaskStatistics,
   getDelayAnalysis,
+  getDashboardTrends,
+  getReportTrend,
 };
 
 // ============ 审计日志 API ============
 
 export interface AuditLog {
-  audit_id: string;
-  actor_user_id: number | null;
-  actor_username: string | null;
-  actor_role: string | null;
+  auditId: string;
+  actorUserId: number | null;
+  actorUsername: string | null;
+  actorRole: string | null;
   category: 'security' | 'project' | 'task' | 'org' | 'config';
   action: string;
-  table_name: string;
-  record_id: string | null;
+  tableName: string;
+  recordId: string | null;
   details: string | null;
-  before_data: Record<string, unknown> | null;
-  after_data: Record<string, unknown> | null;
-  ip_address: string | null;
-  user_agent: string | null;
-  created_at: string;
+  beforeData: Record<string, unknown> | null;
+  afterData: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
 }
 
 export interface AuditLogQueryParams {
@@ -143,7 +171,9 @@ export async function getAuditLogs(params: AuditLogQueryParams = {}): Promise<Au
   const response = await apiClient.get<ApiResponse<AuditLogListResult>>(`${BASE_PATH}/audit-logs`, {
     params,
   });
-  return response.data;
+  // axios 拦截器已经解包 response.data，所以 response = { success: true, data: AuditLogListResult }
+  // response.data 就是 { items: [...], total: number }
+  return response.data ?? { items: [], total: 0, page: 1, pageSize: 50 };
 }
 
 /**
@@ -151,7 +181,8 @@ export async function getAuditLogs(params: AuditLogQueryParams = {}): Promise<Au
  */
 export async function getAuditLogOptions(): Promise<AuditLogOptions> {
   const response = await apiClient.get<ApiResponse<AuditLogOptions>>(`${BASE_PATH}/audit-logs/options`);
-  return response.data;
+  // axios 拦截器已经解包 response.data，所以 response.data 就是实际数据
+  return response.data ?? { categories: [], actionTypes: [] };
 }
 
 /**
