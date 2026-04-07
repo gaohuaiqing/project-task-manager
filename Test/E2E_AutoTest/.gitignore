@@ -1,9 +1,0 @@
-node_modules/
-dist/
-reports/
-.env.local
-test-results/
-playwright-report/
-playwright/.cache/
-.auth/
-node_modules/

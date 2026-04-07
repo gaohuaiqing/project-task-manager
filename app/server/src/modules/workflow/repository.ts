@@ -55,7 +55,8 @@ export class WorkflowRepository {
     const pageSize = options?.pageSize || 20;
     const offset = (page - 1) * pageSize;
 
-    const [rows] = await pool.execute<PlanChangeRow[]>(
+    // 使用 query 而不是 execute，因为 LIMIT 和 OFFSET 不支持参数化
+    const [rows] = await pool.query<PlanChangeRow[]>(
       `SELECT pc.*,
               t.description as task_description,
               u.real_name as user_name,
@@ -66,8 +67,8 @@ export class WorkflowRepository {
        LEFT JOIN users a ON pc.approver_id = a.id
        ${whereClause}
        ORDER BY pc.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, pageSize, offset]
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params
     );
 
     return { items: rows, total };
@@ -165,11 +166,11 @@ export class WorkflowRepository {
   async getNotifications(userId: number, options?: { unreadOnly?: boolean; page?: number; pageSize?: number }): Promise<{ items: Notification[]; total: number }> {
     const pool = getPool();
     const conditions = ['n.user_id = ?'];
-    const params: (number | boolean)[] = [userId];
+    const params: (number)[] = [userId];
 
     if (options?.unreadOnly) {
       conditions.push('n.is_read = ?');
-      params.push(false);
+      params.push(0); // 使用 0 代替 false
     }
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
@@ -186,9 +187,10 @@ export class WorkflowRepository {
     const pageSize = options?.pageSize || 20;
     const offset = (page - 1) * pageSize;
 
-    const [rows] = await pool.execute<NotificationRow[]>(
-      `SELECT * FROM notifications n ${whereClause} ORDER BY n.created_at DESC LIMIT ? OFFSET ?`,
-      [...params, pageSize, offset]
+    // 使用 query 而不是 execute，因为 LIMIT 和 OFFSET 不支持参数化
+    const [rows] = await pool.query<NotificationRow[]>(
+      `SELECT * FROM notifications n ${whereClause} ORDER BY n.created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
+      params
     );
 
     return { items: rows, total };

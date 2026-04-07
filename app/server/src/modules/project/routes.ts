@@ -179,9 +179,11 @@ router.post('/:id/milestones', async (req: Request, res: Response, next: NextFun
     const currentUser = requireUser(req);
     // 前端拦截器已转换为蛇形命名，直接使用
     const body = req.body as Record<string, unknown>;
+    // 将 ISO 8601 日期格式转换为 YYYY-MM-DD 格式
+    const dateValue = body.target_date as string;
     const mappedData: CreateMilestoneRequest = {
       name: body.name as string,
-      target_date: body.target_date as string,
+      target_date: dateValue.split('T')[0],
       description: body.description as string | undefined,
       completion_percentage: body.completion_percentage as number | undefined,
     };
@@ -201,7 +203,11 @@ router.put('/milestones/:id', async (req: Request, res: Response, next: NextFunc
     const body = req.body as Record<string, unknown>;
     const mappedData: UpdateMilestoneRequest = {};
     if (body.name !== undefined) mappedData.name = body.name as string;
-    if (body.target_date !== undefined) mappedData.target_date = body.target_date as string;
+    if (body.target_date !== undefined) {
+      // 将 ISO 8601 日期格式转换为 YYYY-MM-DD 格式
+      const dateValue = body.target_date as string;
+      mappedData.target_date = dateValue.split('T')[0];
+    }
     if (body.description !== undefined) mappedData.description = body.description as string;
     if (body.completion_percentage !== undefined) mappedData.completion_percentage = body.completion_percentage as number;
 

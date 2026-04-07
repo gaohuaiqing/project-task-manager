@@ -8,7 +8,7 @@
  * - 里程碑分组（动态增减）
  */
 import { useForm, useFieldArray } from 'react-hook-form';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -112,9 +112,21 @@ export function ProjectForm({
   // 选中的成员ID列表
   const selectedMemberIds = watch('memberIds') || [];
 
-  // 编辑模式：填充表单数据
+  // 追踪项目 ID，只在项目切换时重置整个表单
+  const prevProjectIdRef = useRef<string | undefined>(undefined);
+  // 追踪里程碑是否已初始化（用于区分首次加载和更新后的数据刷新）
+  const milestonesInitializedRef = useRef(false);
+
+  // 当项目 ID 变化时，重置整个表单
   useEffect(() => {
-    if (project) {
+    const currentProjectId = project?.id;
+    const isProjectChanged = prevProjectIdRef.current !== currentProjectId;
+
+    if (project && isProjectChanged) {
+      // 项目切换，重置整个表单
+      prevProjectIdRef.current = currentProjectId;
+      milestonesInitializedRef.current = false; // 重置里程碑初始化标记
+
       reset({
         code: project.code,
         name: project.name,
@@ -122,7 +134,7 @@ export function ProjectForm({
         projectType: project.projectType,
         startDate: project.startDate || undefined,
         deadline: project.deadline || undefined,
-        memberIds: project.memberIds || [], // 直接使用 memberIds 字段
+        memberIds: project.memberIds || [],
         milestones: existingMilestones.map((m) => ({
           id: m.id,
           name: m.name,
@@ -131,7 +143,15 @@ export function ProjectForm({
           completionPercentage: m.completionPercentage ?? 0,
         })),
       });
-    } else {
+
+      // 如果里程碑数据已存在，标记为已初始化
+      if (existingMilestones.length > 0) {
+        milestonesInitializedRef.current = true;
+      }
+    } else if (!project && prevProjectIdRef.current !== undefined) {
+      // 关闭表单，清空数据
+      prevProjectIdRef.current = undefined;
+      milestonesInitializedRef.current = false;
       reset({
         code: '',
         name: '',
@@ -143,7 +163,22 @@ export function ProjectForm({
         milestones: [],
       });
     }
-  }, [project, existingMilestones, reset]);
+  }, [project?.id, reset]);
+
+  // 当 existingMilestones 变化且里程碑未初始化时，更新里程碑字段
+  // 这确保首次加载时能正确显示里程碑，但不会在里程碑更新后覆盖用户正在编辑的数据
+  useEffect(() => {
+    if (project && !milestonesInitializedRef.current && existingMilestones.length > 0) {
+      milestonesInitializedRef.current = true;
+      setValue('milestones', existingMilestones.map((m) => ({
+        id: m.id,
+        name: m.name,
+        targetDate: m.targetDate,
+        description: m.description,
+        completionPercentage: m.completionPercentage ?? 0,
+      })));
+    }
+  }, [existingMilestones, project, setValue]);
 
   // 切换成员选择（由 MemberTreeSelector 内部处理）
   const handleMemberChange = (ids: number[]) => {

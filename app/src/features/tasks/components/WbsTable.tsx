@@ -606,9 +606,9 @@ export function WbsTable({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col h-full">
       {/* 工具栏 */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between shrink-0 pb-3">
         <div className="flex items-center gap-3">
           <div className="text-sm text-muted-foreground">
             共 {flatTasks.length} 条任务
@@ -726,11 +726,11 @@ export function WbsTable({
         </div>
       </div>
 
-      {/* 表格 */}
-      <div ref={tableRef} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-auto max-h-[calc(100vh-280px)] bg-background dark:bg-gray-900">
+      {/* 表格容器 - 使用 flex-1 填充剩余空间，内部滚动 */}
+      <div ref={tableRef} className="flex-1 min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg overflow-auto bg-background dark:bg-gray-900">
         <table className="w-full border-collapse">
           {/* 表头 */}
-          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700">
+          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-20 border-b border-gray-200 dark:border-gray-700">
             <tr>
               {visibleColumns.map((col, colIndex) => {
                 const isFirstCol = colIndex === 0;
@@ -740,7 +740,7 @@ export function WbsTable({
                     style={{ width: col.width, minWidth: col.minWidth, left: isFirstCol ? 0 : undefined }}
                     className={`
                       px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap
-                      ${isFirstCol ? 'sticky left-0 bg-background dark:bg-gray-900 z-20 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)] dark:shadow-[2px_0_4px_-2px_rgba(0,0,0,0.3)]' : ''}
+                      ${isFirstCol ? 'sticky left-0 bg-gray-50 dark:bg-gray-800 z-30 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)] dark:shadow-[2px_0_4px_-2px_rgba(0,0,0,0.3)]' : ''}
                     `}
                     title={col.tooltip}
                   >
@@ -816,7 +816,7 @@ export function WbsTable({
                             px-3 py-2 text-sm whitespace-nowrap
                             ${col.id === 'description' ? '' : 'text-center'}
                             cursor-pointer
-                            ${isFirstCol ? 'sticky left-0 bg-background dark:bg-gray-900 z-10 shadow-[2px_0_4px_-2px_rgba(1,0,0,0.1)] dark:shadow-[2px_0_4px_-2px_rgba(0,0,0,0.3)]' : ''}
+                            ${isFirstCol ? 'sticky left-0 bg-background dark:bg-gray-900 z-[5] shadow-[2px_0_4px_-2px_rgba(1,0,0,0.1)] dark:shadow-[2px_0_4px_-2px_rgba(0,0,0,0.3)]' : ''}
                           `}
                         >
                           {col.id === 'actions' ? (
@@ -868,7 +868,7 @@ export function WbsTable({
       </div>
 
       {/* 快捷键提示 */}
-      <div className="text-xs text-muted-foreground flex flex-wrap gap-4">
+      <div className="shrink-0 pt-3 text-xs text-muted-foreground flex flex-wrap gap-4">
         <span>快捷键：</span>
         <span><kbd className="px-1 bg-muted rounded">双击</kbd> 编辑任务</span>
         <span><kbd className="px-1 bg-muted rounded">F2/Enter</kbd> 编辑选中行</span>

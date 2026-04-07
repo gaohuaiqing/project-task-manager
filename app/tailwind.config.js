@@ -105,6 +105,16 @@ module.exports = {
           active: "hsl(var(--nav-active))",
           "active-foreground": "hsl(var(--nav-active-foreground))",
         },
+        // 仪表板专用颜色 - 专业工具风格
+        dashboard: {
+          value: "hsl(var(--dashboard-value))",
+          label: "hsl(var(--dashboard-label))",
+          accent: "hsl(var(--dashboard-accent))",
+          "card-border": "hsl(var(--dashboard-card-border))",
+          success: "hsl(var(--dashboard-success))",
+          warning: "hsl(var(--dashboard-warning))",
+          danger: "hsl(var(--dashboard-danger))",
+        },
         // 苹果风格系统颜色
         system: {
           blue: {

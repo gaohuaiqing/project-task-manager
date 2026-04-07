@@ -209,13 +209,9 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   }, [projectsData]);
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* 页面标题 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">任务管理</h1>
-          <p className="text-muted-foreground">管理项目任务和 WBS 结构</p>
-        </div>
+    <div className="flex flex-col h-full animate-fade-in">
+      {/* 工具栏 */}
+      <div className="flex justify-end shrink-0">
         <Button onClick={() => handleCreateTask()}>
           <Plus className="h-4 w-4 mr-2" />
           新建任务
@@ -223,28 +219,32 @@ export default function TasksPage({ projectId }: TasksPageProps) {
       </div>
 
       {/* 筛选器 */}
-      <TaskFilterBar
-        filters={filters}
-        onFiltersChange={handleFiltersChange}
-        projects={projects}
-        members={members}
-        showProjectFilter={!projectId}
-      />
+      <div className="shrink-0">
+        <TaskFilterBar
+          filters={filters}
+          onFiltersChange={handleFiltersChange}
+          projects={projects}
+          members={members}
+          showProjectFilter={!projectId}
+        />
+      </div>
 
-      {/* WBS 表格 */}
-      <WbsTable
-        tasks={tasksWithMeta}
-        members={members}
-        projects={projects}
-        isLoading={tasksLoading}
-        onCreateTask={handleCreateTask}
-        onEditTask={handleEditTask}
-        onDeleteTask={handleDeleteTask}
-        onViewProgress={handleViewProgress}
-        onViewDelayHistory={handleViewDelayHistory}
-        onViewPlanChanges={handleViewPlanChanges}
-        onUpdateTask={handleUpdateTaskField}
-      />
+      {/* WBS 表格 - 填充剩余空间 */}
+      <div className="flex-1 min-h-0">
+        <WbsTable
+          tasks={tasksWithMeta}
+          members={members}
+          projects={projects}
+          isLoading={tasksLoading}
+          onCreateTask={handleCreateTask}
+          onEditTask={handleEditTask}
+          onDeleteTask={handleDeleteTask}
+          onViewProgress={handleViewProgress}
+          onViewDelayHistory={handleViewDelayHistory}
+          onViewPlanChanges={handleViewPlanChanges}
+          onUpdateTask={handleUpdateTaskField}
+        />
+      </div>
 
       {/* 任务表单对话框 */}
       <TaskForm

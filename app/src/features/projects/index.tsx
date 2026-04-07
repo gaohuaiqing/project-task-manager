@@ -112,12 +112,6 @@ function ProjectListPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* 页面标题 */}
-      <div>
-        <h1 className="text-2xl font-bold">项目管理</h1>
-        <p className="text-muted-foreground">管理所有项目和里程碑</p>
-      </div>
-
       {/* 项目列表 */}
       <ProjectList
         onCreateProject={handleCreateProject}

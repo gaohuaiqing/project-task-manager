@@ -31,8 +31,10 @@
     --system-red-dark: 0 89% 48%;
 
     /* 语义化颜色 - 亮色主题（默认） */
-    --background: 0 0% 100%;
+    /* 页面背景：浅灰色，与白色卡片形成对比 */
+    --background: 210 40% 96%;  /* #F1F5F9 专业工具风格 */
     --foreground: 0 0% 13%;
+    /* 卡片背景：纯白色，与背景形成层次 */
     --card: 0 0% 100%;
     --card-foreground: 0 0% 13%;
     --popover: 0 0% 100%;
@@ -80,6 +82,15 @@
     --ease-apple-in: cubic-bezier(0.32, 0, 0.67, 0);
     --ease-apple-out: cubic-bezier(0.33, 1, 0.68, 1);
     --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* 仪表板专用变量 - 专业工具风格 */
+    --dashboard-value: 222 84% 5%;           /* 主数值颜色: #0F172A */
+    --dashboard-label: 215 16% 47%;          /* 标签颜色: #64748B */
+    --dashboard-accent: 199 89% 48%;         /* 强调色: #0EA5E9 青蓝 */
+    --dashboard-card-border: 215 16% 47%;    /* 卡片边框 */
+    --dashboard-success: 160 84% 39%;        /* 成功色: #22C55E */
+    --dashboard-warning: 38 92% 50%;         /* 警告色: #F59E0B */
+    --dashboard-danger: 346 77% 50%;         /* 危险色: #EF4444 */
   }
 
   /* 深色主题 - 冷色调深蓝风格 */
@@ -119,6 +130,15 @@
     --sidebar-active-foreground: 210 40% 96%;
     --nav-active: 217 25% 20%;
     --nav-active-foreground: 210 40% 96%;
+
+    /* 仪表板专用变量 - 专业工具风格 - 深色主题 */
+    --dashboard-value: 210 40% 98%;          /* 主数值颜色: #F1F5F9 */
+    --dashboard-label: 215 20% 65%;          /* 标签颜色: #94A3B8 */
+    --dashboard-accent: 199 89% 60%;         /* 强调色: #38BDF8 青蓝 */
+    --dashboard-card-border: 217 25% 20%;    /* 卡片边框 */
+    --dashboard-success: 160 84% 45%;        /* 成功色: #4ADE80 */
+    --dashboard-warning: 38 92% 55%;         /* 警告色: #FBBF24 */
+    --dashboard-danger: 346 77% 55%;         /* 危险色: #F87171 */
   }
 }
 

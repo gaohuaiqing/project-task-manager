@@ -54,7 +54,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
 
   return (
     <Card className="w-full max-w-md shadow-lg rounded-xl">
-      <CardHeader className="space-y-1 text-center">
+      <CardHeader className="flex flex-col items-center space-y-1">
         {/* Logo + 系统名称 */}
         <div className="flex flex-col items-center mb-4">
           <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-green-500 flex items-center justify-center mb-2">

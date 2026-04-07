@@ -33,14 +33,6 @@ export default function AssignmentPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* 页面标题 */}
-      <div>
-        <h1 className="text-2xl font-bold">智能分配</h1>
-        <p className="text-muted-foreground">
-          基于能力模型的智能任务分配与人员调度
-        </p>
-      </div>
-
       {/* 标签页 */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

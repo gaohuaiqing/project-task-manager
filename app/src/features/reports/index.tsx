@@ -122,14 +122,6 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* 页面标题 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">报表分析</h1>
-          <p className="text-muted-foreground">查看项目进度、任务统计、延期分析、成员任务情况</p>
-        </div>
-      </div>
-
       {/* 筛选栏 */}
       <ReportFilterBar
         activeTab={currentTab}

@@ -1,5 +1,5 @@
 /**
- * 项目进度饼图组件
+ * 项目进度饼图组件 - 专业仪表盘风格
  * 显示各项目的任务分布
  */
 import { useMemo } from 'react';
@@ -37,14 +37,14 @@ interface ProgressPieChartProps {
 }
 
 const COLORS = [
-  '#3b82f6', // blue
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#8b5cf6', // violet
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#84cc16', // lime
+  '#10B981', // 翠绿 - 主色
+  '#0EA5E9', // 青蓝 - 辅助色
+  '#F59E0B', // 琥珀 - 警告色
+  '#EF4444', // 红色 - 危险色
+  '#8B5CF6', // 紫罗兰
+  '#EC4899', // 粉色
+  '#06B6D4', // 青色
+  '#84CC16', // 青柠
 ];
 
 export function ProgressPieChart({
@@ -66,11 +66,11 @@ export function ProgressPieChart({
 
   if (isLoading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
+      <Card className="rounded-2xl border border-gray-100 dark:border-slate-700/50 bg-white dark:bg-slate-800/50 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</CardTitle>
         </CardHeader>
-        <CardContent className="h-[300px] flex items-center justify-center">
+        <CardContent className="h-[280px] flex items-center justify-center">
           <LoadingSpinner />
         </CardContent>
       </Card>
@@ -79,11 +79,11 @@ export function ProgressPieChart({
 
   if (data.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
+      <Card className="rounded-2xl border border-gray-100 dark:border-slate-700/50 bg-white dark:bg-slate-800/50 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</CardTitle>
         </CardHeader>
-        <CardContent className="h-[300px] flex items-center justify-center text-muted-foreground">
+        <CardContent className="h-[280px] flex items-center justify-center text-gray-400 text-xs">
           暂无项目数据
         </CardContent>
       </Card>
@@ -91,13 +91,13 @@ export function ProgressPieChart({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <p className="text-sm text-muted-foreground">共 {totalTasks} 个任务</p>
+    <Card className="rounded-2xl border border-gray-100 dark:border-slate-700/50 bg-white dark:bg-slate-800/50 shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</CardTitle>
+        <p className="text-xs text-gray-500 dark:text-gray-400">共 {totalTasks} 个任务</p>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={300}>
+        <ResponsiveContainer width="100%" height={280}>
           <PieChart>
             <Pie
               data={chartData}
@@ -107,7 +107,7 @@ export function ProgressPieChart({
               label={({ name, percent }) =>
                 `${name} (${(percent * 100).toFixed(0)}%)`
               }
-              outerRadius={100}
+              outerRadius={90}
               fill="#8884d8"
               dataKey="value"
             >
@@ -120,16 +120,21 @@ export function ProgressPieChart({
             </Pie>
             <Tooltip
               contentStyle={{
-                backgroundColor: '#fff',
-                border: '1px solid #e5e7eb',
+                backgroundColor: 'hsl(var(--card))',
+                border: '1px solid hsl(var(--border))',
                 borderRadius: '8px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                fontSize: '12px',
               }}
               formatter={(value: number, name: string, props: any) => [
                 `${value} 个任务 (${props.payload.progress}%)`,
                 props.payload.name,
               ]}
             />
-            <Legend />
+            <Legend
+              wrapperStyle={{ fontSize: '11px' }}
+              iconType="circle"
+            />
           </PieChart>
         </ResponsiveContainer>
       </CardContent>
@@ -159,7 +164,7 @@ export function StatusPieChart({
 }: StatusPieChartProps) {
   if (isLoading) {
     return (
-      <div className="h-[300px] flex items-center justify-center">
+      <div className="h-[280px] flex items-center justify-center">
         <LoadingSpinner />
       </div>
     );
@@ -167,14 +172,14 @@ export function StatusPieChart({
 
   if (data.length === 0) {
     return (
-      <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+      <div className="h-[280px] flex items-center justify-center text-gray-400 text-xs">
         暂无数据
       </div>
     );
   }
 
   return (
-    <ResponsiveContainer width="100%" height={300}>
+    <ResponsiveContainer width="100%" height={280}>
       <PieChart>
         <Pie
           data={data}
@@ -184,7 +189,7 @@ export function StatusPieChart({
           label={({ label, percent }) =>
             `${label} (${(percent * 100).toFixed(0)}%)`
           }
-          outerRadius={100}
+          outerRadius={90}
           dataKey="count"
         >
           {data.map((entry, index) => (
@@ -193,12 +198,17 @@ export function StatusPieChart({
         </Pie>
         <Tooltip
           contentStyle={{
-            backgroundColor: '#fff',
-            border: '1px solid #e5e7eb',
+            backgroundColor: 'hsl(var(--card))',
+            border: '1px solid hsl(var(--border))',
             borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            fontSize: '12px',
           }}
         />
-        <Legend />
+        <Legend
+          wrapperStyle={{ fontSize: '11px' }}
+          iconType="circle"
+        />
       </PieChart>
     </ResponsiveContainer>
   );

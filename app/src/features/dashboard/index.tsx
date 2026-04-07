@@ -59,32 +59,32 @@ export default function DashboardPage() {
     );
   }
 
-  // 任务状态分布数据
+  // 任务状态分布数据 - 使用仪表板配色
   const statusDistribution = stats
     ? [
         {
           status: 'not_started',
           label: '未开始',
           count: stats.pendingTasks,
-          color: '#9ca3af',
+          color: '#64748B', // 灰色
         },
         {
           status: 'in_progress',
           label: '进行中',
           count: stats.inProgressTasks,
-          color: '#3b82f6',
+          color: '#0EA5E9', // 青蓝
         },
         {
           status: 'completed',
           label: '已完成',
           count: stats.completedTasks,
-          color: '#22c55e',
+          color: '#10B981', // 翠绿
         },
         {
           status: 'delayed',
           label: '已延期',
           count: stats.overdueTasks,
-          color: '#ef4444',
+          color: '#F43F5E', // 玫红
         },
       ]
     : [];
@@ -116,29 +116,33 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* 统计卡片（含趋势指标） - 根据角色显示不同标题 */}
+      {/* 统计卡片 - 4列网格，紧凑间距 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard
           title={isManager ? '项目总数' : '参与项目'}
           value={stats?.totalProjects ?? 0}
+          subtitle={isManager ? `进行中: ${stats?.activeProjects ?? 0}` : undefined}
           trend={getTrend('activeProjects')}
           onClick={() => navigate('/projects')}
         />
         <StatsCard
           title={isManager ? '进行中任务' : '我的进行中'}
           value={stats?.inProgressTasks ?? 0}
+          subtitle={`总计: ${stats?.totalTasks ?? 0}`}
           trend={getTrend('totalTasks')}
           onClick={() => navigate('/tasks?status=in_progress')}
         />
         <StatsCard
           title={isManager ? '已完成任务' : '我的已完成'}
           value={stats?.completedTasks ?? 0}
+          subtitle={stats?.totalTasks ? `完成率: ${Math.round((stats.completedTasks / stats.totalTasks) * 100)}%` : undefined}
           trend={getTrend('completedTasks')}
           onClick={() => navigate('/tasks?status=completed')}
         />
         <StatsCard
           title={isManager ? '延期预警' : '我的到期/逾期'}
           value={isManager ? (stats?.delayWarningTasks ?? 0) : ((stats?.delayWarningTasks ?? 0) + (stats?.overdueTasks ?? 0))}
+          subtitle={isManager ? `已延期: ${stats?.overdueTasks ?? 0}` : undefined}
           trend={getTrend('delayWarning')}
           invertTrendColors
           onClick={() => navigate('/tasks?status=warning')}
@@ -148,8 +152,8 @@ export default function DashboardPage() {
       {/* 任务趋势图 */}
       <TrendChart data={trendData ?? []} isLoading={trendLoading} />
 
-      {/* 图表区域 - 项目进度 + 项目任务分布饼图 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* 图表区域 - 更紧凑间距 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ProjectProgress
           projects={projectData ?? []}
           isLoading={projectLoading}

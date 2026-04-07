@@ -81,12 +81,6 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* 页面标题 */}
-      <div>
-        <h1 className="text-2xl font-bold">系统设置</h1>
-        <p className="text-muted-foreground">管理系统配置和用户权限</p>
-      </div>
-
       {/* Tab导航 */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <TabsList className={`grid ${gridCols} w-full`}>
