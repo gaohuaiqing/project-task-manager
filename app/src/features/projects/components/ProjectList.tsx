@@ -1,8 +1,8 @@
 /**
  * 项目列表组件
  */
-import { useState } from 'react';
-import { Plus, Search, Filter } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Plus, Search, Filter, Download, Upload, FileSpreadsheet, FileDown, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -12,9 +12,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ProjectCard } from './ProjectCard';
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner';
 import { useProjects } from '../hooks/useProjects';
+import apiClient from '@/lib/api/client';
 import type { Project, ProjectStatus, ProjectType } from '../types';
 
 interface ProjectListProps {
@@ -43,6 +50,8 @@ export function ProjectList({ onCreateProject, onEditProject, onDeleteProject }:
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<ProjectType | 'all'>('all');
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading, refetch } = useProjects({
     search: search || undefined,
@@ -52,6 +61,94 @@ export function ProjectList({ onCreateProject, onEditProject, onDeleteProject }:
 
   const projects = data?.items ?? [];
 
+  /** 下载导入模板 */
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch('/api/analytics/templates/projects');
+      if (!response.ok) throw new Error('下载模板失败');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'projects_template.xlsx';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('下载模板失败:', err);
+    }
+  };
+
+  /** 导入项目数据 */
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const ExcelJS = await import('exceljs');
+      const buffer = await file.arrayBuffer();
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+      const worksheet = workbook.worksheets[0];
+      if (!worksheet) throw new Error('工作表为空');
+
+      const rows: Record<string, unknown>[] = [];
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return; // 跳过表头
+        const values = row.values as unknown[];
+        rows.push({
+          name: values[1],
+          project_type: values[2],
+          planned_start_date: values[3],
+          planned_end_date: values[4],
+          manager_id: values[5],
+        });
+      });
+
+      const result = await apiClient.post('/analytics/import/projects', { data: rows });
+      const { succeeded, failed, errors } = result.data?.data ?? result.data ?? {};
+
+      if (failed > 0) {
+        const errorList = errors?.map((e: { row: number; message: string }) => `行${e.row}: ${e.message}`).join('\n');
+        alert(`导入完成：成功 ${succeeded} 条，失败 ${failed} 条\n\n${errorList}`);
+      } else {
+        alert(`成功导入 ${succeeded} 个项目`);
+        refetch();
+      }
+    } catch (err) {
+      console.error('导入失败:', err);
+      alert(`导入失败: ${err instanceof Error ? err.message : '未知错误'}`);
+    } finally {
+      setImporting(false);
+      // 重置 file input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  /** 导出项目列表 */
+  const handleExport = async () => {
+    try {
+      const response = await apiClient.get('/analytics/export/projects', {
+        params: {
+          status: statusFilter !== 'all' ? statusFilter : undefined,
+          project_type: typeFilter !== 'all' ? typeFilter : undefined,
+        },
+        responseType: 'blob',
+      });
+      const blob = new Blob([response.data as any], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `projects_export_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('导出失败:', err);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* 工具栏 */}
@@ -60,13 +157,14 @@ export function ProjectList({ onCreateProject, onEditProject, onDeleteProject }:
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
+              data-testid="project-input-search"
               placeholder="搜索项目..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
             />
           </div>
-          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+          <Select data-testid="project-select-status" value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
             <SelectTrigger className="w-[130px]">
               <SelectValue placeholder="状态" />
             </SelectTrigger>
@@ -78,7 +176,7 @@ export function ProjectList({ onCreateProject, onEditProject, onDeleteProject }:
               ))}
             </SelectContent>
           </Select>
-          <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as any)}>
+          <Select data-testid="project-select-type" value={typeFilter} onValueChange={(v) => setTypeFilter(v as any)}>
             <SelectTrigger className="w-[130px]">
               <SelectValue placeholder="类型" />
             </SelectTrigger>
@@ -91,10 +189,47 @@ export function ProjectList({ onCreateProject, onEditProject, onDeleteProject }:
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={onCreateProject}>
-          <Plus className="h-4 w-4 mr-2" />
-          新建项目
-        </Button>
+        <div className="flex gap-2">
+          {/* 导入导出下拉菜单 */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5 h-9">
+                <FileSpreadsheet className="h-4 w-4 text-blue-500" />
+                <span>导入导出</span>
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onClick={handleExport} className="gap-2.5 cursor-pointer">
+                <FileDown className="h-4 w-4 text-emerald-500" />
+                <span>导出项目列表</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleDownloadTemplate} className="gap-2.5 cursor-pointer">
+                <Download className="h-4 w-4 text-violet-500" />
+                <span>下载导入模板</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                className="gap-2.5 cursor-pointer"
+              >
+                <Upload className="h-4 w-4 text-amber-500" />
+                <span>{importing ? '导入中...' : '导入项目数据'}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={handleImport}
+          />
+          <Button data-testid="project-btn-create" onClick={onCreateProject} className="gap-1.5 h-9">
+            <Plus className="h-4 w-4" />
+            新建项目
+          </Button>
+        </div>
       </div>
 
       {/* 项目列表 */}

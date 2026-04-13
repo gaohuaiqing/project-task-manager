@@ -120,8 +120,15 @@ export function ProjectDetail({
     updates: { startDate: string; endDate: string }
   ) => {
     try {
-      // TODO: 实现任务更新 API
-      console.log('Task change:', { timelineId, taskId, updates });
+      await projectApi.updateTimelineTask(taskId, {
+        startDate: updates.startDate,
+        endDate: updates.endDate,
+      });
+
+      // 刷新时间线任务数据
+      queryClient.invalidateQueries({ queryKey: ['timeline-tasks', timelineId] });
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+
       toast({
         title: '成功',
         description: '任务时间已更新',
@@ -132,6 +139,7 @@ export function ProjectDetail({
         description: error.message || '操作失败，请稍后重试',
         variant: 'destructive',
       });
+      throw error; // 向上抛出，让调用方处理回滚
     }
   };
 
@@ -168,8 +176,12 @@ export function ProjectDetail({
   // 处理任务删除
   const handleTaskDelete = async (timelineId: string, taskId: string) => {
     try {
-      // TODO: 实现任务删除 API
-      console.log('Task delete:', { timelineId, taskId });
+      await projectApi.deleteTimelineTask(taskId);
+
+      // 刷新时间线任务数据
+      queryClient.invalidateQueries({ queryKey: ['timeline-tasks', timelineId] });
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+
       toast({
         title: '成功',
         description: '任务已删除',
@@ -180,6 +192,7 @@ export function ProjectDetail({
         description: error.message || '操作失败，请稍后重试',
         variant: 'destructive',
       });
+      throw error; // 向上抛出，让调用方处理
     }
   };
 
@@ -389,10 +402,10 @@ export function ProjectDetail({
       {/* Tab 导航 */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:grid-cols-4">
-          <TabsTrigger value="overview">基本信息</TabsTrigger>
-          <TabsTrigger value="members">成员</TabsTrigger>
-          <TabsTrigger value="milestones">里程碑</TabsTrigger>
-          <TabsTrigger value="timelines">时间线</TabsTrigger>
+          <TabsTrigger data-testid="detail-tab-overview" value="overview">基本信息</TabsTrigger>
+          <TabsTrigger data-testid="detail-tab-members" value="members">成员</TabsTrigger>
+          <TabsTrigger data-testid="detail-tab-milestones" value="milestones">里程碑</TabsTrigger>
+          <TabsTrigger data-testid="detail-tab-timelines" value="timelines">时间线</TabsTrigger>
         </TabsList>
 
         {/* 基本信息 Tab */}
@@ -498,7 +511,7 @@ export function ProjectDetail({
               <Skeleton className="h-full w-full" />
             </div>
           ) : timelines && timelines.length > 0 ? (
-            <div className="h-[600px]">
+            <div data-testid="detail-timeline-view" className="h-[600px]">
               <EnhancedTimelineView
                 projectId={projectId}
                 timelines={timelines as Timeline[]}
@@ -535,7 +548,7 @@ export function ProjectDetail({
                 </p>
                 <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button>
+                    <Button data-testid="detail-btn-add-timeline">
                       <Plus className="mr-2 h-4 w-4" />
                       创建时间线
                     </Button>

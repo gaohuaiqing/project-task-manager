@@ -4,6 +4,10 @@
 import { getPool } from '../../core/db';
 import type { RowDataPacket } from 'mysql2/promise';
 import type { User } from '../../core/types';
+import CacheService from '../../services/CacheService';
+
+// 缓存键前缀
+const CACHE_KEY_PREFIX = 'scope:dept_ids:';
 
 /**
  * 数据范围SQL过滤结果
@@ -139,6 +143,13 @@ async function getManagedDepartmentIds(
   managerId: number,
   managerDeptId: number,
 ): Promise<number[]> {
+  // 尝试从缓存获取
+  const cacheKey = `${CACHE_KEY_PREFIX}managed:${managerId}`;
+  const cached = CacheService.get<number[]>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const pool = getPool();
 
   // 方式1: 直接是部门manager
@@ -162,6 +173,9 @@ async function getManagedDepartmentIds(
     deptIds.push(managerDeptId);
   }
 
+  // 缓存结果（5分钟）
+  CacheService.set(cacheKey, deptIds, 300);
+
   return deptIds;
 }
 
@@ -175,6 +189,13 @@ async function getTechManagerGroupIds(
   managerId: number,
   managerDeptId: number,
 ): Promise<number[]> {
+  // 尝试从缓存获取
+  const cacheKey = `${CACHE_KEY_PREFIX}tech_groups:${managerId}`;
+  const cached = CacheService.get<number[]>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const pool = getPool();
 
   // 1. 获取直接管理的技术组
@@ -205,5 +226,10 @@ async function getTechManagerGroupIds(
     groupIds.push(managerDeptId);
   }
 
-  return [...new Set(groupIds)]; // 去重
+  const result = [...new Set(groupIds)]; // 去重
+
+  // 缓存结果（5分钟）
+  CacheService.set(cacheKey, result, 300);
+
+  return result;
 }

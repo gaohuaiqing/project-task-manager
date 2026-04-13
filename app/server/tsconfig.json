@@ -10,6 +10,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "noEmitOnError": false,
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,

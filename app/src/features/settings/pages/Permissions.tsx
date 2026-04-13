@@ -108,7 +108,7 @@ export function PermissionsSettings() {
           <div className="flex items-center gap-4 mb-6">
             <Label>选择角色</Label>
             <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as UserRole)}>
-              <SelectTrigger className="w-[200px]">
+              <SelectTrigger className="w-[200px]" data-testid="permissions-select-role">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -156,6 +156,7 @@ export function PermissionsSettings() {
                           checked={isEnabled}
                           onCheckedChange={() => togglePermission(permission.id)}
                           disabled={selectedRole === 'admin'} // 管理员拥有所有权限
+                          data-testid="permissions-checkbox-permission"
                         />
                       </div>
                     );
@@ -169,7 +170,7 @@ export function PermissionsSettings() {
 
           {/* 保存按钮 */}
           <div className="flex justify-end">
-            <Button onClick={handleSave}>
+            <Button onClick={handleSave} data-testid="permissions-btn-save">
               保存配置
             </Button>
           </div>

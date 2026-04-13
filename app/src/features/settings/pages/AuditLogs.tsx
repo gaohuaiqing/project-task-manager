@@ -260,7 +260,7 @@ export function AuditLogsSettings() {
       <div className="flex flex-wrap items-center gap-3">
         {/* 分类筛选 */}
         <Select value={category} onValueChange={(v) => { setCategory(v); setPage(1); }}>
-          <SelectTrigger className="w-[120px]">
+          <SelectTrigger className="w-[120px]" data-testid="log-select-category">
             <SelectValue placeholder="分类" />
           </SelectTrigger>
           <SelectContent>
@@ -292,6 +292,7 @@ export function AuditLogsSettings() {
           onChange={(date) => { setStartDate(date); setPage(1); }}
           placeholder="开始日期"
           className="w-[140px]"
+          data-testid="log-select-date-range"
         />
 
         {/* 结束日期 */}
@@ -317,11 +318,12 @@ export function AuditLogsSettings() {
             value={searchTerm}
             onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
             className="pl-9"
+            data-testid="log-input-search"
           />
         </div>
 
         {/* 导出按钮 */}
-        <Button variant="outline" onClick={handleExport}>
+        <Button variant="outline" onClick={handleExport} data-testid="log-btn-export">
           <Download className="h-4 w-4 mr-2" />
           导出
         </Button>
@@ -333,7 +335,7 @@ export function AuditLogsSettings() {
       </div>
 
       {/* 日志列表 */}
-      <div className="border rounded-lg divide-y">
+      <div className="border rounded-lg divide-y" data-testid="log-table">
         {/* 表头 */}
         <div className="flex items-center gap-4 px-4 py-3 bg-muted/50 text-sm font-medium text-muted-foreground">
           <div className="whitespace-nowrap w-[170px]">时间</div>
@@ -357,6 +359,7 @@ export function AuditLogsSettings() {
             <div
               key={log.auditId}
               className="flex items-center gap-4 px-4 py-3 hover:bg-muted/50 transition-colors group"
+              data-testid="log-table-row"
             >
               {/* 时间 - 精确到秒 */}
               <div className="text-sm text-muted-foreground whitespace-nowrap w-[170px] font-mono">
@@ -369,7 +372,7 @@ export function AuditLogsSettings() {
               </div>
 
               {/* 操作类型 */}
-              <Badge className={ACTION_COLORS[log.action] || 'bg-gray-100 text-gray-700'}>
+              <Badge className={ACTION_COLORS[log.action] || 'bg-gray-100 text-gray-700'} data-testid="log-badge-action">
                 {ACTION_LABELS[log.action] || log.action}
               </Badge>
 

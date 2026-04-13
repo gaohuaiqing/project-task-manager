@@ -59,7 +59,7 @@ export function AssignmentSuggestion({ tasks, className, onAssign }: AssignmentS
   }
 
   return (
-    <Card className={className}>
+    <Card data-testid="assignment-suggest-container" className={className}>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">

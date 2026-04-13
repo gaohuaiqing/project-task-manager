@@ -131,10 +131,11 @@ export async function createTask(data: CreateTaskRequest): Promise<{ id: string 
 
 /**
  * 更新任务
+ * 返回值包含 needsApproval 字段，表示是否需要审批
  */
-export async function updateTask(id: string, data: UpdateTaskRequest): Promise<WBSTask> {
+export async function updateTask(id: string, data: UpdateTaskRequest): Promise<WBSTask & { needsApproval?: boolean }> {
   const backendData = toBackend(data);
-  const response = await apiClient.put<ApiResponse<WBSTask>>(`${BASE_PATH}/${id}`, backendData);
+  const response = await apiClient.put<ApiResponse<WBSTask & { needsApproval?: boolean }>>(`${BASE_PATH}/${id}`, backendData);
   return toFrontend(response.data);
 }
 
@@ -207,7 +208,7 @@ export function buildWBSTree(tasks: WBSTask[]): WBSTaskListItem[] {
  */
 export async function getWBSTree(projectId: string): Promise<WBSTaskListItem[]> {
   // 使用 getTasks API 按项目 ID 获取任务，然后构建树结构
-  const result = await getTasks({ projectId, pageSize: 1000 }); // 获取该项目的所有任务
+  const result = await getTasks({ projectId, pageSize: 100 }); // 获取该项目的所有任务
   return buildWBSTree(result.items);
 }
 

@@ -351,7 +351,7 @@ export function CapabilityModelsSettings() {
               配置能力评估模型，定义评价维度和权重
             </CardDescription>
           </div>
-          <Button onClick={handleCreate}>
+          <Button onClick={handleCreate} data-testid="model-btn-add">
             <Plus className="h-4 w-4 mr-2" />
             添加模型
           </Button>
@@ -366,7 +366,7 @@ export function CapabilityModelsSettings() {
               </Button>
             </div>
           ) : (
-            <Table>
+            <Table data-testid="model-table">
               <TableHeader>
                 <TableRow>
                   <TableHead>模型名称</TableHead>
@@ -391,7 +391,7 @@ export function CapabilityModelsSettings() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => handleEdit(model)}>
+                        <Button variant="ghost" size="icon" onClick={() => handleEdit(model)} data-testid="model-btn-edit">
                           <Edit2 className="h-4 w-4" />
                         </Button>
                         <Button
@@ -399,6 +399,7 @@ export function CapabilityModelsSettings() {
                           size="icon"
                           className="text-destructive hover:text-destructive"
                           onClick={() => handleDelete(model)}
+                          data-testid="model-btn-delete"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -413,7 +414,7 @@ export function CapabilityModelsSettings() {
       </Card>
 
       {/* 创建对话框 */}
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} data-testid="model-dialog-form">
         <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>创建能力模型</DialogTitle>
@@ -430,6 +431,7 @@ export function CapabilityModelsSettings() {
                 placeholder="如：嵌入式开发能力"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                data-testid="model-input-name"
               />
             </div>
 
@@ -441,6 +443,7 @@ export function CapabilityModelsSettings() {
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 rows={2}
+                data-testid="model-textarea-description"
               />
             </div>
 
@@ -462,7 +465,7 @@ export function CapabilityModelsSettings() {
       </Dialog>
 
       {/* 编辑对话框 */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen} data-testid="model-dialog-form">
         <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>编辑能力模型</DialogTitle>
@@ -478,6 +481,7 @@ export function CapabilityModelsSettings() {
                 id="editName"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                data-testid="model-input-name"
               />
             </div>
 
@@ -488,6 +492,7 @@ export function CapabilityModelsSettings() {
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 rows={2}
+                data-testid="model-textarea-description"
               />
             </div>
 
@@ -509,7 +514,7 @@ export function CapabilityModelsSettings() {
       </Dialog>
 
       {/* 删除确认对话框 */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen} data-testid="model-dialog-delete-confirm">
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>删除能力模型</AlertDialogTitle>

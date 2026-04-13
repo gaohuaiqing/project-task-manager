@@ -51,11 +51,16 @@ import { Sparkles, Star, Loader2, ChevronDown, ChevronUp, Users, AlertCircle, Lo
 import { cn } from '@/lib/utils';
 import { getAvatarUrl } from '@/utils/avatar';
 import type { WBSTask, CreateTaskRequest, UpdateTaskRequest, DependencyType } from '../types';
+
+/** 表单数据类型（编辑时包含额外字段） */
+interface TaskFormData extends Omit<CreateTaskRequest, 'status'> {
+  status?: import('../types').TaskStatus;
+  version?: number;
+}
 import {
   TASK_STATUS_OPTIONS,
   TASK_PRIORITY_OPTIONS,
   TASK_TYPE_OPTIONS,
-  type TaskStatus,
   type TaskPriority,
   type TaskType,
 } from '@/shared/constants';
@@ -112,7 +117,7 @@ export function TaskForm({
     watch,
     reset,
     formState: { errors },
-  } = useForm<CreateTaskRequest>({
+  } = useForm<TaskFormData>({
     defaultValues: {
       projectId: projectId || '',
       parentId: parentId || null,
@@ -146,7 +151,7 @@ export function TaskForm({
     useAssigneeRecommendation(currentTaskType, showRecommendations);
 
   // 表单提交时的额外验证
-  const validateForm = (data: CreateTaskRequest): boolean => {
+  const validateForm = (data: TaskFormData): boolean => {
     // 新建任务时，项目是必填项
     if (needSelectProject) {
       if (!data.projectId) {
@@ -168,6 +173,7 @@ export function TaskForm({
         parentId: task.parentId,
         wbsLevel: task.wbsLevel,
         description: task.description,
+        status: task.status,
         taskType: task.taskType,
         priority: task.priority,
         assigneeId: task.assigneeId,
@@ -182,6 +188,8 @@ export function TaskForm({
         fullTimeRatio: task.fullTimeRatio,
         actualStartDate: formatDateForInput(task.actualStartDate),
         actualEndDate: formatDateForInput(task.actualEndDate),
+        // 编辑时需要保留 version 字段用于乐观锁
+        version: task.version,
       });
     } else {
       const resolvedTaskType = inheritedTaskType || 'other';
@@ -190,6 +198,7 @@ export function TaskForm({
         parentId: parentId || null,
         wbsLevel,
         description: '',
+        status: 'not_started',
         taskType: resolvedTaskType,
         priority: 'medium',
         assigneeId: null,
@@ -211,7 +220,7 @@ export function TaskForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleFormSubmit = async (data: CreateTaskRequest) => {
+  const handleFormSubmit = async (data: TaskFormData) => {
     // 验证项目ID
     if (!validateForm(data)) {
       return;
@@ -220,7 +229,16 @@ export function TaskForm({
     try {
       setIsSubmitting(true);
       setError(null);
-      await onSubmit(data);
+
+      // 构造提交数据：编辑时包含 version 字段
+      const submitData = isEdit
+        ? {
+            ...data,
+            version: data.version || task?.version || 0,
+          }
+        : data;
+
+      await onSubmit(submitData as CreateTaskRequest | UpdateTaskRequest);
       onOpenChange(false);
       reset();
     } catch (err) {
@@ -232,7 +250,7 @@ export function TaskForm({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog data-testid="task-dialog-form" open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>{isEdit ? '编辑任务' : '新建任务'}</DialogTitle>
@@ -247,6 +265,7 @@ export function TaskForm({
               <Label htmlFor="projectId">所属项目 *</Label>
               {hasProjects ? (
                 <Select
+                  data-testid="task-select-project"
                   value={watch('projectId') || ''}
                   onValueChange={(value) => setValue('projectId', value)}
                 >
@@ -286,6 +305,7 @@ export function TaskForm({
           <div className="space-y-2">
             <Label htmlFor="description">任务描述 *</Label>
             <Textarea
+              data-testid="task-input-description"
               id="description"
               {...register('description', { required: '请输入任务描述' })}
               placeholder="请输入任务描述"
@@ -301,6 +321,7 @@ export function TaskForm({
             <div className="space-y-2">
               <Label>任务类型</Label>
               <Select
+                data-testid="task-select-type"
                 value={watch('taskType') || 'other'}
                 onValueChange={(value) => setValue('taskType', value as TaskType)}
               >
@@ -320,6 +341,7 @@ export function TaskForm({
             <div className="space-y-2">
               <Label>优先级</Label>
               <Select
+                data-testid="task-select-priority"
                 value={watch('priority') || 'medium'}
                 onValueChange={(value) => setValue('priority', value as TaskPriority)}
               >
@@ -379,6 +401,7 @@ export function TaskForm({
               </Button>
             </div>
             <Select
+              data-testid="task-select-assignee"
               value={watch('assigneeId')?.toString() || 'none'}
               onValueChange={(value) => setValue('assigneeId', value === 'none' ? null : parseInt(value))}
               disabled={!permissions.canEditAssignee}
@@ -508,6 +531,7 @@ export function TaskForm({
                 )}
               </Label>
               <Input
+                data-testid="task-input-start-date"
                 id="startDate"
                 type="date"
                 {...register('startDate')}
@@ -525,6 +549,7 @@ export function TaskForm({
                 )}
               </Label>
               <Input
+                data-testid="task-input-estimated-days"
                 id="duration"
                 type="number"
                 min="1"
@@ -615,6 +640,7 @@ export function TaskForm({
             <div className="space-y-2">
               <Label htmlFor="actualStartDate">实际开始日期</Label>
               <Input
+                data-testid="task-input-actual-start-date"
                 id="actualStartDate"
                 type="date"
                 {...register('actualStartDate')}
@@ -624,6 +650,7 @@ export function TaskForm({
             <div className="space-y-2">
               <Label htmlFor="actualEndDate">实际结束日期</Label>
               <Input
+                data-testid="task-input-actual-end-date"
                 id="actualEndDate"
                 type="date"
                 {...register('actualEndDate')}
@@ -656,13 +683,14 @@ export function TaskForm({
           {/* 固定在底部的按钮区域 */}
           <DialogFooter>
             <Button
+              data-testid="task-btn-cancel"
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
             >
               取消
             </Button>
-            <Button type="submit" disabled={isLoading || isSubmitting}>
+            <Button data-testid="task-btn-submit" type="submit" disabled={isLoading || isSubmitting}>
               {isLoading || isSubmitting ? '保存中...' : isEdit ? '保存' : '创建'}
             </Button>
           </DialogFooter>

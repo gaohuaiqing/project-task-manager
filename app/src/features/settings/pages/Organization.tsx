@@ -230,7 +230,7 @@ export function OrganizationSettings() {
 
   // 查询
   const { data: departments = [], isLoading, error } = useDepartmentTree();
-  const { data: membersData } = useMembers({ pageSize: 1000 });
+  const { data: membersData } = useMembers({ pageSize: 100 });
   const { data: memberCapabilities, isLoading: isLoadingCapabilities } = useMemberCapabilities(
     selection.type === 'member' ? selection.member?.id : undefined
   );
@@ -805,6 +805,7 @@ export function OrganizationSettings() {
             )}
             style={{ marginLeft: getIndentPx(level) ? `${getIndentPx(level)}px` : undefined }}
             onClick={() => handleSelectDepartment(dept)}
+            data-testid="org-tree-node"
           >
             <div className="flex items-center gap-2 flex-1 min-w-0">
               {(hasChildren || sortedMembers.length > 0) ? (
@@ -816,6 +817,7 @@ export function OrganizationSettings() {
                     e.stopPropagation();
                     toggleExpand(dept.id);
                   }}
+                  data-testid="org-tree-node-toggle"
                 >
                   {isExpanded ? (
                     <ChevronDown className="h-3 w-3" />
@@ -844,17 +846,18 @@ export function OrganizationSettings() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleCreate(dept.id)}>
+                <DropdownMenuItem onClick={() => handleCreate(dept.id)} data-testid="org-btn-add-department">
                   <Plus className="h-4 w-4 mr-2" />
                   添加子部门
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleEdit(dept)}>
+                <DropdownMenuItem onClick={() => handleEdit(dept)} data-testid="org-btn-edit-department">
                   <Edit className="h-4 w-4 mr-2" />
                   编辑
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive"
                   onClick={() => handleDelete(dept)}
+                  data-testid="org-btn-delete-department"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
                   删除
@@ -966,6 +969,7 @@ export function OrganizationSettings() {
                       setPasswordCopied(false);
                       setAddMemberDialogOpen(true);
                     }}
+                    data-testid="org-btn-add-member"
                   >
                     <UserPlus className="h-4 w-4 mr-1" />
                     添加成员
@@ -981,7 +985,7 @@ export function OrganizationSettings() {
                   <p>该部门暂无成员</p>
                 </div>
               ) : (
-                <Table>
+                <Table data-testid="org-table-members">
                   <TableHeader>
                     <TableRow>
                       <TableHead>成员</TableHead>
@@ -1180,14 +1184,14 @@ export function OrganizationSettings() {
   return (
     <div className="flex gap-0 h-[calc(100vh-200px)] min-h-[600px]">
       {/* 左侧：组织架构树 */}
-      <Card className="w-[340px] shrink-0 flex flex-col border-r-0 rounded-r-none">
+      <Card className="w-[340px] shrink-0 flex flex-col border-r-0 rounded-r-none" data-testid="org-tree-container">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <Building2 className="h-5 w-5" />
               组织架构
             </CardTitle>
-            <Button size="sm" onClick={() => handleCreate(null)}>
+            <Button size="sm" onClick={() => handleCreate(null)} data-testid="org-btn-add-department">
               <Plus className="h-4 w-4" />
             </Button>
           </div>
@@ -1242,11 +1246,11 @@ export function OrganizationSettings() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={handleImportClick}>
+              <DropdownMenuItem onClick={handleImportClick} data-testid="org-btn-import">
                 <Building2 className="h-4 w-4 mr-2" />
                 导入组织架构
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDownloadTemplate}>
+              <DropdownMenuItem onClick={handleDownloadTemplate} data-testid="org-btn-download-template">
                 <FileSpreadsheet className="h-4 w-4 mr-2" />
                 下载导入模板
               </DropdownMenuItem>
@@ -1260,7 +1264,7 @@ export function OrganizationSettings() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={handleExport}>
+              <DropdownMenuItem onClick={handleExport} data-testid="org-btn-export">
                 <Building2 className="h-4 w-4 mr-2" />
                 导出组织架构
               </DropdownMenuItem>
@@ -1273,14 +1277,14 @@ export function OrganizationSettings() {
       <Separator orientation="vertical" className="h-auto" />
 
       {/* 右侧：详情面板 */}
-      <Card className="flex-1 flex flex-col border-l-0 rounded-l-none">
+      <Card className="flex-1 flex flex-col border-l-0 rounded-l-none" data-testid="org-detail-panel">
         <CardContent className="flex-1 overflow-auto p-6">
           {renderDetailPanel()}
         </CardContent>
       </Card>
 
       {/* 创建部门对话框 */}
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} data-testid="org-dialog-add-department">
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
@@ -1295,6 +1299,7 @@ export function OrganizationSettings() {
                 placeholder="请输入部门名称"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                data-testid="org-input-department-name"
               />
             </div>
             <div className="space-y-2">
@@ -1340,7 +1345,7 @@ export function OrganizationSettings() {
       </Dialog>
 
       {/* 编辑部门对话框 */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen} data-testid="org-dialog-edit-department">
         <DialogContent>
           <DialogHeader>
             <DialogTitle>编辑部门</DialogTitle>
@@ -1353,6 +1358,7 @@ export function OrganizationSettings() {
                 placeholder="请输入部门名称"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                data-testid="org-input-department-name"
               />
             </div>
             <div className="space-y-2">
@@ -1388,7 +1394,7 @@ export function OrganizationSettings() {
       </Dialog>
 
       {/* 删除确认对话框 */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen} data-testid="org-dialog-delete-confirm">
         <DialogContent>
           <DialogHeader>
             <DialogTitle>删除部门</DialogTitle>
@@ -1428,7 +1434,7 @@ export function OrganizationSettings() {
       </Dialog>
 
       {/* 添加成员对话框 */}
-      <Dialog open={addMemberDialogOpen} onOpenChange={setAddMemberDialogOpen}>
+      <Dialog open={addMemberDialogOpen} onOpenChange={setAddMemberDialogOpen} data-testid="org-dialog-add-member">
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>添加成员</DialogTitle>
@@ -1480,6 +1486,7 @@ export function OrganizationSettings() {
                       placeholder="8位数字或6位字母数字"
                       value={memberFormData.username}
                       onChange={(e) => setMemberFormData({ ...memberFormData, username: e.target.value })}
+                      data-testid="org-input-member-username"
                     />
                   </div>
                   <div className="space-y-2">
@@ -1489,6 +1496,7 @@ export function OrganizationSettings() {
                       placeholder="用户显示名"
                       value={memberFormData.displayName}
                       onChange={(e) => setMemberFormData({ ...memberFormData, displayName: e.target.value })}
+                      data-testid="org-input-member-name"
                     />
                   </div>
                 </div>
@@ -1501,6 +1509,7 @@ export function OrganizationSettings() {
                       placeholder="user@example.com"
                       value={memberFormData.email}
                       onChange={(e) => setMemberFormData({ ...memberFormData, email: e.target.value })}
+                      data-testid="org-input-member-email"
                     />
                   </div>
                   <div className="space-y-2">
@@ -1510,6 +1519,7 @@ export function OrganizationSettings() {
                       placeholder="手机号码"
                       value={memberFormData.phone}
                       onChange={(e) => setMemberFormData({ ...memberFormData, phone: e.target.value })}
+                      data-testid="org-input-member-phone"
                     />
                   </div>
                 </div>
@@ -1522,7 +1532,7 @@ export function OrganizationSettings() {
                         setMemberFormData({ ...memberFormData, gender: val === 'none' ? null : val as 'male' | 'female' | 'other' })
                       }
                     >
-                      <SelectTrigger>
+                      <SelectTrigger data-testid="org-select-member-gender">
                         <SelectValue placeholder="请选择" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1560,7 +1570,7 @@ export function OrganizationSettings() {
                       value={memberFormData.role}
                       onValueChange={(val) => setMemberFormData({ ...memberFormData, role: val as Member['role'] })}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger data-testid="org-select-member-role">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1604,7 +1614,7 @@ export function OrganizationSettings() {
       />
 
       {/* 编辑成员对话框 */}
-      <Dialog open={editMemberDialogOpen} onOpenChange={setEditMemberDialogOpen}>
+      <Dialog open={editMemberDialogOpen} onOpenChange={setEditMemberDialogOpen} data-testid="org-dialog-edit-member">
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>编辑成员</DialogTitle>

@@ -142,7 +142,8 @@ export async function deleteProject(id: string): Promise<void> {
  */
 export async function getMilestones(projectId: string): Promise<Milestone[]> {
   const response = await apiClient.get<ApiResponse<Milestone[]>>(`${BASE_PATH}/${projectId}/milestones`);
-  return (response as any).data ?? [];
+  const data = (response as any).data ?? [];
+  return data;
 }
 
 /**

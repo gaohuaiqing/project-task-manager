@@ -9,7 +9,7 @@ import type {
   ProjectProgressItem,
   TaskDistribution,
   DashboardQueryParams,
-} from '@/features/dashboard/types';
+} from '@/features/analytics/shared/types';
 
 const BASE_PATH = '/analytics';
 
@@ -17,8 +17,8 @@ const BASE_PATH = '/analytics';
  * 获取仪表板统计数据
  * 注：响应拦截器会自动转换 snake_case -> camelCase
  */
-export async function getDashboardStats(): Promise<DashboardStats> {
-  const response = await apiClient.get<ApiResponse<DashboardStats>>(`${BASE_PATH}/dashboard/stats`);
+export async function getDashboardStats(signal?: AbortSignal): Promise<DashboardStats> {
+  const response = await apiClient.get<ApiResponse<DashboardStats>>(`${BASE_PATH}/dashboard/stats`, { signal });
   return response.data;
 }
 
@@ -26,10 +26,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
  * 获取任务趋势数据
  * 注：请求拦截器会自动转换 camelCase -> snake_case
  */
-export async function getTaskTrend(params: DashboardQueryParams = {}): Promise<TrendDataPoint[]> {
+export async function getTaskTrend(params: DashboardQueryParams = {}, signal?: AbortSignal): Promise<TrendDataPoint[]> {
   const response = await apiClient.get<ApiResponse<TrendDataPoint[]>>(
     `${BASE_PATH}/dashboard/trends`,
-    { params }
+    { params, signal }
   );
   return response.data ?? [];
 }
@@ -38,9 +38,10 @@ export async function getTaskTrend(params: DashboardQueryParams = {}): Promise<T
  * 获取所有项目进度（仪表板专用）
  * 注：响应拦截器会自动转换 snake_case -> camelCase
  */
-export async function getAllProjectsProgress(): Promise<ProjectProgressItem[]> {
+export async function getAllProjectsProgress(signal?: AbortSignal): Promise<ProjectProgressItem[]> {
   const response = await apiClient.get<ApiResponse<ProjectProgressItem[]>>(
-    `${BASE_PATH}/dashboard/projects`
+    `${BASE_PATH}/dashboard/projects`,
+    { signal }
   );
   return response.data ?? [];
 }
@@ -49,10 +50,10 @@ export async function getAllProjectsProgress(): Promise<ProjectProgressItem[]> {
  * 获取任务统计报表
  * 注：响应拦截器会自动转换 snake_case -> camelCase
  */
-export async function getTaskStatistics(params: DashboardQueryParams = {}): Promise<TaskDistribution> {
+export async function getTaskStatistics(params: DashboardQueryParams = {}, signal?: AbortSignal): Promise<TaskDistribution> {
   const response = await apiClient.get<ApiResponse<TaskDistribution>>(
     `${BASE_PATH}/reports/task-statistics`,
-    { params }
+    { params, signal }
   );
   return response.data;
 }
@@ -61,7 +62,7 @@ export async function getTaskStatistics(params: DashboardQueryParams = {}): Prom
  * 获取延期分析报表
  * 注：请求拦截器会自动转换 camelCase -> snake_case
  */
-export async function getDelayAnalysis(params: DashboardQueryParams = {}): Promise<{
+export async function getDelayAnalysis(params: DashboardQueryParams = {}, signal?: AbortSignal): Promise<{
   totalDelayed: number;
   avgDelayDays: number;
   byReason: Record<string, number>;
@@ -69,7 +70,7 @@ export async function getDelayAnalysis(params: DashboardQueryParams = {}): Promi
 }> {
   const response = await apiClient.get<ApiResponse<any>>(
     `${BASE_PATH}/reports/delay-analysis`,
-    { params }
+    { params, signal }
   );
   return response.data;
 }
@@ -77,7 +78,7 @@ export async function getDelayAnalysis(params: DashboardQueryParams = {}): Promi
 /**
  * 获取仪表板统计卡片趋势（对比当前周期 vs 上期）
  */
-export async function getDashboardTrends(days: number = 7): Promise<Record<string, {
+export async function getDashboardTrends(days: number = 7, signal?: AbortSignal): Promise<Record<string, {
   current: number;
   trend: {
     value: number;
@@ -90,7 +91,7 @@ export async function getDashboardTrends(days: number = 7): Promise<Record<strin
 }>> {
   const response = await apiClient.get<ApiResponse<any>>(
     `${BASE_PATH}/dashboard/trends-summary`,
-    { params: { days } }
+    { params: { days }, signal }
   );
   return response.data ?? {};
 }
@@ -112,6 +113,100 @@ export async function getReportTrend(params: {
   return response.data ?? [];
 }
 
+// ============ 仪表板 Detail API（按角色聚合） ============
+
+export interface AdminDashboardDetail {
+  departmentEfficiency: Array<{
+    id: number; name: string; completionRate: number; delayRate: number;
+    utilizationRate: number; activity: number; trend: number;
+    status: 'healthy' | 'warning' | 'risk';
+  }>;
+  taskTypeDistribution: Array<{
+    taskType: string; taskTypeName: string; count: number;
+    completedCount: number; delayedCount: number;
+    completionRate: number; delayRate: number; avgDuration: number;
+  }>;
+  allocationSuggestions: Array<{
+    type: 'overloaded' | 'idle' | 'rebalance';
+    memberName: string; currentLoad: number; suggestion: string;
+  }>;
+  departmentDelayTrends: Array<Record<string, string | number>>;
+  utilizationTrends: Array<{ date: string; utilization: number; target?: number }>;
+  highRiskProjects: Array<{
+    id: string; name: string; riskFactors: string[];
+    completionRate: number; delayedTasks: number; manager: string;
+  }>;
+}
+
+export interface DeptManagerDashboardDetail {
+  groupEfficiency: Array<{
+    id: number; name: string; completionRate: number; delayRate: number;
+    loadRate: number; activity: number; memberCount: number;
+    trend: number; status: 'healthy' | 'warning' | 'risk';
+  }>;
+  memberStatus: Array<{
+    id: number; name: string; avatar: string | null;
+    inProgress: number; completed: number; delayed: number;
+    loadRate: number; activity: number; trend: number;
+    status: 'healthy' | 'warning' | 'risk' | 'idle';
+  }>;
+  taskTypeDistribution: AdminDashboardDetail['taskTypeDistribution'];
+  allocationSuggestions: AdminDashboardDetail['allocationSuggestions'];
+  groupActivityTrends: Array<Record<string, string | number>>;
+}
+
+export interface TechManagerDashboardDetail {
+  memberStatus: DeptManagerDashboardDetail['memberStatus'];
+  taskTypeDistribution: AdminDashboardDetail['taskTypeDistribution'];
+  allocationSuggestions: AdminDashboardDetail['allocationSuggestions'];
+  availableGroups: Array<{ id: number; name: string }>;
+  memberActivityTrends: Array<Record<string, string | number>>;
+}
+
+export interface EngineerDashboardDetail {
+  todoTasks: Array<{
+    id: string; name: string; projectName: string; dueDate: string | null;
+    progress: number; priority: string; daysOverdue?: number; lastUpdated?: string;
+  }>;
+  needUpdateTasks: Array<{
+    id: string; name: string; projectName: string; dueDate: string | null;
+    progress: number; priority: string; daysOverdue?: number; lastUpdated?: string;
+  }>;
+  taskStatusDistribution: Array<{ status: string; count: number }>;
+}
+
+export async function getAdminDashboardDetail(signal?: AbortSignal): Promise<AdminDashboardDetail> {
+  const response = await apiClient.get<ApiResponse<AdminDashboardDetail>>(
+    `${BASE_PATH}/dashboard/admin/detail`,
+    { signal }
+  );
+  return response.data;
+}
+
+export async function getDeptManagerDashboardDetail(signal?: AbortSignal): Promise<DeptManagerDashboardDetail> {
+  const response = await apiClient.get<ApiResponse<DeptManagerDashboardDetail>>(
+    `${BASE_PATH}/dashboard/dept-manager/detail`,
+    { signal }
+  );
+  return response.data;
+}
+
+export async function getTechManagerDashboardDetail(groupId?: number, signal?: AbortSignal): Promise<TechManagerDashboardDetail> {
+  const response = await apiClient.get<ApiResponse<TechManagerDashboardDetail>>(
+    `${BASE_PATH}/dashboard/tech-manager/detail`,
+    { params: groupId ? { groupId } : {}, signal }
+  );
+  return response.data;
+}
+
+export async function getEngineerDashboardDetail(signal?: AbortSignal): Promise<EngineerDashboardDetail> {
+  const response = await apiClient.get<ApiResponse<EngineerDashboardDetail>>(
+    `${BASE_PATH}/dashboard/engineer/detail`,
+    { signal }
+  );
+  return response.data;
+}
+
 export const analyticsApi = {
   getDashboardStats,
   getTaskTrend,
@@ -120,6 +215,10 @@ export const analyticsApi = {
   getDelayAnalysis,
   getDashboardTrends,
   getReportTrend,
+  getAdminDashboardDetail,
+  getDeptManagerDashboardDetail,
+  getTechManagerDashboardDetail,
+  getEngineerDashboardDetail,
 };
 
 // ============ 审计日志 API ============

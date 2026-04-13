@@ -32,13 +32,13 @@ export default function AssignmentPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div data-testid="assignment-page-container" className="space-y-6 animate-fade-in">
       {/* 标签页 */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="matrix">能力矩阵</TabsTrigger>
-          <TabsTrigger value="suggest">分配建议</TabsTrigger>
-          <TabsTrigger value="profile">能力档案</TabsTrigger>
+          <TabsTrigger data-testid="assignment-tab-matrix" value="matrix">能力矩阵</TabsTrigger>
+          <TabsTrigger data-testid="assignment-tab-suggest" value="suggest">分配建议</TabsTrigger>
+          <TabsTrigger data-testid="assignment-tab-profile" value="profile">能力档案</TabsTrigger>
         </TabsList>
 
         <TabsContent value="matrix">

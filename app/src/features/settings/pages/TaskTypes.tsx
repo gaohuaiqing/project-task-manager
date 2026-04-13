@@ -183,7 +183,7 @@ export function TaskTypesSettings() {
               配置任务类型对应的能力模型，用于智能推荐负责人
             </CardDescription>
           </div>
-          <Button size="sm" onClick={handleCreateMapping}>
+          <Button size="sm" onClick={handleCreateMapping} data-testid="tasktype-btn-add">
             <Plus className="h-4 w-4 mr-2" />
             添加映射
           </Button>
@@ -200,7 +200,7 @@ export function TaskTypesSettings() {
               <p className="text-xs mt-1">添加映射后，创建任务时可智能推荐负责人</p>
             </div>
           ) : (
-            <Table>
+            <Table data-testid="tasktype-table">
               <TableHeader>
                 <TableRow>
                   <TableHead>任务类型</TableHead>
@@ -211,7 +211,7 @@ export function TaskTypesSettings() {
               </TableHeader>
               <TableBody>
                 {mappings.map((mapping) => (
-                  <TableRow key={mapping.id}>
+                  <TableRow key={mapping.id} data-testid="tasktype-table-row">
                     <TableCell>
                       <Badge
                         style={{
@@ -233,6 +233,7 @@ export function TaskTypesSettings() {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleEditMapping(mapping)}
+                        data-testid="tasktype-btn-edit"
                       >
                         <Edit2 className="h-4 w-4" />
                       </Button>
@@ -240,6 +241,7 @@ export function TaskTypesSettings() {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleDeleteClick(mapping)}
+                        data-testid="tasktype-btn-delete"
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
@@ -253,7 +255,7 @@ export function TaskTypesSettings() {
       </Card>
 
       {/* 创建/编辑映射对话框 */}
-      <Dialog open={mappingDialogOpen} onOpenChange={setMappingDialogOpen}>
+      <Dialog open={mappingDialogOpen} onOpenChange={setMappingDialogOpen} data-testid="tasktype-dialog-form">
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{selectedMapping ? '编辑映射' : '添加映射'}</DialogTitle>
@@ -266,7 +268,7 @@ export function TaskTypesSettings() {
                 onValueChange={(value) => setFormData({ ...formData, taskType: value })}
                 disabled={!!selectedMapping}
               >
-                <SelectTrigger>
+                <SelectTrigger data-testid="tasktype-select-task-type">
                   <SelectValue placeholder="请选择任务类型" />
                 </SelectTrigger>
                 <SelectContent>
@@ -292,7 +294,7 @@ export function TaskTypesSettings() {
                 onValueChange={(value) => setFormData({ ...formData, modelId: value })}
                 disabled={isLoadingModels}
               >
-                <SelectTrigger>
+                <SelectTrigger data-testid="tasktype-select-model">
                   <SelectValue placeholder="请选择能力模型" />
                 </SelectTrigger>
                 <SelectContent>
@@ -325,6 +327,7 @@ export function TaskTypesSettings() {
                 onChange={(e) =>
                   setFormData({ ...formData, priority: parseInt(e.target.value) || 1 })
                 }
+                data-testid="tasktype-input-priority"
               />
               <p className="text-xs text-muted-foreground">
                 同一任务类型可映射多个模型，优先级越高越优先使用

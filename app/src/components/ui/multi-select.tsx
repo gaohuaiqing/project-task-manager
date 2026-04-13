@@ -130,7 +130,7 @@ export function MultiSelect({
         style={{ width: typeof panelWidth === 'number' ? `${panelWidth}px` : panelWidth }}
         align="start"
       >
-        <Command>
+        <Command disablePointerSelection>
           <CommandInput
             placeholder="搜索..."
             value={search}

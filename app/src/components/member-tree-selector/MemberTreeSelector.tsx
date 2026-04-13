@@ -72,7 +72,7 @@ export function MemberTreeSelector({
   // 获取成员数据（只获取活跃成员，排除内置用户如 admin）
   const { data: membersData, isLoading: membersLoading } = useMembers({
     status: 'active',
-    pageSize: 1000,
+    pageSize: 100,
   });
   // 过滤掉内置用户（如 admin），admin 默认是所有项目成员，拥有最高权限
   const members = (membersData?.items || []).filter(m => !m.isBuiltin);

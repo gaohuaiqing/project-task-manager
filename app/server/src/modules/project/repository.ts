@@ -164,6 +164,54 @@ export class ProjectRepository {
     return result.insertId;
   }
 
+  /**
+   * 创建项目（带事务，同时添加成员到 project_members 表）
+   */
+  async createProjectWithMembers(
+    data: CreateProjectRequest,
+    memberIds: number[]
+  ): Promise<{ projectId: number; success: boolean }> {
+    const pool = getPool();
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const memberIdsStr = data.member_ids ? JSON.stringify(data.member_ids) : null;
+
+      // 创建项目
+      const [result] = await connection.execute<ResultSetHeader>(
+        `INSERT INTO projects (code, name, description, status, project_type, planned_start_date, planned_end_date, member_ids, progress, task_count, completed_task_count, version)
+         VALUES (?, ?, ?, 'planning', ?, ?, ?, ?, 0, 0, 0, 1)`,
+        [data.code, data.name, data.description || null, data.project_type, data.planned_start_date || null, data.planned_end_date || null, memberIdsStr]
+      );
+
+      const projectId = result.insertId;
+
+      // 批量添加成员
+      if (memberIds.length > 0) {
+        const values = memberIds.map(() => '(?, ?, ?)').join(', ');
+        const params: (string | number)[] = [];
+        for (const memberId of memberIds) {
+          params.push(String(projectId), memberId, 'member');
+        }
+
+        await connection.execute(
+          `INSERT INTO project_members (project_id, user_id, role) VALUES ${values}`,
+          params
+        );
+      }
+
+      await connection.commit();
+      return { projectId, success: true };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   async updateProject(id: string, data: UpdateProjectRequest & { version: number }): Promise<{ updated: boolean; conflict: boolean }> {
     const pool = getPool();
     const fields: string[] = [];
@@ -232,10 +280,12 @@ export class ProjectRepository {
       `UPDATE projects p SET
         task_count = (SELECT COUNT(*) FROM wbs_tasks WHERE project_id = p.id),
         completed_task_count = (SELECT COUNT(*) FROM wbs_tasks WHERE project_id = p.id AND status IN ('early_completed', 'on_time_completed', 'overdue_completed')),
-        progress = CASE
-          WHEN (SELECT COUNT(*) FROM wbs_tasks WHERE project_id = p.id) = 0 THEN 0
-          ELSE ROUND((SELECT COUNT(*) FROM wbs_tasks WHERE project_id = p.id AND status IN ('early_completed', 'on_time_completed', 'overdue_completed')) * 100.0 / (SELECT COUNT(*) FROM wbs_tasks WHERE project_id = p.id))
-        END
+        progress = COALESCE(
+          (SELECT ROUND(AVG(completion_percentage))
+           FROM milestones
+           WHERE project_id = p.id),
+          0
+        )
        WHERE p.id = ?`,
       [projectId]
     );
@@ -249,6 +299,9 @@ export class ProjectRepository {
       'SELECT * FROM milestones WHERE project_id = ? ORDER BY target_date',
       [projectId]
     );
+    // DEBUG: 打印查询结果
+    console.log('[Repository.getMilestones] 项目ID:', projectId);
+    console.log('[Repository.getMilestones] 查询结果:', JSON.stringify(rows, null, 2));
     return rows;
   }
 
@@ -277,6 +330,10 @@ export class ProjectRepository {
     const fields: string[] = [];
     const values: (string | number | null)[] = [];
 
+    // DEBUG: 打印更新数据
+    console.log('[Repository.updateMilestone] 更新里程碑 ID:', id);
+    console.log('[Repository.updateMilestone] 更新数据:', JSON.stringify(data, null, 2));
+
     if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
     if (data.target_date !== undefined) { fields.push('target_date = ?'); values.push(data.target_date); }
     if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description); }
@@ -294,10 +351,12 @@ export class ProjectRepository {
     if (fields.length === 0) return false;
 
     values.push(id);
-    const [result] = await pool.execute<ResultSetHeader>(
-      `UPDATE milestones SET ${fields.join(', ')} WHERE id = ?`,
-      values
-    );
+    const sql = `UPDATE milestones SET ${fields.join(', ')} WHERE id = ?`;
+    console.log('[Repository.updateMilestone] SQL:', sql);
+    console.log('[Repository.updateMilestone] Values:', values);
+
+    const [result] = await pool.execute<ResultSetHeader>(sql, values);
+    console.log('[Repository.updateMilestone] 影响行数:', result.affectedRows);
     return result.affectedRows > 0;
   }
 
@@ -372,13 +431,27 @@ export class ProjectRepository {
 
   async deleteTimeline(id: string): Promise<boolean> {
     const pool = getPool();
-    // 先删除关联的时间线任务
-    await pool.execute('DELETE FROM timeline_tasks WHERE timeline_id = ?', [id]);
-    const [result] = await pool.execute<ResultSetHeader>(
-      'DELETE FROM timelines WHERE id = ?',
-      [id]
-    );
-    return result.affectedRows > 0;
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      // 先删除关联的时间线任务
+      await connection.execute('DELETE FROM timeline_tasks WHERE timeline_id = ?', [id]);
+      // 再删除时间线
+      const [result] = await connection.execute<ResultSetHeader>(
+        'DELETE FROM timelines WHERE id = ?',
+        [id]
+      );
+
+      await connection.commit();
+      return result.affectedRows > 0;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   // ========== 时间线任务 CRUD ==========

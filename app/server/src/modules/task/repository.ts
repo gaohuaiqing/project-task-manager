@@ -71,7 +71,7 @@ export class TaskRepository {
     );
     const total = countRows[0].total;
 
-    // Data
+    // Data - 不在SQL层排序，改为应用层排序以支持任意层级WBS编码
     const page = options.page || 1;
     const pageSize = options.pageSize || 50;
     const offset = (page - 1) * pageSize;
@@ -84,12 +84,36 @@ export class TaskRepository {
        LEFT JOIN users u ON t.assignee_id = u.id
        LEFT JOIN projects p ON t.project_id = p.id
        ${whereClause}
-       ORDER BY t.wbs_code
        LIMIT ${pageSize} OFFSET ${offset}`,
       params
     );
 
-    return { items: rows, total };
+    // 应用层WBS编码排序（支持任意层级）
+    const sortedRows = this.sortByWbsCode(rows);
+
+    return { items: sortedRows, total };
+  }
+
+  /**
+   * WBS编码排序（支持任意层级）
+   * 将 WBS 编码如 "1.2.3.4" 拆分为数字数组进行比较
+   */
+  private sortByWbsCode(rows: TaskRow[]): TaskRow[] {
+    return rows.sort((a, b) => {
+      const aParts = a.wbs_code.split('.').map(Number);
+      const bParts = b.wbs_code.split('.').map(Number);
+
+      // 逐级比较
+      const maxLen = Math.max(aParts.length, bParts.length);
+      for (let i = 0; i < maxLen; i++) {
+        const aVal = aParts[i] ?? 0;  // 不存在的层级视为0
+        const bVal = bParts[i] ?? 0;
+        if (aVal !== bVal) {
+          return aVal - bVal;
+        }
+      }
+      return 0;  // 完全相等
+    });
   }
 
   async getTaskById(id: string): Promise<WBSTask | null> {
@@ -209,12 +233,38 @@ export class TaskRepository {
 
   async deleteTask(id: string): Promise<boolean> {
     const pool = getPool();
-    // 先删除子任务
-    await pool.execute('DELETE FROM wbs_tasks WHERE parent_id = ?', [id]);
-    const [result] = await pool.execute<ResultSetHeader>(
-      'DELETE FROM wbs_tasks WHERE id = ?',
+
+    // 使用 CTE 一次性删除所有后代任务（包括自身）
+    // 先获取所有后代ID用于清理前置关系
+    const [descendants] = await pool.execute<RowDataPacket[]>(
+      `WITH RECURSIVE TaskTree AS (
+        SELECT id FROM wbs_tasks WHERE id = ?
+        UNION ALL
+        SELECT t.id FROM wbs_tasks t
+        INNER JOIN TaskTree tt ON t.parent_id = tt.id
+      ) SELECT id FROM TaskTree`,
       [id]
     );
+
+    const descendantIds = descendants.map((r: RowDataPacket) => r.id);
+
+    if (descendantIds.length === 0) {
+      return false;
+    }
+
+    // 清除以这些任务为前置的关系（防止悬空引用）
+    const placeholders = descendantIds.map(() => '?').join(',');
+    await pool.execute(
+      `UPDATE wbs_tasks SET predecessor_id = NULL WHERE predecessor_id IN (${placeholders})`,
+      descendantIds
+    );
+
+    // 删除所有后代任务
+    const [result] = await pool.execute<ResultSetHeader>(
+      `DELETE FROM wbs_tasks WHERE id IN (${placeholders})`,
+      descendantIds
+    );
+
     return result.affectedRows > 0;
   }
 
@@ -394,6 +444,14 @@ export class TaskRepository {
 
   /**
    * 批量更新任务日期
+   * 用于级联更新场景，自动增加版本号但不检查版本冲突
+   *
+   * 设计说明：
+   * - 级联更新是系统自动操作，不需要版本冲突检查
+   * - 版本号仍然会增加，确保数据一致性
+   * - 如果用户在级联更新过程中同时编辑，会产生版本冲突（正常行为）
+   *
+   * @returns 是否更新成功
    */
   async updateTaskDates(taskId: string, dates: { start_date?: string; end_date?: string }): Promise<boolean> {
     const pool = getPool();
@@ -413,6 +471,7 @@ export class TaskRepository {
       return false;
     }
 
+    // 自动增加版本号，但不检查版本冲突（级联更新是系统操作）
     fields.push('version = version + 1');
     values.push(taskId);
 

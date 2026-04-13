@@ -66,7 +66,7 @@ export function ImportPreviewDialog({
   const canImport = validCount > 0;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog data-testid="task-dialog-import" open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -138,6 +138,7 @@ export function ImportPreviewDialog({
             取消
           </Button>
           <Button
+            data-testid="task-import-btn-confirm"
             onClick={handleConfirm}
             disabled={!canImport || importing || isLoading}
           >

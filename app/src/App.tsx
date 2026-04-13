@@ -12,11 +12,11 @@ import { AuthProvider } from '@/contexts/AuthContext';
 
 // 懒加载页面
 const LoginPage = lazy(() => import('@/features/auth'));
-const Dashboard = lazy(() => import('@/features/dashboard'));
+const Dashboard = lazy(() => import('@/features/analytics/Dashboard'));
 const Projects = lazy(() => import('@/features/projects'));
 const Tasks = lazy(() => import('@/features/tasks'));
 const Assignment = lazy(() => import('@/features/assignment'));
-const Reports = lazy(() => import('@/features/reports'));
+const Reports = lazy(() => import('@/features/analytics/reports/ReportsPage'));
 const Settings = lazy(() => import('@/features/settings'));
 
 // React Query 客户端配置

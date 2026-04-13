@@ -139,7 +139,9 @@ export interface TaskTypeDistributionItem {
   count: number;
   completed_count: number;
   delayed_count: number;
-  avg_duration: number;  // 平均工期
+  completion_rate: number;  // 完成率(%)
+  delay_rate: number;      // 延期率(%)
+  avg_duration: number;    // 平均工期
 }
 
 export interface TaskTypeStats {
@@ -298,6 +300,76 @@ export interface ImportError {
   message: string;
 }
 
+// ============ 成员分析扩展（支持多成员对比） ============
+
+export interface MemberAnalysisExtendedResponse {
+  // 统计卡片数据
+  total_members: number;
+  avg_load: number;
+  avg_estimation_accuracy: number;
+  overloaded_members: number;
+  department_activity_rate: number;
+
+  // 各成员汇总（对比视图核心数据）
+  members_summary: MemberSummaryItem[];
+
+  // 分布图表数据
+  workload_distribution: WorkloadDistributionItem[];
+  status_distribution: StatusDistributionItem[];
+  estimation_distribution: EstimationDistributionItem[];
+
+  // 趋势数据
+  workload_trend: WorkloadTrendPoint[];
+
+  // 任务明细（单成员模式下完整列表）
+  member_tasks: MemberTask[];
+
+  // 分配建议
+  suggestions: AllocationSuggestionItem[];
+}
+
+export interface MemberSummaryItem {
+  member_id: number;
+  member_name: string;
+  department: string | null;
+  current_tasks: number;
+  total_full_time_ratio: number;
+  avg_completion_rate: number;
+  estimation_accuracy: number;
+  activity_rate: number;  // 7日内活跃任务占比
+}
+
+export interface WorkloadDistributionItem {
+  member_name: string;
+  task_count: number;
+  full_time_ratio: number;
+}
+
+export interface EstimationDistributionItem {
+  category: string;  // '精准' | '轻微偏差' | '明显偏差' | '严重偏差'
+  count: number;
+}
+
+export interface WorkloadTrendPoint {
+  period: string;        // "2026-W14"
+  avg_full_time_ratio: number;
+  task_count: number;
+}
+
+export interface AllocationSuggestionItem {
+  type: 'overloaded' | 'idle' | 'rebalance';
+  member_name: string;
+  current_load: number;
+  suggestion: string;
+}
+
+// 成员分析查询选项
+export interface MemberAnalysisQueryOptions {
+  member_id?: number;
+  start_date?: string;
+  end_date?: string;
+}
+
 // ============ 资源效能分析报表（v1.2 新增） ============
 
 export interface ResourceEfficiencyReport {
@@ -350,4 +422,122 @@ export interface ResourceEfficiencyQueryOptions extends ReportQueryOptions {
   department_id?: number;
   tech_group_id?: number;
   productivity_threshold?: number;
+}
+
+// ============ 仪表板 Detail API（按角色聚合） ============
+
+// --- Admin Detail 子类型 ---
+
+export interface DepartmentEfficiencyItem {
+  id: number;
+  name: string;
+  completion_rate: number;
+  delay_rate: number;
+  utilization_rate: number;
+  activity: number;
+  trend: number;
+  status: 'healthy' | 'warning' | 'risk';
+}
+
+export interface DepartmentDelayTrendPoint {
+  date: string;
+  [dept_name: string]: string | number;
+}
+
+export interface UtilizationTrendPoint {
+  date: string;
+  utilization: number;
+  target?: number;
+}
+
+export interface HighRiskProjectItem {
+  id: string;
+  name: string;
+  risk_factors: string[];
+  completion_rate: number;
+  delayed_tasks: number;
+  manager: string;
+}
+
+export interface AdminDashboardDetailResponse {
+  department_efficiency: DepartmentEfficiencyItem[];
+  task_type_distribution: TaskTypeDistributionItem[];
+  allocation_suggestions: AllocationSuggestionItem[];
+  department_delay_trends: DepartmentDelayTrendPoint[];
+  utilization_trends: UtilizationTrendPoint[];
+  high_risk_projects: HighRiskProjectItem[];
+}
+
+// --- DeptManager Detail 子类型 ---
+
+export interface GroupEfficiencyItem {
+  id: number;
+  name: string;
+  completion_rate: number;
+  delay_rate: number;
+  load_rate: number;
+  activity: number;
+  member_count: number;
+  trend: number;
+  status: 'healthy' | 'warning' | 'risk';
+}
+
+export interface MemberStatusItem {
+  id: number;
+  name: string;
+  avatar: string | null;
+  in_progress: number;
+  completed: number;
+  delayed: number;
+  load_rate: number;
+  activity: number;
+  trend: number;
+  status: 'healthy' | 'warning' | 'risk' | 'idle';
+}
+
+export interface GroupActivityTrendPoint {
+  date: string;
+  [group_name: string]: string | number;
+}
+
+export interface DeptManagerDashboardDetailResponse {
+  group_efficiency: GroupEfficiencyItem[];
+  member_status: MemberStatusItem[];
+  task_type_distribution: TaskTypeDistributionItem[];
+  allocation_suggestions: AllocationSuggestionItem[];
+  group_activity_trends: GroupActivityTrendPoint[];
+}
+
+// --- TechManager Detail 子类型 ---
+
+export interface MemberActivityTrendPoint {
+  date: string;
+  [member_name: string]: string | number;
+}
+
+export interface TechManagerDashboardDetailResponse {
+  member_status: MemberStatusItem[];
+  task_type_distribution: TaskTypeDistributionItem[];
+  allocation_suggestions: AllocationSuggestionItem[];
+  available_groups: Array<{ id: number; name: string }>;
+  member_activity_trends: MemberActivityTrendPoint[];
+}
+
+// --- Engineer Detail 子类型 ---
+
+export interface TodoTaskItem {
+  id: string;
+  name: string;
+  project_name: string;
+  due_date: string | null;
+  progress: number;
+  priority: string;
+  days_overdue?: number;
+  last_updated?: string;
+}
+
+export interface EngineerDashboardDetailResponse {
+  todo_tasks: TodoTaskItem[];
+  need_update_tasks: TodoTaskItem[];
+  task_status_distribution: StatusDistributionItem[];
 }

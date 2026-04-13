@@ -37,6 +37,7 @@ import { Plus, X, Loader2 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { projectApi } from '@/lib/api/project.api';
 import { queryKeys } from '@/lib/api/query-keys';
+import { useToast } from '@/hooks/use-toast';
 
 // 里程碑表单字段
 interface MilestoneFormData {
@@ -81,6 +82,7 @@ export function ProjectForm({
 }: ProjectFormProps) {
   const isEdit = !!project;
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const {
     register,
@@ -117,8 +119,18 @@ export function ProjectForm({
   // 追踪里程碑是否已初始化（用于区分首次加载和更新后的数据刷新）
   const milestonesInitializedRef = useRef(false);
 
-  // 当项目 ID 变化时，重置整个表单
+  // 对话框关闭时重置追踪引用，确保再次打开同一项目时能正确初始化
   useEffect(() => {
+    if (!open) {
+      prevProjectIdRef.current = undefined;
+      milestonesInitializedRef.current = false;
+    }
+  }, [open]);
+
+  // 当项目 ID 变化或对话框打开时，初始化表单
+  useEffect(() => {
+    if (!open) return; // 对话框关闭时不执行初始化
+
     const currentProjectId = project?.id;
     const isProjectChanged = prevProjectIdRef.current !== currentProjectId;
 
@@ -163,7 +175,7 @@ export function ProjectForm({
         milestones: [],
       });
     }
-  }, [project?.id, reset]);
+  }, [project?.id, reset, open]);
 
   // 当 existingMilestones 变化且里程碑未初始化时，更新里程碑字段
   // 这确保首次加载时能正确显示里程碑，但不会在里程碑更新后覆盖用户正在编辑的数据
@@ -206,6 +218,10 @@ export function ProjectForm({
     formMilestones: MilestoneFormData[],
     originalMilestones: Milestone[]
   ): Promise<boolean> => {
+    // DIAGNOSTIC: 检查 useFieldArray 是否覆盖了数据库 id
+    console.log('[syncMilestones] 表单里程碑:', JSON.stringify(formMilestones.map(m => ({ id: m.id, name: m.name, cp: m.completionPercentage }))));
+    console.log('[syncMilestones] 原始里程碑:', JSON.stringify(originalMilestones.map(m => ({ id: m.id, name: m.name, cp: m.completionPercentage }))));
+
     const originalIds = new Set(originalMilestones.map((m) => m.id));
     const formIds = new Set(formMilestones.filter((m) => m.id).map((m) => m.id!));
 
@@ -217,6 +233,8 @@ export function ProjectForm({
 
     // 3. 找出需要更新的里程碑（两边都有的）
     const toUpdate = formMilestones.filter((m) => m.id && originalIds.has(m.id));
+
+    console.log('[syncMilestones] 分类结果 — 删除:', toDelete.length, '新增:', toCreate.length, '更新:', toUpdate.length);
 
     try {
       // 删除
@@ -237,20 +255,22 @@ export function ProjectForm({
       // 更新
       for (const formMilestone of toUpdate) {
         const original = originalMilestones.find((m) => m.id === formMilestone.id);
+        const nameChanged = original?.name !== formMilestone.name;
+        const dateChanged = original?.targetDate !== formMilestone.targetDate;
+        const descChanged = original?.description !== formMilestone.description;
+        const cpChanged = (original?.completionPercentage ?? 0) !== formMilestone.completionPercentage;
+
         // 只有当数据有变化时才更新
-        if (
-          original &&
-          (original.name !== formMilestone.name ||
-            original.targetDate !== formMilestone.targetDate ||
-            original.description !== formMilestone.description ||
-            original.completionPercentage !== formMilestone.completionPercentage)
-        ) {
+        if (original && (nameChanged || dateChanged || descChanged || cpChanged)) {
+          console.log(`[syncMilestones] 更新里程碑 ${formMilestone.id}: cp ${original?.completionPercentage} → ${formMilestone.completionPercentage}`);
           await projectApi.updateMilestone(formMilestone.id!, {
             name: formMilestone.name,
             targetDate: formMilestone.targetDate,
             description: formMilestone.description,
             completionPercentage: formMilestone.completionPercentage,
           });
+        } else {
+          console.log(`[syncMilestones] 跳过无变化的里程碑:`, formMilestone.id, `cp=${formMilestone.completionPercentage}`);
         }
       }
 
@@ -286,9 +306,22 @@ export function ProjectForm({
 
       // 项目更新成功后，同步里程碑
       if (success) {
-        await syncMilestones(project.id, data.milestones, existingMilestones);
+        const milestoneSynced = await syncMilestones(project.id, data.milestones, existingMilestones);
+        if (!milestoneSynced) {
+          toast({
+            title: '警告',
+            description: '项目信息已保存，但里程碑同步失败，请重新编辑里程碑',
+            variant: 'destructive',
+          });
+        }
         // 失效里程碑查询缓存，确保页面显示最新数据
         queryClient.invalidateQueries({ queryKey: queryKeys.project.milestones(project.id) });
+        // 失效项目详情和列表缓存：里程碑变更会影响项目进度
+        await queryClient.refetchQueries({ queryKey: queryKeys.project.detail(project.id) });
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.project.all,
+          refetchType: 'active',
+        });
       }
     } else {
       // 创建模式：发送 CreateProjectRequest
@@ -321,6 +354,12 @@ export function ProjectForm({
             }
             // 失效里程碑查询缓存
             queryClient.invalidateQueries({ queryKey: queryKeys.project.milestones(newProjectId) });
+            // 失效项目详情和列表缓存：里程碑创建会影响项目进度
+            await queryClient.refetchQueries({ queryKey: queryKeys.project.detail(newProjectId) });
+            await queryClient.invalidateQueries({
+              queryKey: queryKeys.project.all,
+              refetchType: 'active',
+            });
           } catch (error) {
             console.error('创建里程碑失败:', error);
             // 里程碑创建失败不影响项目创建成功的状态
@@ -341,7 +380,7 @@ export function ProjectForm({
   
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent data-testid="project-dialog-form" className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? '编辑项目' : '新建项目'}</DialogTitle>
         </DialogHeader>
@@ -356,6 +395,7 @@ export function ProjectForm({
               <div className="space-y-2">
                 <Label htmlFor="code">项目编码 *</Label>
                 <Input
+                  data-testid="project-input-code"
                   id="code"
                   {...register('code', { required: '请输入项目编码' })}
                   placeholder="PRJ-001"
@@ -368,6 +408,7 @@ export function ProjectForm({
               <div className="col-span-3 space-y-2">
                 <Label htmlFor="name">项目名称 *</Label>
                 <Input
+                  data-testid="project-input-name"
                   id="name"
                   {...register('name', { required: '请输入项目名称' })}
                   placeholder="请输入项目名称"
@@ -382,6 +423,7 @@ export function ProjectForm({
               <div className="space-y-2">
                 <Label htmlFor="projectType">项目类型 *</Label>
                 <Select
+                  data-testid="project-select-type"
                   value={watch('projectType')}
                   onValueChange={(value) => setValue('projectType', value as ProjectType)}
                 >
@@ -406,6 +448,7 @@ export function ProjectForm({
               <div className="space-y-2">
                 <Label htmlFor="description">项目描述</Label>
                 <Textarea
+                  data-testid="project-input-description"
                   id="description"
                   {...register('description')}
                   placeholder="请输入项目描述"
@@ -424,6 +467,7 @@ export function ProjectForm({
               <div className="space-y-2">
                 <Label>开始日期 *</Label>
                 <DatePickerField
+                  data-testid="project-input-start-date"
                   id="startDate"
                   placeholder="选择开始日期"
                   value={watch('startDate')}
@@ -436,6 +480,7 @@ export function ProjectForm({
               <div className="space-y-2">
                 <Label>截止日期 *</Label>
                 <DatePickerField
+                  data-testid="project-input-deadline"
                   id="deadline"
                   placeholder="选择截止日期"
                   value={watch('deadline')}
@@ -470,6 +515,7 @@ export function ProjectForm({
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-muted-foreground">里程碑</h3>
               <Button
+                data-testid="project-btn-add-milestone"
                 type="button"
                 variant="outline"
                 size="sm"
@@ -499,6 +545,7 @@ export function ProjectForm({
                         <div className="space-y-1">
                           <Label className="text-xs">里程碑名称 *</Label>
                           <Input
+                            data-testid="project-input-milestone-name"
                             {...register(`milestones.${index}.name`, {
                               required: '请输入里程碑名称',
                             })}
@@ -514,6 +561,7 @@ export function ProjectForm({
                         <div className="space-y-1">
                           <Label className="text-xs">目标日期 *</Label>
                           <DatePickerField
+                            data-testid="project-input-milestone-date"
                             id={`milestone-${index}-date`}
                             placeholder="选择日期"
                             value={watch(`milestones.${index}.targetDate`)}
@@ -536,6 +584,7 @@ export function ProjectForm({
                     <div className="space-y-1">
                       <Label className="text-xs">描述</Label>
                       <Input
+                        data-testid="project-input-milestone-desc"
                         {...register(`milestones.${index}.description`)}
                         placeholder="里程碑描述（可选）"
                         className="h-8"
@@ -572,13 +621,14 @@ export function ProjectForm({
           {/* 固定在底部的按钮区域 */}
           <DialogFooter className="gap-2">
             <Button
+              data-testid="project-btn-cancel"
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
             >
               取消
             </Button>
-            <Button type="submit" disabled={isLoading}>
+            <Button data-testid="project-btn-submit" type="submit" disabled={isLoading}>
               {isLoading ? '保存中...' : isEdit ? '保存' : '创建'}
             </Button>
           </DialogFooter>

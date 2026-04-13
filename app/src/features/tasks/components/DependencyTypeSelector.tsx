@@ -36,7 +36,7 @@ export function DependencyTypeSelector({
   const dependencyTypes: DependencyType[] = ['FS', 'SS', 'FF', 'SF'];
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-testid="task-select-dependency-type">
       <div className="flex items-center gap-1">
         <label className="text-sm font-medium">依赖类型</label>
         <TooltipProvider>

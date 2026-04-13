@@ -354,24 +354,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!USE_BACKEND || !session || !user) return;
 
-    const connectWebSocket = async () => {
-      try {
-        await wsService.connect(session.sessionId, user.username);
-        setIsBackendConnected(true);
-      } catch (error) {
-        console.error('[AuthProvider] WebSocket连接失败:', error);
-        setIsBackendConnected(false);
-      }
-    };
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws?sessionId=${session.sessionId}&username=${user.username}`;
+    wsService.connect(wsUrl);
 
-    connectWebSocket();
-
-    const unsubscribe = wsService.onMessage((message) => {
-      if (message.type === 'session_terminated') {
-        warning('会话终止', message.data.message);
-        logout();
-      }
-      // data_sync 消息类型已移除（原 DataSyncService）
+    const unsubscribe = wsService.on('session_terminated', (data) => {
+      warning('会话终止', (data as { message: string })?.message || '会话已被终止');
+      logout();
     });
 
     return () => {
@@ -537,10 +525,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const loginUser: User = {
-        id: session.userId,
+        id: Number(session.userId) || 0,
         username,
-        role: userData?.role || 'engineer',
+        realName: userData?.name || username,
         name: userData?.name || username,
+        email: null,
+        role: (userData?.role as UserRole) || 'engineer',
+        permissions: [],
+        departmentId: null,
+        isActive: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       // ✅ 保存用户信息到 localStorage，确保刷新页面后可以恢复登录状态

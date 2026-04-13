@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { authApi } from '../api';
 import { queryKeys } from '@/lib/api/query-keys';
 import { useAppContext } from '@/shared/context/AppContext';
@@ -36,6 +36,20 @@ export function useAuth(): AuthState & {
 
   // 调试日志
   console.log('[useAuth] hasAuthSession:', hasAuthSession, 'isUserLoading:', isUserLoading, 'user:', user?.username);
+
+  // 当用户数据变化时，同步到 AppContext
+  useEffect(() => {
+    if (user) {
+      setCurrentUser({
+        id: String(user.id),
+        username: user.username,
+        displayName: user.realName || user.name || user.username,
+        email: user.email || '',
+        avatar: user.avatar,
+        role: user.role,
+      });
+    }
+  }, [user, setCurrentUser]);
 
   // 登录
   const loginMutation = useMutation({

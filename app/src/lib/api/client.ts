@@ -50,8 +50,11 @@ apiClient.interceptors.request.use(
       config.headers['Pragma'] = 'no-cache';
     }
     // 转换请求体：camelCase -> snake_case
+    // 但排除密码相关字段（后端期望 camelCase）
     if (config.data && typeof config.data === 'object' && !(config.data instanceof FormData)) {
-      config.data = toBackend(config.data);
+      const { oldPassword, newPassword, confirmPassword, ...rest } = config.data;
+      const transformed = toBackend(rest);
+      config.data = { ...transformed, ...(oldPassword !== undefined && { oldPassword }), ...(newPassword !== undefined && { newPassword }), ...(confirmPassword !== undefined && { confirmPassword }) };
     }
     // 转换查询参数：camelCase -> snake_case
     if (config.params && typeof config.params === 'object') {

@@ -12,3 +12,6 @@ export * from './enums.js';
 
 // 实体类型
 export * from './entities.js';
+
+// 分析模块类型
+export * from './analytics.js';

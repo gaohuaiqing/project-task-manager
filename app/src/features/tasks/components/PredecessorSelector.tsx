@@ -128,7 +128,7 @@ export function PredecessorSelector({
   };
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-1" data-testid="task-selector-predecessors">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -156,7 +156,7 @@ export function PredecessorSelector({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[400px] p-0" align="start">
-          <Command shouldFilter={false}>
+          <Command shouldFilter={false} disablePointerSelection>
             <CommandInput
               placeholder="输入WBS编码搜索..."
               value={inputValue}

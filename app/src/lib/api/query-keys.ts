@@ -113,6 +113,13 @@ export const queryKeys = {
     taskStatisticsReport: (filters: object) => ['analytics', 'reports', 'task-statistics', filters] as const,
     delayAnalysisReport: (filters: object) => ['analytics', 'reports', 'delay-analysis', filters] as const,
     memberAnalysisReport: (memberId?: number) => ['analytics', 'reports', 'member-analysis', memberId] as const,
+    resourceEfficiencyReport: (filters: object) => ['analytics', 'reports', 'resource-efficiency', filters] as const,
+    reportTrend: (params: object) => ['analytics', 'reports', 'trend', params] as const,
+    // 角色仪表板
+    adminDashboard: (projectId?: string) => ['analytics', 'dashboard', 'admin', projectId] as const,
+    deptManagerDashboard: (projectId?: string) => ['analytics', 'dashboard', 'dept-manager', projectId] as const,
+    techManagerDashboard: (projectId?: string, groupId?: number) => ['analytics', 'dashboard', 'tech-manager', projectId, groupId] as const,
+    engineerDashboard: (projectId?: string) => ['analytics', 'dashboard', 'engineer', projectId] as const,
   },
 
   // ==================== 系统配置 ====================

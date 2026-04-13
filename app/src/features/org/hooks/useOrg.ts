@@ -78,6 +78,19 @@ export function useMembers(params: MemberListParams = {}) {
 }
 
 /**
+ * 搜索成员（用于下拉选择器）
+ * 仅在搜索词不为空时触发请求
+ */
+export function useMemberSearch(search: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.org.members({ search, pageSize: 20 }),
+    queryFn: () => getMembers({ search, pageSize: 20, status: 'active' }),
+    enabled: options?.enabled !== false && search.length >= 1,
+    staleTime: 30 * 1000, // 30 秒
+  });
+}
+
+/**
  * 获取成员详情
  */
 export function useMember(id: number | undefined) {

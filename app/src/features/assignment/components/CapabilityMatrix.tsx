@@ -63,7 +63,7 @@ export function CapabilityMatrix({ departmentId, className, onMemberClick }: Cap
   }
 
   return (
-    <Card className={className}>
+    <Card data-testid="assignment-matrix-container" className={className}>
       <CardHeader>
         <CardTitle>能力矩阵</CardTitle>
         <p className="text-sm text-muted-foreground">

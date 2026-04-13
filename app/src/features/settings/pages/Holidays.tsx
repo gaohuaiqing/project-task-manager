@@ -191,7 +191,7 @@ export function HolidaysSettings() {
             value={String(selectedYear)}
             onValueChange={(val) => setSelectedYear(Number(val))}
           >
-            <SelectTrigger className="w-32">
+            <SelectTrigger className="w-32" data-testid="holiday-select-year">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -206,7 +206,7 @@ export function HolidaysSettings() {
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
-        <Button onClick={handleAdd}>
+        <Button onClick={handleAdd} data-testid="holiday-btn-add">
           <Plus className="h-4 w-4 mr-2" />
           添加节假日
         </Button>
@@ -233,7 +233,7 @@ export function HolidaysSettings() {
               暂无节假日数据，请点击"添加节假日"按钮添加
             </div>
           ) : (
-            <Table>
+            <Table data-testid="holiday-table">
               <TableHeader>
                 <TableRow>
                   <TableHead>日期</TableHead>
@@ -250,7 +250,7 @@ export function HolidaysSettings() {
                     </TableCell>
                     <TableCell className="font-medium">{holiday.name}</TableCell>
                     <TableCell>
-                      <Badge variant={HOLIDAY_TYPE_MAP[holiday.type]?.variant || 'default'}>
+                      <Badge variant={HOLIDAY_TYPE_MAP[holiday.type]?.variant || 'default'} data-testid="holiday-badge-type">
                         {HOLIDAY_TYPE_MAP[holiday.type]?.label || holiday.type}
                       </Badge>
                     </TableCell>
@@ -260,6 +260,7 @@ export function HolidaysSettings() {
                         size="icon"
                         onClick={() => handleEdit(holiday)}
                         title="编辑"
+                        data-testid="holiday-btn-edit"
                       >
                         <Edit2 className="h-4 w-4" />
                       </Button>
@@ -269,6 +270,7 @@ export function HolidaysSettings() {
                         onClick={() => handleDelete(holiday)}
                         title="删除"
                         className="text-destructive hover:text-destructive"
+                        data-testid="holiday-btn-delete"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -282,7 +284,7 @@ export function HolidaysSettings() {
       </Card>
 
       {/* 编辑/添加对话框 */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen} data-testid="holiday-dialog-form">
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{selectedHoliday ? '编辑节假日' : '添加节假日'}</DialogTitle>
@@ -301,6 +303,7 @@ export function HolidaysSettings() {
                 type="date"
                 value={formData.date}
                 onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                data-testid="holiday-input-date"
               />
             </div>
             <div className="space-y-2">
@@ -310,6 +313,7 @@ export function HolidaysSettings() {
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="如：春节、国庆节、调休上班"
+                data-testid="holiday-input-name"
               />
             </div>
             <div className="space-y-2">
@@ -318,7 +322,7 @@ export function HolidaysSettings() {
                 value={formData.type}
                 onValueChange={(val) => setFormData({ ...formData, type: val as HolidayType })}
               >
-                <SelectTrigger>
+                <SelectTrigger data-testid="holiday-select-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -341,7 +345,7 @@ export function HolidaysSettings() {
       </Dialog>
 
       {/* 删除确认对话框 */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen} data-testid="holiday-dialog-delete-confirm">
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除</AlertDialogTitle>

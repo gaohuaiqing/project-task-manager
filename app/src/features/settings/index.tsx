@@ -2,7 +2,7 @@
  * 设置页面 - 8个Tab导航
  * 根据用户角色动态显示/隐藏Tab
  */
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/features/auth';
@@ -54,17 +54,14 @@ export default function SettingsPage() {
     });
   }, [user?.role]);
 
-  // 根据URL路径确定当前Tab
-  const getCurrentTab = () => {
+  // 根据URL路径确定当前Tab（响应URL变化）
+  const activeTab = useMemo(() => {
     const path = location.pathname;
     const tab = visibleTabs.find((t) => path.endsWith(t.value));
     return tab?.value || 'profile';
-  };
-
-  const [activeTab, setActiveTab] = useState(getCurrentTab());
+  }, [location.pathname, visibleTabs]);
 
   const handleTabChange = (value: string) => {
-    setActiveTab(value);
     const tab = visibleTabs.find((t) => t.value === value);
     if (tab) {
       navigate(tab.path);
@@ -85,7 +82,7 @@ export default function SettingsPage() {
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <TabsList className={`grid ${gridCols} w-full`}>
           {visibleTabs.map((tab) => (
-            <TabsTrigger key={tab.value} value={tab.value}>
+            <TabsTrigger key={tab.value} value={tab.value} data-testid={`setting-tab-${tab.value}`}>
               {tab.label}
             </TabsTrigger>
           ))}
@@ -93,49 +90,49 @@ export default function SettingsPage() {
 
         {/* 只渲染当前激活的Tab，避免不必要的组件渲染 */}
         {activeTab === 'profile' && visibleTabs.some(t => t.value === 'profile') && (
-          <TabsContent value="profile">
+          <TabsContent value="profile" className="mt-0">
             <ProfileSettings />
           </TabsContent>
         )}
 
         {activeTab === 'users' && visibleTabs.some(t => t.value === 'users') && (
-          <TabsContent value="users">
+          <TabsContent value="users" className="mt-0">
             <UsersSettings />
           </TabsContent>
         )}
 
         {activeTab === 'organization' && visibleTabs.some(t => t.value === 'organization') && (
-          <TabsContent value="organization">
+          <TabsContent value="organization" className="mt-0">
             <OrganizationSettings />
           </TabsContent>
         )}
 
         {activeTab === 'permissions' && visibleTabs.some(t => t.value === 'permissions') && (
-          <TabsContent value="permissions">
+          <TabsContent value="permissions" className="mt-0">
             <PermissionsSettings />
           </TabsContent>
         )}
 
         {activeTab === 'task-types' && visibleTabs.some(t => t.value === 'task-types') && (
-          <TabsContent value="task-types">
+          <TabsContent value="task-types" className="mt-0">
             <TaskTypesSettings />
           </TabsContent>
         )}
 
         {activeTab === 'capability-models' && visibleTabs.some(t => t.value === 'capability-models') && (
-          <TabsContent value="capability-models">
+          <TabsContent value="capability-models" className="mt-0">
             <CapabilityModelsSettings />
           </TabsContent>
         )}
 
         {activeTab === 'holidays' && visibleTabs.some(t => t.value === 'holidays') && (
-          <TabsContent value="holidays">
+          <TabsContent value="holidays" className="mt-0">
             <HolidaysSettings />
           </TabsContent>
         )}
 
         {activeTab === 'audit-logs' && visibleTabs.some(t => t.value === 'audit-logs') && (
-          <TabsContent value="audit-logs">
+          <TabsContent value="audit-logs" className="mt-0">
             <AuditLogsSettings />
           </TabsContent>
         )}

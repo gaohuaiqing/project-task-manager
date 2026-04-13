@@ -86,7 +86,7 @@ export function MemberCapabilities({
   };
 
   return (
-    <Card className={className}>
+    <Card data-testid="assignment-profile-container" className={className}>
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>

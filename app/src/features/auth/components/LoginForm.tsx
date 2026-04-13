@@ -67,7 +67,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
           {error && (
-            <Alert variant="destructive" className="border-0 bg-transparent p-0">
+            <Alert variant="destructive" data-testid="login-alert-error" className="border-0 bg-transparent p-0">
               <AlertDescription className="text-red-500 font-medium">{error}</AlertDescription>
             </Alert>
           )}
@@ -76,6 +76,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
             <Label htmlFor="username">用户名</Label>
             <Input
               id="username"
+              data-testid="login-input-username"
               type="text"
               placeholder="请输入用户名"
               value={username}
@@ -90,6 +91,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
             <div className="relative">
               <Input
                 id="password"
+                data-testid="login-input-password"
                 type={showPassword ? 'text' : 'password'}
                 placeholder="请输入密码"
                 value={password}
@@ -100,6 +102,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
               />
               <button
                 type="button"
+                data-testid="login-btn-toggle-password"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 aria-label={showPassword ? '隐藏密码' : '显示密码'}
@@ -117,6 +120,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
           <div className="flex items-center space-x-2">
             <Checkbox
               id="remember-me"
+              data-testid="login-checkbox-remember"
               checked={rememberMe}
               onCheckedChange={(checked) => setRememberMe(checked as boolean)}
             />
@@ -128,7 +132,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
             </Label>
           </div>
 
-          <Button type="submit" className="w-full" disabled={isLoading}>
+          <Button type="submit" data-testid="login-btn-submit" className="w-full" disabled={isLoading}>
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

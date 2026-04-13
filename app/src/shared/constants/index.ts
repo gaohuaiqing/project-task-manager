@@ -343,7 +343,7 @@ export const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
 
 // ==================== 用户角色 ====================
 
-export type UserRole = 'admin' | 'tech_manager' | 'department_manager' | 'engineer';
+export type UserRole = 'admin' | 'tech_manager' | 'dept_manager' | 'engineer';
 
 export const USER_ROLE_CONFIG: Record<UserRole, {
   label: string;
@@ -366,7 +366,7 @@ export const USER_ROLE_CONFIG: Record<UserRole, {
     bgColor: 'bg-purple-100',
     textColor: 'text-purple-700',
   },
-  department_manager: {
+  dept_manager: {
     label: '部门经理',
     description: '部门负责人',
     color: 'blue',
@@ -385,7 +385,7 @@ export const USER_ROLE_CONFIG: Record<UserRole, {
 export const USER_ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: 'admin', label: '管理员' },
   { value: 'tech_manager', label: '技术经理' },
-  { value: 'department_manager', label: '部门经理' },
+  { value: 'dept_manager', label: '部门经理' },
   { value: 'engineer', label: '工程师' },
 ];
 

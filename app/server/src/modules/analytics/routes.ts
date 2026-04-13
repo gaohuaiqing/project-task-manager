@@ -4,7 +4,7 @@ import { AnalyticsService } from './service';
 import { ValidationError } from '../../core/errors';
 import { requirePermission } from '../../core/middleware/permission-middleware';
 import type { User } from '../../core/types';
-import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig, ResourceEfficiencyQueryOptions } from './types';
+import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig, ResourceEfficiencyQueryOptions, MemberAnalysisQueryOptions } from './types';
 import { auditService } from '../../core/audit';
 import type { AuditCategory } from '../../core/types';
 
@@ -112,11 +112,12 @@ router.get('/reports/delay-analysis', requirePermission('REPORT_VIEW'), async (r
 router.get('/reports/member-analysis', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = getCurrentUser(req)!;
-    const { member_id } = req.query;
-    if (!member_id) {
-      throw new ValidationError('成员ID不能为空');
-    }
-    const report = await analyticsService.getMemberAnalysisReport(parseInt(member_id as string), currentUser);
+    const options: MemberAnalysisQueryOptions = {
+      member_id: req.query.member_id ? parseInt(req.query.member_id as string) : undefined,
+      start_date: req.query.start_date as string,
+      end_date: req.query.end_date as string,
+    };
+    const report = await analyticsService.getMemberAnalysisExtended(options, currentUser);
     res.json({ success: true, data: report });
   } catch (error) {
     next(error);
@@ -150,6 +151,49 @@ router.get('/dashboard/trends-summary', async (req: Request, res: Response, next
     const currentUser = requireUser(req);
     const days = req.query.days ? parseInt(req.query.days as string) : 30;
     const result = await analyticsService.getDashboardTrends(currentUser, days);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 仪表板详情（按角色聚合） ==========
+
+router.get('/dashboard/admin/detail', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const result = await analyticsService.getDashboardAdminDetail(currentUser);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/dashboard/dept-manager/detail', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const result = await analyticsService.getDashboardDeptManagerDetail(currentUser);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/dashboard/tech-manager/detail', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const groupId = req.query.group_id ? parseInt(req.query.group_id as string) : undefined;
+    const result = await analyticsService.getDashboardTechManagerDetail(currentUser, groupId);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/dashboard/engineer/detail', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const result = await analyticsService.getDashboardEngineerDetail(currentUser);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);

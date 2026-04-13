@@ -63,7 +63,15 @@ export function useCreateMilestone(projectId: string) {
   return useMutation({
     mutationFn: (data: Parameters<typeof projectApi.createMilestone>[1]) =>
       projectApi.createMilestone(projectId, data),
-    onSuccess: () => {
+    onSuccess: async () => {
+      // 强制重新获取项目详情
+      await queryClient.refetchQueries({ queryKey: queryKeys.project.detail(projectId) });
+      // 失效所有项目列表查询（包括带参数的），并强制重新获取活跃查询
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.project.all,
+        refetchType: 'active',
+      });
+      // 失效里程碑缓存
       queryClient.invalidateQueries({ queryKey: queryKeys.project.milestones(projectId) });
     },
   });
@@ -78,8 +86,30 @@ export function useUpdateMilestone(projectId: string) {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof projectApi.updateMilestone>[1] }) =>
       projectApi.updateMilestone(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.project.milestones(projectId) });
+    onSuccess: async (_, variables) => {
+      // 乐观更新：直接更新缓存数据，立即刷新 UI
+      queryClient.setQueryData(
+        queryKeys.project.milestones(projectId),
+        (old: any[]) => {
+          if (!old) return old;
+          return old.map(m =>
+            m.id === variables.id
+              ? { ...m, ...variables.data }
+              : m
+          );
+        }
+      );
+      // 强制重新获取项目详情
+      await queryClient.refetchQueries({ queryKey: queryKeys.project.detail(projectId) });
+      // 失效所有项目列表查询（包括带参数的），并强制重新获取活跃查询
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.project.all,
+        refetchType: 'active',
+      });
+      // 失效里程碑缓存
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.project.milestones(projectId),
+      });
     },
   });
 }
@@ -92,8 +122,26 @@ export function useDeleteMilestone(projectId: string) {
 
   return useMutation({
     mutationFn: (id: string) => projectApi.deleteMilestone(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.project.milestones(projectId) });
+    onSuccess: async (_, deletedId) => {
+      // 乐观更新：立即从缓存中移除已删除的里程碑
+      queryClient.setQueryData(
+        queryKeys.project.milestones(projectId),
+        (old: any[]) => {
+          if (!old) return old;
+          return old.filter(m => m.id !== deletedId);
+        }
+      );
+      // 强制重新获取项目详情
+      await queryClient.refetchQueries({ queryKey: queryKeys.project.detail(projectId) });
+      // 失效所有项目列表查询（包括带参数的），并强制重新获取活跃查询
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.project.all,
+        refetchType: 'active',
+      });
+      // 失效里程碑缓存
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.project.milestones(projectId),
+      });
     },
   });
 }
@@ -153,8 +201,24 @@ export function useUpdateTimeline(projectId: string) {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof projectApi.updateTimeline>[1] }) =>
       projectApi.updateTimeline(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.project.timelines(projectId) });
+    onSuccess: (_, variables) => {
+      // 乐观更新：直接更新缓存数据，立即刷新 UI
+      queryClient.setQueryData(
+        queryKeys.project.timelines(projectId),
+        (old: any[]) => {
+          if (!old) return old;
+          return old.map(t =>
+            t.id === variables.id
+              ? { ...t, ...variables.data }
+              : t
+          );
+        }
+      );
+      // 同时触发重新获取，确保数据一致性
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.project.timelines(projectId),
+        refetchType: 'active'
+      });
     },
   });
 }
@@ -167,8 +231,20 @@ export function useDeleteTimeline(projectId: string) {
 
   return useMutation({
     mutationFn: (id: string) => projectApi.deleteTimeline(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.project.timelines(projectId) });
+    onSuccess: (_, deletedId) => {
+      // 乐观更新：立即从缓存中移除已删除的时间线
+      queryClient.setQueryData(
+        queryKeys.project.timelines(projectId),
+        (old: any[]) => {
+          if (!old) return old;
+          return old.filter(t => t.id !== deletedId);
+        }
+      );
+      // 同时触发重新获取，确保数据一致性
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.project.timelines(projectId),
+        refetchType: 'active'
+      });
     },
   });
 }

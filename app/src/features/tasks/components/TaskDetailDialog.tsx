@@ -95,7 +95,7 @@ export function TaskDetailDialog({
   if (!task) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog data-testid="task-dialog-detail" open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[80vh]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -115,7 +115,7 @@ export function TaskDetailDialog({
         ) : (
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="px-6">
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="progress" className="flex items-center gap-1">
+              <TabsTrigger data-testid="task-detail-tab-progress" value="progress" className="flex items-center gap-1">
                 <FileText className="h-4 w-4" />
                 进展记录
                 {progressRecords.length > 0 && (
@@ -124,7 +124,7 @@ export function TaskDetailDialog({
                   </Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="delays" className="flex items-center gap-1">
+              <TabsTrigger data-testid="task-detail-tab-delays" value="delays" className="flex items-center gap-1">
                 <AlertTriangle className="h-4 w-4" />
                 延期历史
                 {delayRecords.length > 0 && (
@@ -133,7 +133,7 @@ export function TaskDetailDialog({
                   </Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="changes" className="flex items-center gap-1">
+              <TabsTrigger data-testid="task-detail-tab-changes" value="changes" className="flex items-center gap-1">
                 <Clock className="h-4 w-4" />
                 计划变更
                 {planChanges.length > 0 && (
@@ -147,17 +147,18 @@ export function TaskDetailDialog({
             <ScrollArea className="h-[400px] mt-4">
               <TabsContent value="progress" className="m-0">
                 <ProgressRecordsPanel
+                  data-testid="task-detail-panel-progress"
                   records={progressRecords}
                   onAddProgress={handleAddProgress}
                 />
               </TabsContent>
 
               <TabsContent value="delays" className="m-0">
-                <DelayHistoryPanel records={delayRecords} />
+                <DelayHistoryPanel data-testid="task-detail-panel-delays" records={delayRecords} />
               </TabsContent>
 
               <TabsContent value="changes" className="m-0">
-                <PlanChangesPanel changes={planChanges} />
+                <PlanChangesPanel data-testid="task-detail-panel-changes" changes={planChanges} />
               </TabsContent>
             </ScrollArea>
           </Tabs>

@@ -24,12 +24,12 @@ import { useAuth } from '@/features/auth';
  * 导航菜单项配置
  */
 const ALL_NAV_ITEMS = [
-  { path: '/dashboard', icon: LayoutDashboard, label: '仪表板', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
-  { path: '/projects', icon: FolderKanban, label: '项目管理', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
-  { path: '/tasks', icon: ListTodo, label: '任务管理', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
-  { path: '/assignment', icon: Users, label: '智能分配', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
-  { path: '/reports', icon: BarChart3, label: '报表分析', roles: ['admin', 'dept_manager', 'tech_manager'] },
-  { path: '/settings', icon: Settings, label: '设置', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
+  { path: '/dashboard', icon: LayoutDashboard, label: '仪表板', testId: 'nav-link-dashboard', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
+  { path: '/projects', icon: FolderKanban, label: '项目管理', testId: 'nav-link-projects', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
+  { path: '/tasks', icon: ListTodo, label: '任务管理', testId: 'nav-link-tasks', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
+  { path: '/assignment', icon: Users, label: '智能分配', testId: 'nav-link-assignment', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
+  { path: '/reports', icon: BarChart3, label: '报表分析', testId: 'nav-link-reports', roles: ['admin', 'dept_manager', 'tech_manager'] },
+  { path: '/settings', icon: Settings, label: '设置', testId: 'nav-link-settings', roles: ['admin', 'dept_manager', 'tech_manager', 'engineer'] },
 ] as const;
 
 /**
@@ -47,6 +47,7 @@ export function Sidebar() {
 
   return (
     <aside
+      data-testid="nav-sidebar"
       className={cn(
         'flex h-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-300',
         sidebarCollapsed ? 'w-16' : 'w-64'
@@ -60,6 +61,7 @@ export function Sidebar() {
         <Button
           variant="ghost"
           size="icon"
+          data-testid="nav-btn-toggle-sidebar"
           onClick={toggleSidebar}
           className="ml-auto"
         >
@@ -79,6 +81,7 @@ export function Sidebar() {
               <TooltipTrigger asChild>
                 <NavLink
                   to={item.path}
+                  data-testid={item.testId}
                   className={({ isActive }) =>
                     cn(
                       // 基础样式

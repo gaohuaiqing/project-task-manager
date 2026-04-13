@@ -63,7 +63,7 @@ app.use(async (req: express.Request, res: express.Response, next: express.NextFu
   if (sessionId) {
     try {
       // 1. 先尝试从缓存获取会话
-      let context = await sessionCache.getSession(sessionId);
+      let context: Awaited<ReturnType<typeof sessionCache.getSession>> = await sessionCache.getSession(sessionId);
 
       if (context) {
         // 缓存命中，直接使用
@@ -74,16 +74,23 @@ app.use(async (req: express.Request, res: express.Response, next: express.NextFu
         // 缓存未命中，从数据库获取并缓存
         const { AuthService } = await import('./modules/auth');
         const authService = new AuthService();
-        context = await authService.getAuthContext(sessionId);
-
-        if (context) {
-          (req as any).user = context.user;
+        const authContext = await authService.getAuthContext(sessionId);
+        if (authContext) {
+          // 使用 authContext 设置请求上下文
+          (req as any).user = authContext.user;
           (req as any).sessionId = sessionId;
+          (req as any).permissions = authContext.permissions;
 
           // 缓存会话信息（15分钟TTL）
           await sessionCache.setSession(sessionId, {
-            user: context.user,
-            permissions: context.permissions || [],
+            user: {
+              id: authContext.user.id,
+              username: authContext.user.username,
+              realName: authContext.user.real_name || '',
+              role: authContext.user.role,
+              departmentId: authContext.user.department_id ?? undefined,
+            },
+            permissions: authContext.permissions,
           });
         }
       }

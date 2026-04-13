@@ -88,7 +88,7 @@ export function ProjectHeader({
   const typeLabel = PROJECT_TYPE_LABELS[project.projectType] || project.projectType;
 
   return (
-    <div className="space-y-4">
+    <div data-testid="detail-header" className="space-y-4">
       {/* 面包屑导航 */}
       <nav className="flex items-center gap-2 text-sm text-muted-foreground">
         <Link
@@ -105,8 +105,8 @@ export function ProjectHeader({
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold truncate">{project.name}</h1>
-            <Badge variant="outline" className="flex-shrink-0">
+            <h1 data-testid="detail-header-title" className="text-2xl font-bold truncate">{project.name}</h1>
+            <Badge data-testid="detail-header-status-badge" variant="outline" className="flex-shrink-0">
               {statusLabel}
             </Badge>
             <Badge variant="secondary" className="flex-shrink-0">
@@ -140,7 +140,7 @@ export function ProjectHeader({
               {/* 桌面端显示按钮 */}
               <div className="hidden sm:flex gap-2">
                 {onEdit && (
-                  <Button variant="outline" size="sm" onClick={onEdit}>
+                  <Button data-testid="detail-header-btn-edit" variant="outline" size="sm" onClick={onEdit}>
                     <Pencil className="h-4 w-4 mr-1" />
                     编辑
                   </Button>
@@ -165,6 +165,7 @@ export function ProjectHeader({
                   {onEdit && onDelete && <DropdownMenuSeparator />}
                   {onDelete && (
                     <DropdownMenuItem
+                      data-testid="detail-header-btn-delete"
                       onClick={onDelete}
                       className="text-destructive focus:text-destructive"
                     >

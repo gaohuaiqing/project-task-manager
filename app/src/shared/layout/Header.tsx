@@ -270,7 +270,7 @@ export function Header() {
         {/* 通知中心 */}
         <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative">
+            <Button variant="ghost" size="icon" data-testid="header-btn-notification" className="relative">
               <Bell className="h-5 w-5" />
               {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground flex items-center justify-center">
@@ -279,11 +279,11 @@ export function Header() {
               )}
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-80 p-0">
+          <PopoverContent align="end" data-testid="header-popover-notification" className="w-80 p-0">
             <div className="flex items-center justify-between p-4 border-b">
               <h4 className="font-semibold">通知</h4>
               {unreadCount > 0 && (
-                <Button variant="ghost" size="sm" onClick={handleMarkAllRead}>
+                <Button variant="ghost" size="sm" data-testid="header-btn-mark-all-read" onClick={handleMarkAllRead}>
                   全部已读
                 </Button>
               )}
@@ -372,6 +372,7 @@ export function Header() {
         <Button
           variant="ghost"
           size="icon"
+          data-testid="header-btn-theme-toggle"
           onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
         >
           {theme === 'light' ? (
@@ -384,7 +385,7 @@ export function Header() {
         {/* 用户菜单 */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full">
+            <Button variant="ghost" size="icon" data-testid="header-menu-user" className="rounded-full">
               {currentUser?.avatar ? (
                 <Avatar className="h-8 w-8">
                   <AvatarImage src={currentUser.avatar} alt={currentUser.displayName} />
@@ -407,11 +408,11 @@ export function Header() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate('/settings/profile')}>
+            <DropdownMenuItem data-testid="header-menuitem-profile" onClick={() => navigate('/settings/profile')}>
               个人设置
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout} className="text-destructive">
+            <DropdownMenuItem data-testid="header-menuitem-logout" onClick={handleLogout} className="text-destructive">
               退出登录
             </DropdownMenuItem>
           </DropdownMenuContent>

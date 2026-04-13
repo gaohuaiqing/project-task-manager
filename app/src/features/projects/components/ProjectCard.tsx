@@ -39,6 +39,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
 
   return (
     <Card
+      data-testid="project-card"
       className="cursor-pointer hover:shadow-md transition-shadow"
       onClick={handleClick}
     >
@@ -50,13 +51,14 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
                 {project.code}
               </Badge>
               <Badge
+                data-testid="project-card-status-badge"
                 variant="secondary"
                 className={cn('text-white text-xs', PROJECT_STATUS_CONFIG[project.status].bgColor)}
               >
                 {PROJECT_STATUS_CONFIG[project.status].label}
               </Badge>
             </div>
-            <CardTitle className="text-lg truncate">{project.name}</CardTitle>
+            <CardTitle data-testid="project-card-title" className="text-lg truncate">{project.name}</CardTitle>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
@@ -66,6 +68,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
+                data-testid="project-card-btn-edit"
                 onClick={(e) => {
                   e.stopPropagation();
                   onEdit?.();
@@ -74,6 +77,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
                 编辑
               </DropdownMenuItem>
               <DropdownMenuItem
+                data-testid="project-card-btn-delete"
                 className="text-destructive"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -95,7 +99,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
 
         {/* 类型标签 + 任务数量 */}
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="outline" className="text-xs">
+          <Badge data-testid="project-card-type-badge" variant="outline" className="text-xs">
             {PROJECT_TYPE_CONFIG[project.projectType]?.label || project.projectType}
           </Badge>
           {/* WBS任务数量 */}
@@ -109,7 +113,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
         </div>
 
         {/* 进度条 */}
-        <div className="space-y-1">
+        <div data-testid="project-card-progress" className="space-y-1">
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">进度</span>
             <span className="font-medium">{project.progress}%</span>

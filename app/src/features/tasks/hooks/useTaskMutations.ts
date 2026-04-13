@@ -2,6 +2,7 @@
  * 任务变更 Hook
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { taskApi } from '@/lib/api/task.api';
 import { queryKeys } from '@/lib/api/query-keys';
 import type { CreateTaskRequest, UpdateTaskRequest } from '../types';
@@ -43,13 +44,20 @@ export function useUpdateTask(id?: string) {
       }
       throw new Error('Task ID is required for update');
     },
-    onSuccess: async (_, variables) => {
+    onSuccess: async (result, variables) => {
       const taskId = 'id' in variables ? variables.id : id;
       if (taskId) {
         queryClient.invalidateQueries({ queryKey: queryKeys.task.detail(taskId) });
       }
       // 使用 refetchQueries 确保等待数据重新获取完成
       await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
+
+      // 处理审批响应
+      if (result.needsApproval) {
+        toast.info('已提交审批', {
+          description: '您修改的计划字段需要审批，请等待主管审批',
+        });
+      }
     },
   });
 }

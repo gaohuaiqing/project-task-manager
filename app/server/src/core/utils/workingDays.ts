@@ -182,9 +182,10 @@ export async function getWorkingDaysBetween(
  * 计算任务结束日期
  * 公式：结束日期 = 开始日期 + 工期 - 1
  * @param startDate 开始日期
- * @param duration 工期（工作日数）
+ * @param duration 工期（工作日数），必须 > 0，由调用方验证
  * @param isSixDayWeek 是否六天工作制
  * @returns 结束日期
+ * @note 当 duration <= 0 时返回开始日期（边界情况，应由调用方验证避免）
  */
 export async function calculateEndDate(
   startDate: Date | string,
@@ -194,7 +195,10 @@ export async function calculateEndDate(
   const start = typeof startDate === 'string' ? new Date(startDate) : new Date(startDate);
   start.setHours(0, 0, 0, 0);
 
+  // 边界情况：工期 <= 0 时返回开始日期
+  // 注意：这种情况应在调用方验证，需求文档要求工期必须 > 0
   if (duration <= 0) {
+    console.warn('[calculateEndDate] 工期 <= 0，返回开始日期。调用方应验证工期必须 > 0');
     return start;
   }
 

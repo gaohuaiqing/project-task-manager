@@ -166,10 +166,19 @@ export class WorkflowService {
       // 2. 清除待审批数据
       await this.repo.clearPendingChanges(change.task_id);
 
-      // 3. 发送通知
+      // 3. 重新计算任务状态（让定时任务或下次查询时自动计算）
+      // 获取任务当前状态
+      const task = await this.repo.getTaskById(change.task_id);
+      if (task && task.project_id) {
+        // 如果状态是 pending_approval，恢复到 not_started
+        // 实际状态会在下次查询时由 calculateStatus 自动计算
+        await this.repo.updateTaskStatus(change.task_id, 'not_started');
+      }
+
+      // 4. 发送通知
       await this.sendNotification(change.user_id, 'approval_result', '变更审批通过', `您的变更请求已通过审批`);
 
-      // 4. 发出事件（触发级联更新等）
+      // 5. 发出事件（用于触发级联更新等，注意：不再重复应用变更）
       taskEvents.emit(TaskEventType.PLAN_CHANGE_APPROVED, {
         planChangeId: id,
         taskId: change.task_id,
@@ -178,6 +187,8 @@ export class WorkflowService {
           field: change.change_type,
           value: change.new_value,
         }],
+        // 标记变更已应用，避免重复处理
+        alreadyApplied: true,
       } as TaskPlanChangeApprovedEvent);
     } else {
       // ========== 审批驳回 ==========
@@ -288,6 +299,7 @@ export class WorkflowService {
   /**
    * 检查审批超时（7天有效期）
    * 将超过7天的待审批项标记为timeout状态
+   * 同时清除任务表中的 pending_changes 并恢复任务状态
    */
   async checkTimeoutApprovals(): Promise<number> {
     const timeoutCount = await this.repo.markTimeoutApprovals(7);
@@ -296,6 +308,17 @@ export class WorkflowService {
     if (timeoutCount > 0) {
       const timeoutApprovals = await this.repo.getTimeoutApprovals();
       for (const approval of timeoutApprovals) {
+        // 清除任务的 pending_changes 并恢复状态
+        await this.repo.clearPendingChanges(approval.task_id);
+
+        // 获取任务信息，根据是否有实际开始日期决定恢复到哪个状态
+        const task = await this.repo.getTaskById(approval.task_id);
+        if (task) {
+          // 恢复到之前的状态（简化处理：如果有计划日期，设为 not_started，否则也设为 not_started）
+          // 实际应该根据业务逻辑恢复到更精确的状态
+          await this.repo.updateTaskStatus(approval.task_id, 'not_started');
+        }
+
         // 通知申请人
         await this.sendNotification(
           approval.user_id,
@@ -395,8 +418,8 @@ export class WorkflowService {
    * 累计延期次数
    * 规则：
    * - 首次延期：延期次数+1
-   * - 计划未刷新：不累加
-   * - 刷新后再次超期：再+1
+   * - 计划未刷新：不累加（延期后用户还没有刷新计划）
+   * - 刷新后再次超期：再+1（延期后用户刷新了计划，然后又延期了）
    */
   private async incrementDelayCount(taskId: string): Promise<{ incremented: boolean; reason: string }> {
     const task = await this.repo.getTaskById(taskId);
@@ -405,22 +428,30 @@ export class WorkflowService {
     }
 
     const lastRefresh = task.last_plan_refresh_at ? new Date(task.last_plan_refresh_at) : null;
+    const endDate = task.end_date ? new Date(task.end_date) : null;
 
-    // 判断是否可以累加延期次数
-    if (lastRefresh) {
-      // 检查上次刷新时间是否在今天之前
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-
-      if (lastRefresh >= todayStart) {
-        // 计划今天刷新过，不累加
-        return { incremented: false, reason: '计划未刷新，不累加延期次数' };
-      }
+    // 规则1：首次延期（delay_count == 0）
+    if (task.delay_count === 0) {
+      await this.repo.incrementTaskCounter(taskId, 'delay_count');
+      return { incremented: true, reason: '首次延期，延期次数+1' };
     }
 
-    // 累加延期次数
-    await this.repo.incrementTaskCounter(taskId, 'delay_count');
-    return { incremented: true, reason: '延期次数已累加' };
+    // 规则2：之前延期过，检查是否刷新了计划
+    if (!lastRefresh) {
+      // 从未刷新过计划，不累加
+      return { incremented: false, reason: '计划未刷新，不累加延期次数' };
+    }
+
+    // 规则3：刷新后再次超期
+    // 判断刷新是否在原计划结束日期之后（延期后刷新）
+    // 如果 last_plan_refresh_at 在 end_date 之后，说明延期后刷新了计划
+    if (endDate && lastRefresh > endDate) {
+      await this.repo.incrementTaskCounter(taskId, 'delay_count');
+      return { incremented: true, reason: '刷新计划后再次超期，延期次数+1' };
+    }
+
+    // 规则2续：刷新时间在结束日期之前，不算"延期后刷新"
+    return { incremented: false, reason: '计划未刷新，不累加延期次数' };
   }
 
   /**

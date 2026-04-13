@@ -356,6 +356,7 @@ export function UsersSettings() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
+                data-testid="users-input-search"
               />
             </div>
             <Select value={roleFilter} onValueChange={setRoleFilter}>
@@ -389,7 +390,7 @@ export function UsersSettings() {
               <p>暂无用户数据</p>
             </div>
           ) : (
-            <Table>
+            <Table data-testid="users-table">
               <TableHeader>
                 <TableRow>
                   <TableHead>用户</TableHead>
@@ -403,7 +404,7 @@ export function UsersSettings() {
               </TableHeader>
               <TableBody>
                 {members.map((member) => (
-                  <TableRow key={member.id}>
+                  <TableRow key={member.id} data-testid="users-table-row">
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-8 w-8">
@@ -427,7 +428,7 @@ export function UsersSettings() {
                       <code className="text-sm bg-muted px-2 py-0.5 rounded">{member.username}</code>
                     </TableCell>
                     <TableCell>
-                      <Badge className={roleColors[member.role]}>
+                      <Badge className={roleColors[member.role]} data-testid="users-badge-role">
                         {roleLabels[member.role]}
                       </Badge>
                     </TableCell>
@@ -441,26 +442,27 @@ export function UsersSettings() {
                       {new Date(member.createdAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="text-right">
-                      <DropdownMenu>
+                      <DropdownMenu data-testid="users-menu-actions">
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-8 w-8">
                             <MoreVertical className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleEdit(member)}>
+                          <DropdownMenuItem onClick={() => handleEdit(member)} data-testid="users-menuitem-edit">
                             编辑
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleCapability(member)}>
+                          <DropdownMenuItem onClick={() => handleCapability(member)} data-testid="users-menuitem-view-capability">
                             能力评定
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleResetPassword(member)}>
+                          <DropdownMenuItem onClick={() => handleResetPassword(member)} data-testid="users-menuitem-reset-password">
                             重置密码
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-destructive"
                             onClick={() => handleDelete(member)}
+                            data-testid="users-menuitem-delete"
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
                             删除
@@ -477,7 +479,7 @@ export function UsersSettings() {
       </Card>
 
       {/* 编辑用户对话框 */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen} data-testid="users-dialog-edit">
         <DialogContent>
           <DialogHeader>
             <DialogTitle>编辑用户</DialogTitle>
@@ -490,6 +492,7 @@ export function UsersSettings() {
                   id="editDisplayName"
                   value={formData.displayName}
                   onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                  data-testid="users-input-display-name"
                 />
               </div>
               <div className="space-y-2">
@@ -499,6 +502,7 @@ export function UsersSettings() {
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  data-testid="users-input-email"
                 />
               </div>
             </div>
@@ -510,6 +514,7 @@ export function UsersSettings() {
                   placeholder="手机号码"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  data-testid="users-input-phone"
                 />
               </div>
               <div className="space-y-2">
@@ -520,7 +525,7 @@ export function UsersSettings() {
                     setFormData({ ...formData, gender: val === 'none' ? null : val as 'male' | 'female' | 'other' })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger data-testid="users-select-gender">
                     <SelectValue placeholder="请选择" />
                   </SelectTrigger>
                   <SelectContent>
@@ -541,7 +546,7 @@ export function UsersSettings() {
                     setFormData({ ...formData, departmentId: val === 'none' ? null : parseInt(val) })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger data-testid="users-select-department">
                     <SelectValue placeholder="请选择部门" />
                   </SelectTrigger>
                   <SelectContent>
@@ -560,7 +565,7 @@ export function UsersSettings() {
                   value={formData.role}
                   onValueChange={(val) => setFormData({ ...formData, role: val as Member['role'] })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger data-testid="users-select-role">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -578,14 +583,15 @@ export function UsersSettings() {
                 id="editPosition"
                 value={formData.position}
                 onChange={(e) => setFormData({ ...formData, position: e.target.value })}
+                data-testid="users-input-position"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)} data-testid="users-btn-cancel">
               取消
             </Button>
-            <Button onClick={submitEdit} disabled={updateMutation.isPending}>
+            <Button onClick={submitEdit} disabled={updateMutation.isPending} data-testid="users-btn-submit">
               {updateMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               保存
             </Button>
@@ -594,7 +600,7 @@ export function UsersSettings() {
       </Dialog>
 
       {/* 删除确认对话框 */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen} data-testid="users-dialog-delete-confirm">
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

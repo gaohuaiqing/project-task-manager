@@ -93,10 +93,11 @@ export function ExportDropdown({
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" data-testid="task-menu-export">
       {/* 历史记录选项 */}
       <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
         <Checkbox
+          data-testid="task-checkbox-export-history"
           checked={includeHistory}
           onCheckedChange={(checked) => setIncludeHistory(checked as boolean)}
           className="h-4 w-4"
@@ -120,6 +121,7 @@ export function ExportDropdown({
           <DropdownMenuSeparator />
 
           <DropdownMenuItem
+            data-testid="task-menuitem-export-filtered"
             onClick={() => handleExport('filtered')}
             className="cursor-pointer"
           >
@@ -134,6 +136,7 @@ export function ExportDropdown({
 
           {projectName && (
             <DropdownMenuItem
+              data-testid="task-menuitem-export-project"
               onClick={() => handleExport('project')}
               className="cursor-pointer"
             >
@@ -146,6 +149,7 @@ export function ExportDropdown({
           )}
 
           <DropdownMenuItem
+            data-testid="task-menuitem-export-all"
             onClick={() => handleExport('all')}
             className="cursor-pointer"
           >

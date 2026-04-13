@@ -38,6 +38,8 @@ export interface TaskPlanChangeApprovedEvent {
   approverId: number;
   /** 批准的变更 */
   changes: Array<{ field: string; value: unknown }>;
+  /** 变更是否已应用（避免重复处理） */
+  alreadyApplied?: boolean;
 }
 
 export interface TaskUpdatedEvent {

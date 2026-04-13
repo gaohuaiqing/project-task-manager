@@ -2,7 +2,7 @@
  * 任务筛选器组件
  * 支持搜索、项目、负责人、状态、优先级多选筛选
  */
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,9 @@ import {
   TASK_PRIORITY_LABELS,
   TASK_TYPE_LABELS,
 } from '../types';
+
+/** 防抖延迟（毫秒） */
+const DEBOUNCE_DELAY = 300;
 
 interface Member {
   id: number | string;
@@ -95,6 +98,42 @@ export function TaskFilterBar({
   members = [],
   showProjectFilter = true,
 }: TaskFilterBarProps) {
+  // 搜索输入的本地状态（用于防抖）
+  const [localSearch, setLocalSearch] = useState(filters.search || '');
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 同步外部 filters.search 到本地状态
+  useEffect(() => {
+    setLocalSearch(filters.search || '');
+  }, [filters.search]);
+
+  // 防抖搜索处理
+  const handleSearchChange = (value: string) => {
+    setLocalSearch(value);
+
+    // 清除之前的定时器
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // 设置新的防抖定时器
+    debounceTimerRef.current = setTimeout(() => {
+      onFiltersChange({
+        ...filters,
+        search: value || undefined,
+      });
+    }, DEBOUNCE_DELAY);
+  };
+
+  // 清理定时器
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
+
   // 项目选项
   const projectOptions: MultiSelectOption[] = useMemo(
     () => projects.map((p) => ({ value: String(p.id), label: p.name })),
@@ -141,6 +180,11 @@ export function TaskFilterBar({
 
   // 清除所有筛选
   const clearFilters = () => {
+    // 清除本地搜索状态
+    setLocalSearch('');
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
     onFiltersChange({
       // 保留项目筛选（如果是项目详情页且原来有值）
       ...(showProjectFilter ? {} : { projectId: filters.projectId }),
@@ -148,13 +192,14 @@ export function TaskFilterBar({
   };
 
   return (
-    <div className="flex flex-wrap gap-2 items-center">
-      {/* 搜索输入框 */}
+    <div className="flex flex-wrap gap-2 items-center" data-testid="task-filter-bar">
+      {/* 搜索输入框 - 带防抖 */}
       <div className="relative">
         <Input
+          data-testid="task-filter-input-search"
           placeholder="搜索任务..."
-          value={filters.search || ''}
-          onChange={(e) => updateFilter('search', e.target.value || undefined)}
+          value={localSearch}
+          onChange={(e) => handleSearchChange(e.target.value)}
           className="w-64"
         />
       </div>
@@ -162,6 +207,7 @@ export function TaskFilterBar({
       {/* 项目筛选 - 多选 */}
       {showProjectFilter && (
         <MultiSelect
+          data-testid="task-filter-select-project"
           options={projectOptions}
           value={ensureArray(filters.projectId)}
           onChange={(value) => updateMultiFilter('projectId', value)}
@@ -172,6 +218,7 @@ export function TaskFilterBar({
 
       {/* 负责人筛选 - 多选 */}
       <MultiSelect
+        data-testid="task-filter-select-assignee"
         options={memberOptions}
         value={ensureArray(filters.assigneeId?.toString ?
           (Array.isArray(filters.assigneeId)
@@ -185,6 +232,7 @@ export function TaskFilterBar({
 
       {/* 状态筛选 - 多选 */}
       <MultiSelect
+        data-testid="task-filter-select-status"
         options={STATUS_OPTIONS}
         value={ensureArray(filters.status as any)}
         onChange={(value) => updateMultiFilter('status', value)}
@@ -194,6 +242,7 @@ export function TaskFilterBar({
 
       {/* 优先级筛选 - 多选 */}
       <MultiSelect
+        data-testid="task-filter-select-priority"
         options={PRIORITY_OPTIONS}
         value={ensureArray(filters.priority as any)}
         onChange={(value) => updateMultiFilter('priority', value)}
@@ -203,6 +252,7 @@ export function TaskFilterBar({
 
       {/* 任务类型筛选 - 多选 */}
       <MultiSelect
+        data-testid="task-filter-select-type"
         options={TASK_TYPE_OPTIONS}
         value={ensureArray(filters.taskType as any)}
         onChange={(value) => updateMultiFilter('taskType', value)}
@@ -213,6 +263,7 @@ export function TaskFilterBar({
       {/* 清除筛选按钮 */}
       {hasActiveFilters && (
         <Button
+          data-testid="task-filter-btn-clear"
           variant="ghost"
           size="sm"
           onClick={clearFilters}

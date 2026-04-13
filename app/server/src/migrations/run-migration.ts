@@ -20,7 +20,10 @@ import { runMigration037 } from './037-create-timelines-tables';
 import { runMigration038 } from './038-add-audit-log-indexes';
 import { runMigration039 } from './039-add-performance-indexes';
 import { runMigration040 } from './040-add-timeline-progress-status';
+import { up as runMigration041 } from './041-fix-milestone-status-enum';
 import { up as addDependencyTypeField } from './030-add-dependency-type';
+import { runMigration042 } from './042-add-trend-query-indexes';
+import { runMigration043 } from './043-add-wbs-order-column';
 
 /**
  * 检查迁移是否已执行
@@ -393,6 +396,30 @@ async function runMigration030b(): Promise<boolean> {
 }
 
 /**
+ * 迁移 041: 修复里程碑 status 枚举值
+ */
+async function runMigration041Wrapper(): Promise<boolean> {
+  const version = '041';
+  const name = 'fix_milestone_status_enum';
+
+  if (await isMigrationExecuted(version)) {
+    console.log('📋 迁移 041 已执行，跳过');
+    return true;
+  }
+
+  try {
+    console.log('🚀 开始执行数据库迁移 041...');
+    await runMigration041();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 041 完成！');
+    return true;
+  } catch (error) {
+    console.error('❌ 迁移 041 失败:', error);
+    return false;
+  }
+}
+
+/**
  * 执行所有待运行的迁移
  */
 export async function runPendingMigrations(): Promise<void> {
@@ -422,6 +449,9 @@ export async function runPendingMigrations(): Promise<void> {
   await runMigration038();  // audit_logs 添加性能索引
   await runMigration039();  // 业务表性能索引
   await runMigration040();  // 时间线添加进度和状态字段
+  await runMigration041Wrapper();  // 修复里程碑 status 枚举值
+  await runMigration042();  // 趋势查询优化索引
+  await runMigration043();  // WBS 排序优化列
 
   console.log('✅ 数据库迁移检查完成');
 }

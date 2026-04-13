@@ -20,6 +20,24 @@ function requireUser(req: Request): User {
   return user;
 }
 
+/**
+ * 验证项目访问权限
+ * 非管理员用户必须是指定项目的成员才能访问
+ */
+async function checkProjectAccess(projectId: string, req: Request): Promise<boolean> {
+  const currentUser = getCurrentUser(req);
+  // 未登录用户无权限
+  if (!currentUser) {
+    return false;
+  }
+  // 管理员有全部权限
+  if (currentUser.role === 'admin') {
+    return true;
+  }
+  // 非管理员需要是项目成员
+  return await projectService.isProjectMember(projectId, currentUser.id);
+}
+
 // ========== 节假日管理（放在 /:id 之前，避免路由冲突）==========
 
 // 获取节假日
@@ -113,6 +131,15 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
 // 获取项目统计
 router.get('/:id/stats', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // 验证访问权限
+    const hasAccess = await checkProjectAccess(req.params.id, req);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: '无权限访问此项目' }
+      });
+    }
+
     const stats = await projectService.getProjectStats(req.params.id);
     res.json({ success: true, data: stats });
   } catch (error) {
@@ -166,6 +193,15 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
 // 获取项目里程碑
 router.get('/:id/milestones', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // 验证访问权限
+    const hasAccess = await checkProjectAccess(req.params.id, req);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: '无权限访问此项目' }
+      });
+    }
+
     const milestones = await projectService.getMilestones(req.params.id);
     res.json({ success: true, data: milestones });
   } catch (error) {
@@ -201,6 +237,7 @@ router.put('/milestones/:id', async (req: Request, res: Response, next: NextFunc
     const currentUser = requireUser(req);
     // 前端拦截器已转换为蛇形命名，直接使用
     const body = req.body as Record<string, unknown>;
+
     const mappedData: UpdateMilestoneRequest = {};
     if (body.name !== undefined) mappedData.name = body.name as string;
     if (body.target_date !== undefined) {
@@ -234,6 +271,15 @@ router.delete('/milestones/:id', async (req: Request, res: Response, next: NextF
 // 获取项目时间线
 router.get('/:id/timelines', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // 验证访问权限
+    const hasAccess = await checkProjectAccess(req.params.id, req);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: '无权限访问此项目' }
+      });
+    }
+
     const timelines = await projectService.getTimelines(req.params.id);
     res.json({ success: true, data: timelines });
   } catch (error) {
@@ -279,7 +325,8 @@ router.delete('/timelines/:id', async (req: Request, res: Response, next: NextFu
 // 获取时间线任务
 router.get('/timelines/:id/tasks', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const tasks = await projectService.getTimelineTasks(req.params.id);
+    const currentUser = requireUser(req);
+    const tasks = await projectService.getTimelineTasksWithAuth(req.params.id, currentUser);
     res.json({ success: true, data: tasks });
   } catch (error) {
     next(error);
@@ -324,6 +371,15 @@ router.delete('/timeline-tasks/:id', async (req: Request, res: Response, next: N
 // 获取项目成员
 router.get('/:id/members', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // 验证访问权限
+    const hasAccess = await checkProjectAccess(req.params.id, req);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: '无权限访问此项目' }
+      });
+    }
+
     const members = await projectService.getProjectMembers(req.params.id);
     res.json({ success: true, data: members });
   } catch (error) {

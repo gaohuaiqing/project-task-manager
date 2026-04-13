@@ -2,7 +2,7 @@
  * 任务分布组件 - 专业仪表盘风格
  */
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { CheckCircle2, Clock, AlertCircle, ListTodo } from 'lucide-react';
+import { CheckCircle2, Clock, AlertCircle, PlayCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TaskDistribution } from '../types';
 
@@ -13,7 +13,7 @@ interface TaskDistributionProps {
 
 const statusIcons: Record<string, React.ReactNode> = {
   pending: <Clock className="h-3.5 w-3.5 text-gray-400" />,
-  in_progress: <ListTodo className="h-3.5 w-3.5 text-emerald-500" />,
+  in_progress: <PlayCircle className="h-3.5 w-3.5 text-emerald-500" />,
   completed: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />,
   delayed: <AlertCircle className="h-3.5 w-3.5 text-red-500" />,
 };

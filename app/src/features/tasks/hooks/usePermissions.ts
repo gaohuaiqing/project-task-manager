@@ -15,27 +15,29 @@ import { useAuth } from '@/features/auth/hooks/useAuth';
 import type { WBSTask } from '../types';
 
 // 计划字段（工程师编辑需要审批）
+// 注意：使用 camelCase 与前端表单字段名保持一致
 const PLAN_FIELDS = [
-  'start_date',
-  'end_date',
+  'startDate',
+  'endDate',
   'duration',
-  'predecessor_id',
-  'lag_days',
+  'predecessorId',
+  'lagDays',
 ] as const;
 
 // 非计划字段（工程师可直接编辑）
+// 注意：使用 camelCase 与前端表单字段名保持一致
 const NON_PLAN_FIELDS = [
   'description',
   'priority',
-  'warning_days',
-  'actual_start_date',
-  'actual_end_date',
-  'full_time_ratio',
-  'redmine_link',
+  'warningDays',
+  'actualStartDate',
+  'actualEndDate',
+  'fullTimeRatio',
+  'redmineLink',
 ] as const;
 
 // 负责人字段属于 TASK_ASSIGN 权限，工程师不可编辑
-const ASSIGN_FIELDS = ['assignee_id'] as const;
+const ASSIGN_FIELDS = ['assigneeId'] as const;
 
 type PlanField = typeof PLAN_FIELDS[number];
 type NonPlanField = typeof NON_PLAN_FIELDS[number];

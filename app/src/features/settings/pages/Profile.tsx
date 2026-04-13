@@ -25,14 +25,14 @@ export function ProfileSettings() {
         <CardContent className="space-y-6">
           {/* 头像 */}
           <div className="flex items-center gap-6">
-            <Avatar className="h-20 w-20">
+            <Avatar className="h-20 w-20" data-testid="profile-avatar">
               <AvatarImage src={user?.avatar || getAvatarUrl(user?.realName || user?.username || '', user?.gender ?? null)} />
               <AvatarFallback className="text-2xl">
                 {user?.realName?.charAt(0) || user?.username?.charAt(0)}
               </AvatarFallback>
             </Avatar>
             <div className="space-y-2">
-              <Button variant="outline" size="sm">更换头像</Button>
+              <Button variant="outline" size="sm" data-testid="profile-btn-change-avatar">更换头像</Button>
               <p className="text-xs text-muted-foreground">
                 支持 JPG, PNG 格式，最大 2MB
               </p>
@@ -50,6 +50,7 @@ export function ProfileSettings() {
                 value={user?.username}
                 disabled
                 className="bg-muted"
+                data-testid="profile-input-username"
               />
               <p className="text-xs text-muted-foreground">用户名不可修改</p>
             </div>
@@ -61,6 +62,7 @@ export function ProfileSettings() {
                 value={user?.realName || ''}
                 disabled
                 className="bg-muted"
+                data-testid="profile-input-display-name"
               />
               <p className="text-xs text-muted-foreground">需要管理员或部门经理修改</p>
             </div>
@@ -73,6 +75,7 @@ export function ProfileSettings() {
                 value={user?.email || ''}
                 disabled
                 className="bg-muted"
+                data-testid="profile-input-email"
               />
               <p className="text-xs text-muted-foreground">需要管理员或部门经理修改</p>
             </div>
@@ -197,7 +200,7 @@ function ChangePasswordForm() {
         />
       </div>
 
-      <Button onClick={handleSubmit} disabled={loading}>
+      <Button onClick={handleSubmit} disabled={loading} data-testid="profile-btn-save">
         {loading ? '修改中...' : '修改密码'}
       </Button>
     </div>

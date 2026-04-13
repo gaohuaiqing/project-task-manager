@@ -99,6 +99,24 @@ export class TaskService {
     // 监听审批通过事件（重新计算任务状态和日期）
     taskEvents.on(TaskEventType.PLAN_CHANGE_APPROVED, async (event: import('../../core/events').TaskPlanChangeApprovedEvent) => {
       try {
+        // 如果变更已应用，只做级联更新和状态重算，不再重复应用变更
+        if (event.alreadyApplied) {
+          // 触发级联更新（如果有日期变更）
+          const dateFields = ['start_date', 'duration', 'predecessor_id', 'lag_days'];
+          const hasDateChanges = event.changes.some(c => dateFields.includes(c.field));
+
+          if (hasDateChanges) {
+            emitTaskUpdated({
+              taskId: event.taskId,
+              changes: Object.fromEntries(event.changes.map(c => [c.field, c.value])),
+              cascadeUpdate: true,
+              cascadeDepth: 0,
+            });
+          }
+          return;
+        }
+
+        // 以下逻辑用于非 workflow 模块发起的审批（如直接调用 API）
         // 1. 获取任务
         const task = await this.repo.getTaskById(event.taskId);
         if (!task) return;
@@ -153,20 +171,31 @@ export class TaskService {
 
     // 获取当前任务（作为前置任务）
     const predecessorTask = await this.repo.getTaskById(taskId);
-    if (!predecessorTask || !predecessorTask.start_date) {
+    if (!predecessorTask) {
       return;
     }
 
-    // 逐个更新后续任务
+    // 验证前置任务是否有必要的日期
+    // FS/FF 需要 end_date，SS/SF 需要 start_date
     for (const successor of successorTasks) {
-      // 获取依赖类型，默认为 FS
       const dependencyType = ((successor as any).dependency_type || 'FS') as DependencyType;
+
+      // 检查前置任务是否有必要的日期
+      if ((dependencyType === 'FS' || dependencyType === 'FF') && !predecessorTask.end_date) {
+        console.warn(`[cascadeUpdate] 前置任务 ${taskId} 没有 end_date，跳过 ${dependencyType} 类型的后续任务 ${successor.id}`);
+        continue;
+      }
+      if ((dependencyType === 'SS' || dependencyType === 'SF') && !predecessorTask.start_date) {
+        console.warn(`[cascadeUpdate] 前置任务 ${taskId} 没有 start_date，跳过 ${dependencyType} 类型的后续任务 ${successor.id}`);
+        continue;
+      }
+
       const duration = successor.duration || 1;
 
       // P0修复：使用支持4种依赖类型的日期计算方法
       const newStartDate = await calculateStartDateForDependency(
-        predecessorTask.start_date,
-        predecessorTask.end_date || predecessorTask.start_date,
+        predecessorTask.start_date || predecessorTask.end_date || new Date(),
+        predecessorTask.end_date || predecessorTask.start_date || new Date(),
         dependencyType,
         successor.lag_days || 0,
         duration,
@@ -531,13 +560,13 @@ export class TaskService {
           userId: currentUser.id,
           username: currentUser.real_name,
           userRole: currentUser.role,
-          category: 'data',
+          category: 'task',
           action: 'UPDATE',
           tableName: 'wbs_tasks',
           recordId: id,
           details: `任务负责人变更: ${oldAssignee || '未分配'} → ${newAssignee || '未分配'}，权限已转移`,
-          before_data: { assignee_id: oldAssignee },
-          after_data: { assignee_id: newAssignee },
+          beforeData: { assignee_id: oldAssignee },
+          afterData: { assignee_id: newAssignee },
         });
 
         // TODO: 发送通知给新旧负责人
@@ -669,12 +698,12 @@ export class TaskService {
       userId: currentUser.id,
       username: currentUser.real_name,
       userRole: currentUser.role,
-      category: 'data',
+      category: 'task',
       action: 'DELETE',
       tableName: 'wbs_tasks',
       recordId: id,
       details: `删除任务: ${task.description} (WBS: ${task.wbs_code})，级联删除 ${tasksToDelete.length - 1} 个子任务`,
-      before_data: {
+      beforeData: {
         task: task,
         deleted_tasks: tasksToDelete.map(t => ({
           id: t.id,
@@ -826,8 +855,8 @@ export class TaskService {
    * 增加延期次数
    * 规则：
    * - 首次延期：延期次数+1
-   * - 计划未刷新：不累加
-   * - 刷新后再次超期：再+1
+   * - 计划未刷新：不累加（延期后用户还没有刷新计划）
+   * - 刷新后再次超期：再+1（延期后用户刷新了计划，然后又延期了）
    */
   async incrementDelayCount(taskId: string): Promise<{ incremented: boolean; reason: string }> {
     const task = await this.repo.getTaskById(taskId);
@@ -835,31 +864,31 @@ export class TaskService {
       throw new ValidationError('任务不存在');
     }
 
-    const now = new Date();
     const lastRefresh = task.last_plan_refresh_at ? new Date(task.last_plan_refresh_at) : null;
+    const endDate = task.end_date ? new Date(task.end_date) : null;
 
-    // 判断是否可以累加延期次数
-    // 如果有上次刷新时间，且上次刷新时间在当前延期之后，则可以累加
-    // 如果没有上次刷新时间，则可以累加（首次延期）
-    if (lastRefresh) {
-      // 检查上次刷新时间是否在当前检测之前
-      // 如果上次刷新时间在今天之前，说明计划已经刷新过，可以累加
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-
-      if (lastRefresh < todayStart) {
-        // 计划已刷新，可以累加
-        await this.repo.incrementTaskCounter(taskId, 'delay_count');
-        return { incremented: true, reason: '计划已刷新，延期次数+1' };
-      } else {
-        // 计划未刷新（今天刷新的），不累加
-        return { incremented: false, reason: '计划未刷新，不累加延期次数' };
-      }
-    } else {
-      // 首次延期
+    // 规则1：首次延期（delay_count == 0）
+    if (task.delay_count === 0) {
       await this.repo.incrementTaskCounter(taskId, 'delay_count');
       return { incremented: true, reason: '首次延期，延期次数+1' };
     }
+
+    // 规则2：之前延期过，检查是否刷新了计划
+    if (!lastRefresh) {
+      // 从未刷新过计划，不累加
+      return { incremented: false, reason: '计划未刷新，不累加延期次数' };
+    }
+
+    // 规则3：刷新后再次超期
+    // 判断刷新是否在原计划结束日期之后（延期后刷新）
+    // 如果 last_plan_refresh_at 在 end_date 之后，说明延期后刷新了计划
+    if (endDate && lastRefresh > endDate) {
+      await this.repo.incrementTaskCounter(taskId, 'delay_count');
+      return { incremented: true, reason: '刷新计划后再次超期，延期次数+1' };
+    }
+
+    // 规则2续：刷新时间在结束日期之前，不算"延期后刷新"
+    return { incremented: false, reason: '计划未刷新，不累加延期次数' };
   }
 
   /**

@@ -125,12 +125,16 @@ export function WbsTable({
   // 展开状态 - 默认全部展开
   const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
 
-  // 当 tasks 变化时，自动展开所有行
+  // 追踪是否已完成初始展开（防止用户手动折叠后被回弹）
+  const initialExpandDone = useRef(false);
+
+  // 仅在首次加载数据时自动展开所有行
   useEffect(() => {
-    if (allExpandableIds.size > 0 && expandedRows.size === 0) {
+    if (!initialExpandDone.current && allExpandableIds.size > 0) {
+      initialExpandDone.current = true;
       setExpandedRows(new Set(allExpandableIds));
     }
-  }, [allExpandableIds, expandedRows.size]);
+  }, [allExpandableIds]);
 
   // 选中的行
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
@@ -184,6 +188,21 @@ export function WbsTable({
 
     return result;
   }, [tasks, expandedRows]);
+
+  // 任务ID -> 任务 Map（O(1)查找优化）
+  const taskMap = useMemo(() => {
+    const map = new Map<string, TaskRowWithUI>();
+    const collect = (items: TaskRowWithUI[]) => {
+      items.forEach(task => {
+        map.set(task.id, task);
+        if (task.children && task.children.length > 0) {
+          collect(task.children as TaskRowWithUI[]);
+        }
+      });
+    };
+    collect(tasks);
+    return map;
+  }, [tasks]);
 
   // 切换行展开
   const toggleRow = useCallback((taskId: string) => {
@@ -297,7 +316,7 @@ export function WbsTable({
       );
     }
     return (
-      <Badge className={`${config.bg} ${config.text} font-medium`}>
+      <Badge data-testid="task-table-badge-status" className={`${config.bg} ${config.text} font-medium`}>
         {config.label}
       </Badge>
     );
@@ -315,13 +334,13 @@ export function WbsTable({
       case 'priority':
         const priority = PRIORITY_OPTIONS.find(p => p.value === value);
         return priority ? (
-          <Badge variant="outline">{priority.label}</Badge>
+          <Badge data-testid="task-table-badge-priority" variant="outline">{priority.label}</Badge>
         ) : null;
 
       case 'taskType':
         const taskType = TASK_TYPE_OPTIONS.find(t => t.value === value);
         return taskType ? (
-          <span className="text-sm">{taskType.label}</span>
+          <span data-testid="task-table-badge-type" className="text-sm">{taskType.label}</span>
         ) : null;
 
       case 'startDate':
@@ -403,6 +422,7 @@ export function WbsTable({
       case 'delayCount':
         return (
           <button
+            data-testid="task-btn-view-delay"
             className="text-blue-600 hover:underline cursor-pointer"
             onClick={() => onViewDelayHistory?.(task)}
           >
@@ -413,6 +433,7 @@ export function WbsTable({
       case 'planChangeCount':
         return (
           <button
+            data-testid="task-btn-view-changes"
             className="text-blue-600 hover:underline cursor-pointer"
             onClick={() => onViewPlanChanges?.(task)}
           >
@@ -466,6 +487,7 @@ export function WbsTable({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  data-testid="task-btn-create-subtask"
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7"
@@ -487,6 +509,7 @@ export function WbsTable({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
+                data-testid="task-btn-edit-task"
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
@@ -507,6 +530,7 @@ export function WbsTable({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
+                data-testid="task-btn-view-progress"
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
@@ -525,6 +549,7 @@ export function WbsTable({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  data-testid="task-btn-delete-task"
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 text-destructive hover:text-destructive"
@@ -550,17 +575,17 @@ export function WbsTable({
       switch (e.key) {
         case 'Insert':
           e.preventDefault();
-          // 添加同级任务
+          // 添加同级任务 - 使用 Map O(1) 查找
           if (onCreateTask) {
-            const selectedTask = tasks.find(t => t.id === selectedRowId);
+            const selectedTask = taskMap.get(selectedRowId);
             onCreateTask(selectedTask?.parentId, selectedTask?.depth);
           }
           break;
         case 'Delete':
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            // 删除任务
-            const taskToDelete = tasks.find(t => t.id === selectedRowId);
+            // 删除任务 - 使用 Map O(1) 查找
+            const taskToDelete = taskMap.get(selectedRowId);
             if (taskToDelete && onDeleteTask) {
               onDeleteTask(taskToDelete);
             }
@@ -583,8 +608,8 @@ export function WbsTable({
         case 'F2':
         case 'Enter':
           e.preventDefault();
-          // 打开编辑表单
-          const taskToEdit = tasks.find(t => t.id === selectedRowId);
+          // 打开编辑表单 - 使用 Map O(1) 查找
+          const taskToEdit = taskMap.get(selectedRowId);
           if (taskToEdit && onEditTask) {
             onEditTask(taskToEdit);
           }
@@ -594,7 +619,7 @@ export function WbsTable({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedRowId, tasks, expandedRows, toggleRow, onCreateTask, onDeleteTask, onEditTask]);
+  }, [selectedRowId, taskMap, expandedRows, toggleRow, onCreateTask, onDeleteTask, onEditTask]);
 
   // 加载状态
   if (isLoading) {
@@ -606,13 +631,17 @@ export function WbsTable({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-testid="task-table-container">
       {/* 工具栏 */}
       <div className="flex items-center justify-between shrink-0 pb-3">
         <div className="flex items-center gap-3">
           <div className="text-sm text-muted-foreground">
             共 {flatTasks.length} 条任务
           </div>
+          <Button data-testid="task-btn-create-task" size="sm" onClick={() => onCreateTask()}>
+            <Plus className="h-4 w-4 mr-2" />
+            新建任务
+          </Button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -637,6 +666,7 @@ export function WbsTable({
               className="hidden"
             />
             <Button
+              data-testid="task-import-btn-upload"
               variant="outline"
               size="sm"
               onClick={() => fileInputRef.current?.click()}
@@ -658,7 +688,7 @@ export function WbsTable({
           />
 
           {/* 列配置 */}
-          <Popover>
+          <Popover data-testid="task-popover-column-settings">
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm">
               <Eye className="h-4 w-4 mr-2" />
@@ -728,9 +758,9 @@ export function WbsTable({
 
       {/* 表格容器 - 使用 flex-1 填充剩余空间，内部滚动 */}
       <div ref={tableRef} className="flex-1 min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg overflow-auto bg-background dark:bg-gray-900">
-        <table className="w-full border-collapse">
+        <table className="w-full border-collapse" data-testid="task-table">
           {/* 表头 */}
-          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-20 border-b border-gray-200 dark:border-gray-700">
+          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-20 border-b border-gray-200 dark:border-gray-700" data-testid="task-table-header">
             <tr>
               {visibleColumns.map((col, colIndex) => {
                 const isFirstCol = colIndex === 0;
@@ -798,6 +828,7 @@ export function WbsTable({
                 return (
                   <tr
                     key={task.id}
+                    data-testid="task-table-row"
                     className={`
                       group border-b border-gray-200 dark:border-gray-700 hover:bg-muted/50 transition-colors
                       ${isSelected ? 'bg-blue-50 dark:bg-blue-950/60' : ''}
@@ -825,6 +856,7 @@ export function WbsTable({
                             <div className="flex items-center" style={{ paddingLeft: level * 24 }}>
                               {task.hasChildren ? (
                                 <Button
+                                  data-testid="task-table-row-toggle"
                                   variant="ghost"
                                   size="icon"
                                   className="h-5 w-5 mr-1 shrink-0"
@@ -845,8 +877,9 @@ export function WbsTable({
                               <span className="font-mono text-xs">{task.wbsCode}</span>
                             </div>
                           ) : col.id === 'description' ? (
-                            <div className="flex items-center">
-                              {!task.hasChildren && <span className="w-6 shrink-0" />}
+                            <div className="flex items-center" style={{ paddingLeft: level * 24 }}>
+                              {/* 固定占位，与 wbsCode 列的折叠按钮对齐 */}
+                              <span className="w-6 shrink-0" />
                               <span
                                 className="truncate hover:bg-blue-100 dark:hover:bg-blue-900/50 px-1 py-0.5 rounded cursor-pointer"
                               >

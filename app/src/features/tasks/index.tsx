@@ -3,7 +3,7 @@
  */
 import { useState, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import { WbsTable } from './components/WbsTable';
 import { TaskForm } from './components/TaskForm';
@@ -59,12 +59,12 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   const { data: tasksData, isLoading: tasksLoading } = useTasks(filters);
 
   // 查询项目列表（用于下拉选择）
-  const { data: projectsData } = useProjects({ pageSize: 1000 });
+  const { data: projectsData } = useProjects({ pageSize: 100 });
 
   // 查询成员列表（用于负责人下拉）
   const { data: membersData } = useQuery({
     queryKey: queryKeys.org.members,
-    queryFn: () => getMembers({ pageSize: 1000, status: 'active' }),
+    queryFn: () => getMembers({ pageSize: 100, status: 'active' }),
     staleTime: 5 * 60 * 1000, // 5 分钟
   });
 
@@ -150,27 +150,10 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     setDetailOpen(true);
   };
 
-  // 行内更新任务（字段级别）
-  const handleUpdateTaskField = useCallback(async (taskId: string, field: string, value: unknown) => {
-    const task = tasksData?.items.find(t => t.id === taskId);
-    if (!task) return;
-
-    const updateData: UpdateTaskRequest = {
-      [field]: value,
-      version: task.version,
-    } as UpdateTaskRequest;
-
-    // 直接调用 API
-    await taskApi.updateTask(taskId, updateData);
-
-    // 刷新任务列表
-    queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
-  }, [tasksData, queryClient]);
-
   // 计算任务树（添加 hasChildren 和 depth）
   // 展平嵌套的 children 结构
-  const tasksWithMeta = useMemo(() => {
-    if (!tasksData?.items) return [];
+  const { tasksWithMeta, taskMap } = useMemo(() => {
+    if (!tasksData?.items) return { tasksWithMeta: [], taskMap: new Map() };
 
     const taskMap = new Map<string, WBSTaskListItem & { hasChildren: boolean; depth: number }>();
 
@@ -195,8 +178,25 @@ export default function TasksPage({ projectId }: TasksPageProps) {
 
     flattenTasks(tasksData.items);
 
-    return Array.from(taskMap.values());
+    return { tasksWithMeta: Array.from(taskMap.values()), taskMap };
   }, [tasksData]);
+
+  // 行内更新任务（字段级别）- 使用 Map O(1) 查找
+  const handleUpdateTaskField = useCallback(async (taskId: string, field: string, value: unknown) => {
+    const task = taskMap.get(taskId);
+    if (!task) return;
+
+    const updateData: UpdateTaskRequest = {
+      [field]: value,
+      version: task.version,
+    } as UpdateTaskRequest;
+
+    // 直接调用 API
+    await taskApi.updateTask(taskId, updateData);
+
+    // 刷新任务列表
+    queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
+  }, [taskMap, queryClient]);
 
   // 成员列表（简化格式）
   const members = useMemo(() => {
@@ -209,15 +209,7 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   }, [projectsData]);
 
   return (
-    <div className="flex flex-col h-full animate-fade-in">
-      {/* 工具栏 */}
-      <div className="flex justify-end shrink-0">
-        <Button onClick={() => handleCreateTask()}>
-          <Plus className="h-4 w-4 mr-2" />
-          新建任务
-        </Button>
-      </div>
-
+    <div className="flex flex-col h-full animate-fade-in" data-testid="task-page-container">
       {/* 筛选器 */}
       <div className="shrink-0">
         <TaskFilterBar
@@ -230,7 +222,7 @@ export default function TasksPage({ projectId }: TasksPageProps) {
       </div>
 
       {/* WBS 表格 - 填充剩余空间 */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 mt-3">
         <WbsTable
           tasks={tasksWithMeta}
           members={members}
@@ -272,6 +264,7 @@ export default function TasksPage({ projectId }: TasksPageProps) {
 
       {/* 删除确认对话框 */}
       <ConfirmDialog
+        data-testid="task-dialog-delete-confirm"
         open={deleteOpen}
         onOpenChange={(open) => {
           setDeleteOpen(open);

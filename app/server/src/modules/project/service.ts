@@ -60,14 +60,9 @@ export class ProjectService {
       throw new ValidationError('项目代号已存在');
     }
 
-    const id = await this.repo.createProject(data);
-
-    // 如果有成员，添加到项目成员表
-    if (data.member_ids && data.member_ids.length > 0) {
-      for (const memberId of data.member_ids) {
-        await this.repo.addProjectMember(String(id), { user_id: memberId, role: 'member' });
-      }
-    }
+    // 使用事务同时创建项目和添加成员，确保数据一致性
+    const memberIds = data.member_ids || [];
+    const { projectId } = await this.repo.createProjectWithMembers(data, memberIds);
 
     // 记录审计日志
     audit.log({
@@ -77,11 +72,11 @@ export class ProjectService {
       category: 'project',
       action: 'CREATE',
       tableName: 'projects',
-      recordId: String(id),
+      recordId: String(projectId),
       details: `创建项目: ${data.name} (${data.code})`,
     });
 
-    return String(id);
+    return String(projectId);
   }
 
   async updateProject(id: string, data: UpdateProjectRequest, currentUser: User): Promise<{ updated: boolean; conflict: boolean }> {
@@ -131,7 +126,7 @@ export class ProjectService {
         recordId: id,
         details: `更新项目: ${project.name}`,
         beforeData: { name: project.name, status: project.status },
-        afterData: data,
+        afterData: data as unknown as Record<string, unknown>,
       });
     }
 
@@ -220,6 +215,10 @@ export class ProjectService {
 
     const id = uuidv4();
     await this.repo.createMilestone({ ...data, id, project_id: projectId });
+
+    // 更新项目进度（基于里程碑完成百分比平均值）
+    await this.repo.updateProjectStats(projectId);
+
     return id;
   }
 
@@ -235,7 +234,14 @@ export class ProjectService {
       throw new ForbiddenError('无权限操作此项目');
     }
 
-    return this.repo.updateMilestone(id, data);
+    const updated = await this.repo.updateMilestone(id, data);
+
+    // 更新项目进度（基于里程碑完成百分比平均值）
+    if (updated) {
+      await this.repo.updateProjectStats(milestone.project_id);
+    }
+
+    return updated;
   }
 
   async deleteMilestone(id: string, currentUser: User): Promise<void> {
@@ -254,6 +260,9 @@ export class ProjectService {
     if (!deleted) {
       throw new ValidationError('删除里程碑失败');
     }
+
+    // 更新项目进度（基于里程碑完成百分比平均值）
+    await this.repo.updateProjectStats(milestone.project_id);
   }
 
   // ========== 时间线管理 ==========
@@ -296,6 +305,22 @@ export class ProjectService {
   // ========== 时间线任务管理 ==========
 
   async getTimelineTasks(timelineId: string): Promise<TimelineTask[]> {
+    return this.repo.getTimelineTasks(timelineId);
+  }
+
+  async getTimelineTasksWithAuth(timelineId: string, currentUser: User): Promise<TimelineTask[]> {
+    // 先获取时间线所属项目
+    const timeline = await this.repo.getTimelineById(timelineId);
+    if (!timeline) {
+      throw new ValidationError('时间线不存在');
+    }
+
+    // 验证权限
+    const isMember = await this.repo.isProjectMember(timeline.project_id, currentUser.id);
+    if (currentUser.role !== 'admin' && !isMember) {
+      throw new ForbiddenError('无权限访问此时间线');
+    }
+
     return this.repo.getTimelineTasks(timelineId);
   }
 
