@@ -80,13 +80,19 @@ export function BarChart({
         {isVertical ? (
           <XAxis
             type="number"
-            tick={{ fontSize: 11 }}
+            tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+            stroke="hsl(var(--border))"
+            tickLine={false}
+            axisLine={false}
             label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -5, fontSize: 11, fill: 'hsl(var(--muted-foreground))' } : undefined}
           />
         ) : (
           <XAxis
             dataKey="name"
-            tick={{ fontSize: 11 }}
+            tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+            stroke="hsl(var(--border))"
+            tickLine={false}
+            axisLine={false}
             interval={interval}
             angle={needRotate ? -35 : 0}
             textAnchor={needRotate ? 'end' : 'middle'}
@@ -100,12 +106,18 @@ export function BarChart({
           <YAxis
             type="category"
             dataKey="name"
-            tick={{ fontSize: 11 }}
+            tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+            stroke="hsl(var(--border))"
+            tickLine={false}
+            axisLine={false}
             width={90}
           />
         ) : (
           <YAxis
-            tick={{ fontSize: 11 }}
+            tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+            stroke="hsl(var(--border))"
+            tickLine={false}
+            axisLine={false}
             label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: 'hsl(var(--muted-foreground))', style: { textAnchor: 'middle' } } : undefined}
           />
         )}
@@ -115,10 +127,11 @@ export function BarChart({
             backgroundColor: 'hsl(var(--card))',
             border: '1px solid hsl(var(--border))',
             borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            fontSize: '12px',
           }}
-          labelStyle={{ color: 'hsl(var(--foreground))' }}
         />
-        {showLegend && <Legend wrapperStyle={{ fontSize: 11 }} />}
+        {showLegend && <Legend wrapperStyle={{ fontSize: '11px' }} iconType="circle" />}
         {data.datasets.map((dataset, index) => (
           <Bar
             key={dataset.label}

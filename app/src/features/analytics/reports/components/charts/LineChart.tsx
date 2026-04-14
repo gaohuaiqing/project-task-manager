@@ -68,7 +68,10 @@ export function LineChart({
         )}
         <XAxis
           dataKey="name"
-          tick={{ fontSize: 11 }}
+          tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+          stroke="hsl(var(--border))"
+          tickLine={false}
+          axisLine={false}
           interval={interval}
           angle={needRotate ? -35 : 0}
           textAnchor={needRotate ? 'end' : 'middle'}
@@ -76,7 +79,10 @@ export function LineChart({
           label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: needRotate ? -5 : -2, fontSize: 11, fill: 'hsl(var(--muted-foreground))' } : undefined}
         />
         <YAxis
-          tick={{ fontSize: 11 }}
+          tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+          stroke="hsl(var(--border))"
+          tickLine={false}
+          axisLine={false}
           label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: 'hsl(var(--muted-foreground))', style: { textAnchor: 'middle' } } : undefined}
         />
         <Tooltip
@@ -84,10 +90,11 @@ export function LineChart({
             backgroundColor: 'hsl(var(--card))',
             border: '1px solid hsl(var(--border))',
             borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            fontSize: '12px',
           }}
-          labelStyle={{ color: 'hsl(var(--foreground))' }}
         />
-        {showLegend && <Legend wrapperStyle={{ fontSize: 11 }} />}
+        {showLegend && <Legend wrapperStyle={{ fontSize: '11px' }} iconType="circle" />}
         {data.datasets.map((dataset, index) => (
           <Line
             key={dataset.label}

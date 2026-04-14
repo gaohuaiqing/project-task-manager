@@ -1,5 +1,6 @@
 /**
  * 饼图/环形图组件
+ * 与项目整体图表风格保持一致
  */
 
 import {
@@ -46,7 +47,7 @@ export function PieChart({
           outerRadius={outerRadius}
           paddingAngle={2}
           dataKey="value"
-          label={({ name, percentage }) => `${name} ${percentage}%`}
+          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
           labelLine={false}
         >
           {chartData.map((entry, index) => (
@@ -54,18 +55,22 @@ export function PieChart({
           ))}
         </Pie>
         <Tooltip
-          formatter={(value: number, name: string) => [value, name]}
+          formatter={(value: number, name: string, props: any) => [
+            `${value} (${props.payload.percentage}%)`,
+            name,
+          ]}
           contentStyle={{
             backgroundColor: 'hsl(var(--card))',
             border: '1px solid hsl(var(--border))',
             borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            fontSize: '12px',
           }}
         />
         {showLegend && (
           <Legend
-            layout="horizontal"
-            align="center"
-            verticalAlign="bottom"
+            wrapperStyle={{ fontSize: '11px' }}
+            iconType="circle"
           />
         )}
       </RechartsPieChart>

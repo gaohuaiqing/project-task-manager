@@ -50,12 +50,16 @@ export function ScatterChart({
           dataKey="x"
           name={data.xAxis.label}
           domain={[data.xAxis.min, data.xAxis.max]}
-          tick={{ fontSize: 11 }}
+          tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+          stroke="hsl(var(--border))"
+          tickLine={false}
+          axisLine={false}
           label={{
             value: data.xAxis.label,
             position: 'bottom',
             offset: 0,
             fontSize: 11,
+            fill: 'hsl(var(--muted-foreground))',
           }}
         />
         <YAxis
@@ -63,12 +67,16 @@ export function ScatterChart({
           dataKey="y"
           name={data.yAxis.label}
           domain={[data.yAxis.min, data.yAxis.max]}
-          tick={{ fontSize: 11 }}
+          tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+          stroke="hsl(var(--border))"
+          tickLine={false}
+          axisLine={false}
           label={{
             value: data.yAxis.label,
             angle: -90,
             position: 'insideLeft',
             fontSize: 11,
+            fill: 'hsl(var(--muted-foreground))',
           }}
         />
         <Tooltip
@@ -77,6 +85,8 @@ export function ScatterChart({
             backgroundColor: 'hsl(var(--card))',
             border: '1px solid hsl(var(--border))',
             borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            fontSize: '12px',
           }}
           formatter={(value: number, name: string) => {
             if (name === data.xAxis.label) return [value, data.xAxis.label];

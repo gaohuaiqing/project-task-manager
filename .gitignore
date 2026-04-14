@@ -149,6 +149,7 @@ app/server/.env
 .claude-ask/
 .ai/
 .ai.cache/
+.superpowers
 
 # ========================================
 # AI 聊天历史和会话
