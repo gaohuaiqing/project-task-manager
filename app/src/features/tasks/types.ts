@@ -253,6 +253,8 @@ export interface UpdateTaskRequest {
   redmineLink?: string | null;
   fullTimeRatio?: number;
   status?: TaskStatus;
+  /** 变更原因（工程师修改计划字段时必填） */
+  reason?: string;
   version: number;
 }
 

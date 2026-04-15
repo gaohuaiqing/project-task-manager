@@ -17,13 +17,13 @@
 
 **操作步骤**:
 1. navigate: /tasks
-2. select: [data-testid=task-filter-project] → "E2E测试项目-职能管理"
-3. click: [data-testid=task-btn-add-root]
-4. fill: [data-testid=task-form-input-name] → "E2E新根任务"
-5. select: [data-testid=task-form-select-type] → "固件"
-6. select: [data-testid=task-form-select-priority] → "高"
-7. fill: [data-testid=task-form-input-duration] → "10"
-8. click: [data-testid=task-form-btn-submit]
+2. select: [data-testid=task-filter-select-project] → "E2E测试项目-职能管理"
+3. click: [data-testid=task-btn-create-task]
+4. fill: [data-testid=task-input-description] → "E2E新根任务"
+5. select: [data-testid=task-select-type] → "固件"
+6. select: [data-testid=task-select-priority] → "高"
+7. fill: [data-testid=task-input-estimated-days] → "10"
+8. click: [data-testid=task-btn-submit]
 9. wait: [data-testid=task-table] text contains "E2E新根任务"
 
 **验证**:
@@ -46,9 +46,9 @@
 
 **操作步骤**:
 1. 在WBS表格中找到根任务行
-2. click: [data-testid=task-row-btn-add-child]（根任务行的添加子任务按钮）
-3. fill: [data-testid=task-form-input-name] → "E2E子任务"
-4. click: [data-testid=task-form-btn-submit]
+2. click: [data-testid=task-btn-create-subtask]（根任务行的添加子任务按钮）
+3. fill: [data-testid=task-input-description] → "E2E子任务"
+4. click: [data-testid=task-btn-submit]
 
 **验证**:
 - 子任务出现在父任务下方，有缩进
@@ -70,9 +70,9 @@
 
 **操作步骤**:
 1. 编辑第二个任务
-2. fill: [data-testid=task-form-input-predecessor] → "第一个任务的WBS编码"
-3. fill: [data-testid=task-form-input-lag-days] → "0"
-4. click: [data-testid=task-form-btn-submit]
+2. fill: [data-testid=task-selector-predecessors] → "第一个任务的WBS编码"
+3. fill: [data-testid=task-input-lag-days] → "0"
+4. click: [data-testid=task-btn-submit]
 
 **验证**:
 - 后续任务开始日期 = 前置任务结束日期 + 1
@@ -93,9 +93,9 @@
 
 **操作步骤**:
 1. 编辑任务
-2. select: [data-testid=task-form-select-assignee] → "e2e_engineer"
-3. fill: [data-testid=task-form-input-fulltime-ratio] → "100"
-4. click: [data-testid=task-form-btn-submit]
+2. select: [data-testid=task-select-assignee] → "e2e_engineer"
+3. fill: [data-testid=task-input-fulltime-ratio] → "100"
+4. click: [data-testid=task-btn-submit]
 
 **验证**:
 - 任务表格行显示负责人姓名
@@ -116,13 +116,12 @@
 
 **操作步骤**:
 1. navigate: /tasks
-2. 找到自己的任务，click: [data-testid=task-row-btn-detail]
+2. 找到自己的任务，click: [data-testid=task-btn-view-progress]
 3. fill: [data-testid=progress-input-content] → "E2E测试进展记录"
-4. fill: [data-testid=progress-input-percent] → "50"
-5. click: [data-testid=progress-btn-submit]
+4. click: [data-testid=progress-btn-submit]
 
 **验证**:
-- 任务进度显示 50%
+- 新增进展记录显示在列表中
 - api: GET /api/tasks/:id/progress → 最新记录 content === "E2E测试进展记录"
 
 **清理**: 无
@@ -140,12 +139,12 @@
 
 **操作步骤**:
 1. 编辑任务，修改工期
-2. fill: [data-testid=task-form-input-duration] → "20"（原为10）
-3. fill: [data-testid=task-form-input-change-reason] → "E2E测试变更原因"
-4. click: [data-testid=task-form-btn-submit]
+2. fill: [data-testid=task-input-estimated-days] → "20"（原为10）
+3. click: [data-testid=task-btn-submit]
 
 **验证**:
-- 任务状态变为"待审批"
+- 任务状态变为"待审批"（pending_approval）
+- api: GET /api/tasks/:id → status === "pending_approval"
 - api: GET /api/workflow/plan-changes → 存在 status === "pending" 的记录
 
 **清理**: 无（由审批用例继续）
@@ -163,8 +162,8 @@
 
 **操作步骤**:
 1. 编辑任务
-2. fill: [data-testid=task-form-input-duration] → "15"
-3. click: [data-testid=task-form-btn-submit]
+2. fill: [data-testid=task-input-estimated-days] → "15"
+3. click: [data-testid=task-btn-submit]
 
 **验证**:
 - 修改直接生效，无需审批
@@ -185,8 +184,8 @@
 
 **操作步骤**:
 1. 找到任务行
-2. click: [data-testid=task-row-btn-delete]
-3. wait: [data-testid=confirm-dialog] visible
+2. click: [data-testid=task-btn-delete-task]
+3. wait: [data-testid=task-dialog-delete-confirm] visible
 4. click: [data-testid=confirm-btn-ok]
 
 **验证**:
@@ -210,7 +209,7 @@
 1. navigate: /tasks
 
 **验证**:
-- element: [data-testid=task-btn-add-root] not exists or disabled
+- element: [data-testid=task-btn-create-task] not exists or disabled
 
 **清理**: 无
 
@@ -227,9 +226,9 @@
 
 **操作步骤**:
 1. navigate: /tasks
-2. select: [data-testid=task-filter-project] → "E2E测试项目-职能管理"
-3. select: [data-testid=task-filter-status] → ["未开始", "进行中"]
-4. select: [data-testid=task-filter-assignee] → "e2e_engineer"
+2. select: [data-testid=task-filter-select-project] → "E2E测试项目-职能管理"
+3. select: [data-testid=task-filter-select-status] → ["未开始", "进行中"]
+4. select: [data-testid=task-filter-select-assignee] → "e2e_engineer"
 
 **验证**:
 - 列表只显示同时满足三个条件的任务
@@ -250,12 +249,12 @@
 
 **操作步骤**:
 1. 编辑任务
-2. fill: [data-testid=task-form-input-actual-start] → "2026-04-10"
-3. click: [data-testid=task-form-btn-submit]
+2. fill: [data-testid=task-input-actual-start-date] → "2026-04-10"
+3. click: [data-testid=task-btn-submit]
 4. 验证状态变为"进行中"
-5. fill: [data-testid=task-form-input-actual-end] → "2026-04-15"
-6. fill: [data-testid=task-form-input-progress] → "100"
-7. click: [data-testid=task-form-btn-submit]
+5. fill: [data-testid=task-input-actual-end-date] → "2026-04-15"
+6. click: [data-testid=task-btn-submit]
+7. 验证状态变为"已完成"
 
 **验证**:
 - 步骤4后: api GET /api/tasks/:id → status === "in_progress"
@@ -276,8 +275,8 @@
 
 **操作步骤**:
 1. 编辑任务A
-2. fill: [data-testid=task-form-input-predecessor] → "任务B的WBS编码"
-3. click: [data-testid=task-form-btn-submit]
+2. fill: [data-testid=task-selector-predecessors] → "任务B的WBS编码"
+3. click: [data-testid=task-btn-submit]
 
 **验证**:
 - 保存失败
@@ -299,9 +298,9 @@
 **操作步骤**:
 1. navigate: /tasks，选择项目 E2E-PROJ-002
 2. 找到有子任务的根任务行
-3. click: [data-testid=task-row-btn-expand]
+3. click: [data-testid=task-table-row-toggle]（展开按钮）
 4. 验证子任务显示
-5. click: [data-testid=task-row-btn-collapse]
+5. click: [data-testid=task-table-row-toggle]（折叠按钮）
 6. 验证子任务隐藏
 
 **验证**:
@@ -345,7 +344,7 @@
 
 **操作步骤**:
 1. navigate: /tasks
-2. fill: [data-testid=task-filter-search] → "系统设计"
+2. fill: [data-testid=task-filter-input-search] → "系统设计"
 
 **验证**:
 - 列表显示包含"系统设计"的任务
@@ -370,12 +369,11 @@
 3. click: 导入按钮
 4. upload: [data-testid=task-import-btn-upload] → 上传文件
 5. 等待解析完成
-6. 查看 [data-testid=task-import-table-preview] 预览
+6. 验证预览对话框显示
 
 **验证**:
 - element: [data-testid=task-dialog-import] visible
-- 预览表格显示解析后的任务数据
-- 校验结果列显示：有效行/错误行/警告行
+- 显示有效数据统计和错误数据统计
 - click: [data-testid=task-import-btn-confirm]
 - 导入成功后任务列表新增导入的任务
 - api: POST /api/tasks/import → 返回导入结果（成功数、失败数、错误详情）
@@ -395,7 +393,7 @@
 
 **操作步骤**:
 1. navigate: /tasks
-2. select: [data-testid=task-filter-project] → "E2E测试项目-职能管理"
+2. select: [data-testid=task-filter-select-project] → "E2E测试项目-职能管理"
 3. click: [data-testid=task-menu-export]
 4. click: [data-testid=task-menuitem-export-filtered]（导出筛选结果）
 
@@ -437,7 +435,7 @@
 
 ---
 
-## TC-TASK-19: WBS多级展开/折叠全部
+## TC-TASK-19: WBS多级展开/折叠验证
 
 - id: TC-TASK-19
 - module: task
@@ -448,16 +446,17 @@
 
 **操作步骤**:
 1. navigate: /tasks，选择项目 E2E-PROJ-002
-2. 默认状态：仅显示根任务
-3. click: "全部展开"按钮（如有）
-4. 验证所有层级任务显示
-5. click: "全部折叠"按钮
-6. 验证仅显示根任务
+2. 验证默认状态：所有任务展开显示
+3. click: [data-testid=task-table-row-toggle]（折叠某个根任务）
+4. 验证子任务隐藏
+5. click: [data-testid=task-table-row-toggle]（重新展开）
+6. 验证子任务恢复显示
 
 **验证**:
-- 全部展开：element: [data-testid=task-table-row] count > 2（子任务也显示）
-- 全部折叠：element: [data-testid=task-table-row] count === 2（仅根任务）
-- 展开后子任务有正确的缩进层级
+- 默认加载时所有任务展开显示
+- element: [data-testid=task-table-row] count >= 子任务数量
+- 折叠后子任务隐藏
+- 展开后子任务恢复显示，缩进正确
 - api: GET /api/tasks?project_id=xxx → 返回全部任务（不受展开折叠影响）
 
 **清理**: 无

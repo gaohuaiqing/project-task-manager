@@ -215,8 +215,11 @@ router.post('/:id/milestones', async (req: Request, res: Response, next: NextFun
     const currentUser = requireUser(req);
     // 前端拦截器已转换为蛇形命名，直接使用
     const body = req.body as Record<string, unknown>;
-    // 将 ISO 8601 日期格式转换为 YYYY-MM-DD 格式
-    const dateValue = body.target_date as string;
+    // 兼容 target_date 和 planned_date 两种字段名
+    const dateValue = (body.target_date || body.planned_date) as string;
+    if (!dateValue) {
+      throw new ValidationError('目标日期不能为空');
+    }
     const mappedData: CreateMilestoneRequest = {
       name: body.name as string,
       target_date: dateValue.split('T')[0],
@@ -314,52 +317,6 @@ router.delete('/timelines/:id', async (req: Request, res: Response, next: NextFu
   try {
     const currentUser = requireUser(req);
     await projectService.deleteTimeline(req.params.id, currentUser);
-    res.json({ success: true });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// ========== 时间线任务管理 ==========
-
-// 获取时间线任务
-router.get('/timelines/:id/tasks', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    const tasks = await projectService.getTimelineTasksWithAuth(req.params.id, currentUser);
-    res.json({ success: true, data: tasks });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// 创建时间线任务
-router.post('/timelines/:id/tasks', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    const id = await projectService.createTimelineTask(req.params.id, req.body, currentUser);
-    res.status(201).json({ success: true, data: { id } });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// 更新时间线任务
-router.put('/timeline-tasks/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    const updated = await projectService.updateTimelineTask(req.params.id, req.body, currentUser);
-    res.json({ success: true, data: { updated } });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// 删除时间线任务
-router.delete('/timeline-tasks/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    await projectService.deleteTimelineTask(req.params.id, currentUser);
     res.json({ success: true });
   } catch (error) {
     next(error);

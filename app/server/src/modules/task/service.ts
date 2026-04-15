@@ -226,6 +226,16 @@ export class TaskService {
 
   // ========== 任务管理 ==========
 
+  /**
+   * 获取用户可访问的项目ID列表
+   * admin: 所有项目
+   * 其他角色: 作为成员参与的项目
+   */
+  async getAccessibleProjectIds(user: User): Promise<string[] | undefined> {
+    if (user.role === 'admin') return undefined; // 不过滤
+    return this.projectRepo.getProjectIdsByMember(user.id);
+  }
+
   async getTasks(options: TaskQueryOptions): Promise<{ items: WBSTaskListItem[]; total: number; page: number; pageSize: number; totalPages: number }> {
     const page = options.page || 1;
     const pageSize = options.pageSize || 50;
@@ -511,7 +521,7 @@ export class TaskService {
       // 保存待审批的变更数据到任务表
       const pendingChangeData: import('./types').PendingChangeData = {
         changes,
-        reason: '工程师修改计划需审批',
+        reason: data.reason || '工程师修改计划需审批',
         submitted_at: new Date().toISOString(),
         submitted_by: currentUser.id,
       };
@@ -534,7 +544,7 @@ export class TaskService {
         taskId: id,
         userId: currentUser.id,
         changes,
-        reason: '工程师修改计划需审批',
+        reason: data.reason || '工程师修改计划需审批',
       });
 
       // 返回等待审批状态

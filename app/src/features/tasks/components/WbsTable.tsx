@@ -57,6 +57,7 @@ import { useAuth } from '@/features/auth/hooks/useAuth';
 import type { WBSTaskListItem } from '../types';
 import { ExportDropdown } from './ExportDropdown';
 import { ImportPreviewDialog } from './ImportPreviewDialog';
+import { downloadImportTemplate } from '../utils/taskExporter';
 
 /** 带UI状态的任务行 */
 interface TaskRowWithUI extends WBSTaskListItem {
@@ -290,7 +291,6 @@ export function WbsTable({
 
   // 下载模板
   const handleDownloadTemplate = useCallback(() => {
-    const { downloadImportTemplate } = require('../utils/taskExporter');
     downloadImportTemplate();
   }, []);
 

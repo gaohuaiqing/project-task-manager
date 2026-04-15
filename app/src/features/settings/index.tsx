@@ -1,5 +1,5 @@
 /**
- * 设置页面 - 8个Tab导航
+ * 设置页面 - 9个Tab导航
  * 根据用户角色动态显示/隐藏Tab
  */
 import { useMemo } from 'react';
@@ -14,6 +14,7 @@ import { TaskTypesSettings } from './pages/TaskTypes';
 import { CapabilityModelsSettings } from './pages/CapabilityModels';
 import { HolidaysSettings } from './pages/Holidays';
 import { AuditLogsSettings } from './pages/AuditLogs';
+import { ApprovalsSettings } from './pages/Approvals';
 
 // Tab配置
 const ALL_TABS = [
@@ -24,6 +25,7 @@ const ALL_TABS = [
   { value: 'task-types', label: '任务类型', path: '/settings/task-types' },
   { value: 'capability-models', label: '能力模型', path: '/settings/capability-models' },
   { value: 'holidays', label: '节假日', path: '/settings/holidays' },
+  { value: 'approvals', label: '审批管理', path: '/settings/approvals' },
   { value: 'audit-logs', label: '系统日志', path: '/settings/audit-logs' },
 ] as const;
 
@@ -36,6 +38,7 @@ const TAB_VISIBILITY: Record<string, string[]> = {
   'task-types': ['admin', 'dept_manager'],
   'capability-models': ['admin', 'dept_manager'],
   'holidays': ['admin', 'dept_manager'],
+  'approvals': ['admin', 'dept_manager', 'tech_manager'],
   'audit-logs': ['admin', 'dept_manager'],
 };
 
@@ -73,7 +76,8 @@ export default function SettingsPage() {
     const count = visibleTabs.length;
     if (count <= 4) return `grid-cols-${count}`;
     if (count <= 6) return 'grid-cols-3 lg:grid-cols-6';
-    return 'grid-cols-4 lg:grid-cols-8';
+    if (count <= 8) return 'grid-cols-4 lg:grid-cols-8';
+    return 'grid-cols-5 lg:grid-cols-9';
   }, [visibleTabs.length]);
 
   return (
@@ -131,6 +135,12 @@ export default function SettingsPage() {
           </TabsContent>
         )}
 
+        {activeTab === 'approvals' && visibleTabs.some(t => t.value === 'approvals') && (
+          <TabsContent value="approvals" className="mt-0">
+            <ApprovalsSettings />
+          </TabsContent>
+        )}
+
         {activeTab === 'audit-logs' && visibleTabs.some(t => t.value === 'audit-logs') && (
           <TabsContent value="audit-logs" className="mt-0">
             <AuditLogsSettings />
@@ -149,4 +159,5 @@ export { OrganizationSettings } from './pages/Organization';
 export { TaskTypesSettings } from './pages/TaskTypes';
 export { CapabilityModelsSettings } from './pages/CapabilityModels';
 export { HolidaysSettings } from './pages/Holidays';
+export { ApprovalsSettings } from './pages/Approvals';
 export { AuditLogsSettings } from './pages/AuditLogs';

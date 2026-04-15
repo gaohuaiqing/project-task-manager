@@ -36,12 +36,15 @@ export class CollabRepository {
 
   async getOnlineUsers(): Promise<OnlineUser[]> {
     const pool = getPool();
+    // 基于 sessions 表查询活跃用户
     const [rows] = await pool.execute<OnlineUserRow[]>(
-      `SELECT ou.*, u.real_name, u.username
-       FROM online_users ou
-       JOIN users u ON ou.user_id = u.id
-       WHERE ou.status != 'offline' OR ou.last_activity > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
-       ORDER BY ou.last_activity DESC`
+      `SELECT s.user_id, 'online' as status, MAX(s.last_accessed) as last_activity, u.real_name, u.username
+       FROM sessions s
+       JOIN users u ON s.user_id = u.id
+       WHERE s.status = 'active'
+         AND s.expires_at > NOW()
+       GROUP BY s.user_id, u.real_name, u.username
+       ORDER BY last_activity DESC`
     );
     return rows;
   }
@@ -160,7 +163,7 @@ export class CollabRepository {
   }): Promise<void> {
     const pool = getPool();
     await pool.execute(
-      'INSERT INTO audit_logs (id, user_id, action, table_name, record_id, old_value, new_value, ip_address) VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO audit_logs (audit_id, actor_user_id, action, table_name, record_id, old_value, new_value, ip_address, created_at) VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, NOW())',
       [data.user_id, data.action, data.table_name, data.record_id, data.old_value || null, data.new_value || null, data.ip_address || null]
     );
   }
@@ -179,7 +182,7 @@ export class CollabRepository {
     const params: (string | number)[] = [];
 
     if (options?.user_id) {
-      conditions.push('al.user_id = ?');
+      conditions.push('al.actor_user_id = ?');
       params.push(options.user_id);
     }
     if (options?.action) {
@@ -213,14 +216,15 @@ export class CollabRepository {
     const pageSize = options?.pageSize || 50;
     const offset = (page - 1) * pageSize;
 
+    // 注意：LIMIT/OFFSET 直接拼接数值，避免 mysql2 prepared statement 类型问题
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT al.*, u.real_name as user_name
        FROM audit_logs al
-       LEFT JOIN users u ON al.user_id = u.id
+       LEFT JOIN users u ON al.actor_user_id = u.id
        ${whereClause}
        ORDER BY al.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, pageSize, offset]
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params
     );
 
     return { items: rows, total };

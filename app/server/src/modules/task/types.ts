@@ -120,6 +120,8 @@ export interface UpdateTaskRequest {
   actual_duration?: number;
   /** 实际周期（计算字段） */
   actual_cycle?: number;
+  /** 变更原因（工程师修改计划字段时必填） */
+  reason?: string;
   version: number;
 }
 
@@ -133,6 +135,8 @@ export interface TaskQueryOptions {
   search?: string;
   page?: number;
   pageSize?: number;
+  /** 数据范围过滤：仅返回这些项目中的任务 */
+  accessible_project_ids?: string[];
 }
 
 // ============ 进度记录相关 ============

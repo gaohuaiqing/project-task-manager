@@ -10,6 +10,7 @@ import { TaskForm } from './components/TaskForm';
 import { TaskFilterBar } from './components/TaskFilterBar';
 import { TaskDetailDialog } from './components/TaskDetailDialog';
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog';
+import { ChangeReasonDialog, type ChangedField } from '@/shared/components/ChangeReasonDialog';
 import { useTasks } from './hooks/useTasks';
 import {
   useCreateTask,
@@ -20,7 +21,21 @@ import { useProjects } from '@/features/projects/hooks/useProjects';
 import { getMembers } from '@/lib/api/org.api';
 import { taskApi } from '@/lib/api/task.api';
 import { queryKeys } from '@/lib/api/query-keys';
+import { useAuth } from '@/features/auth';
+import { PLAN_FIELDS } from './hooks/usePermissions';
 import type { WBSTaskListItem, CreateTaskRequest, UpdateTaskRequest, TaskQueryParams } from './types';
+
+/** 计划字段的中文标签 */
+const FIELD_LABELS: Record<string, string> = {
+  startDate: '开始日期',
+  duration: '工期',
+  predecessorId: '前置任务',
+  lagDays: '提前/落后天数',
+  // snake_case 版本（后端字段名）
+  start_date: '开始日期',
+  predecessor_id: '前置任务',
+  lag_days: '提前/落后天数',
+};
 
 interface TasksPageProps {
   projectId?: string;
@@ -28,6 +43,7 @@ interface TasksPageProps {
 
 export default function TasksPage({ projectId }: TasksPageProps) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   // 筛选状态
   const [filters, setFilters] = useState<TaskQueryParams>({
@@ -46,6 +62,16 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   const [inheritedTaskType, setInheritedTaskType] = useState<string | undefined>(undefined);
   const [detailDefaultTab, setDetailDefaultTab] = useState<'progress' | 'delays' | 'changes'>('progress');
 
+  // 变更原因弹窗状态
+  const [reasonDialogOpen, setReasonDialogOpen] = useState(false);
+  const [pendingFieldUpdate, setPendingFieldUpdate] = useState<{
+    taskId: string;
+    field: string;
+    value: unknown;
+    version: number;
+    changes: ChangedField[];
+  } | null>(null);
+
   // 处理筛选变化
   const handleFiltersChange = useCallback((newFilters: TaskQueryParams) => {
     setFilters((prev) => ({
@@ -63,7 +89,7 @@ export default function TasksPage({ projectId }: TasksPageProps) {
 
   // 查询成员列表（用于负责人下拉）
   const { data: membersData } = useQuery({
-    queryKey: queryKeys.org.members,
+    queryKey: queryKeys.org.members(),
     queryFn: () => getMembers({ pageSize: 100, status: 'active' }),
     staleTime: 5 * 60 * 1000, // 5 分钟
   });
@@ -186,17 +212,54 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     const task = taskMap.get(taskId);
     if (!task) return;
 
+    // 工程师修改计划字段时，弹出变更原因弹窗
+    const isEngineer = user?.role === 'engineer';
+    const isPlanField = PLAN_FIELDS.includes(field as typeof PLAN_FIELDS[number]);
+
+    if (isEngineer && isPlanField) {
+      const originalValue = (task as Record<string, unknown>)[field];
+      setPendingFieldUpdate({
+        taskId,
+        field,
+        value,
+        version: task.version,
+        changes: [{
+          field,
+          label: FIELD_LABELS[field] || field,
+          oldValue: originalValue ?? '-',
+          newValue: value ?? '-',
+        }],
+      });
+      setReasonDialogOpen(true);
+      return;
+    }
+
+    // 直接更新（非计划字段或管理员）
     const updateData: UpdateTaskRequest = {
       [field]: value,
       version: task.version,
     } as UpdateTaskRequest;
 
-    // 直接调用 API
     await taskApi.updateTask(taskId, updateData);
-
-    // 刷新任务列表
     queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
-  }, [taskMap, queryClient]);
+  }, [taskMap, queryClient, user?.role]);
+
+  /** 行内更新携带变更原因提交 */
+  const handleReasonConfirm = useCallback(async (reason: string) => {
+    if (!pendingFieldUpdate) return;
+
+    const { taskId, field, value, version } = pendingFieldUpdate;
+    const updateData: UpdateTaskRequest = {
+      [field]: value,
+      version,
+      reason,
+    } as UpdateTaskRequest;
+
+    await taskApi.updateTask(taskId, updateData);
+    queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
+    setReasonDialogOpen(false);
+    setPendingFieldUpdate(null);
+  }, [pendingFieldUpdate, queryClient]);
 
   // 成员列表（简化格式）
   const members = useMemo(() => {
@@ -287,6 +350,17 @@ export default function TasksPage({ projectId }: TasksPageProps) {
         }}
         task={selectedTask}
         defaultTab={detailDefaultTab}
+      />
+
+      {/* 行内更新变更原因弹窗 */}
+      <ChangeReasonDialog
+        open={reasonDialogOpen}
+        onOpenChange={(open) => {
+          setReasonDialogOpen(open);
+          if (!open) setPendingFieldUpdate(null);
+        }}
+        changes={pendingFieldUpdate?.changes ?? []}
+        onConfirm={handleReasonConfirm}
       />
     </div>
   );

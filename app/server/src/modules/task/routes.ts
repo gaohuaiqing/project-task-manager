@@ -58,6 +58,12 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       pageSize: req.query.pageSize ? parseInt(req.query.pageSize as string) : 50,
     };
 
+    // 根据角色过滤数据范围
+    const accessibleProjectIds = await taskService.getAccessibleProjectIds(currentUser);
+    if (accessibleProjectIds) {
+      options.accessible_project_ids = accessibleProjectIds;
+    }
+
     const result = await taskService.getTasks(options);
     res.json({ success: true, data: result });
   } catch (error) {

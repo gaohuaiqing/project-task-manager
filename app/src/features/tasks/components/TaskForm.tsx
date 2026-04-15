@@ -48,6 +48,7 @@ import { useMembers } from '@/features/org/hooks/useOrg';
 import { useAssigneeRecommendation, getMatchLevelStyle } from '@/features/assignment/hooks/useAssigneeRecommendation';
 import { useTaskPermissions, PLAN_FIELDS } from '../hooks/usePermissions';
 import { Sparkles, Star, Loader2, ChevronDown, ChevronUp, Users, AlertCircle, Lock } from 'lucide-react';
+import { ChangeReasonDialog, type ChangedField } from '@/shared/components/ChangeReasonDialog';
 import { cn } from '@/lib/utils';
 import { getAvatarUrl } from '@/utils/avatar';
 import type { WBSTask, CreateTaskRequest, UpdateTaskRequest, DependencyType } from '../types';
@@ -220,12 +221,67 @@ export function TaskForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 变更原因弹窗状态
+  const [changeReasonOpen, setChangeReasonOpen] = useState(false);
+  const [pendingFormData, setPendingFormData] = useState<TaskFormData | null>(null);
+  const [detectedChanges, setDetectedChanges] = useState<ChangedField[]>([]);
+
+  /** 计划字段的中文标签 */
+  const FIELD_LABELS: Record<string, string> = {
+    startDate: '开始日期',
+    duration: '工期',
+    predecessorId: '前置任务',
+    lagDays: '提前/落后天数',
+  };
+
   const handleFormSubmit = async (data: TaskFormData) => {
     // 验证项目ID
     if (!validateForm(data)) {
       return;
     }
 
+    // 编辑模式下，检测计划字段变更
+    if (isEdit && task && permissions.needsApprovalForPlanChanges) {
+      const changes: ChangedField[] = [];
+      for (const field of PLAN_FIELDS) {
+        const formValue = (data as Record<string, unknown>)[field];
+        const originalValue = (task as Record<string, unknown>)[field];
+        // 比较值是否变化（考虑 null/undefined/空字符串等价）
+        const normalize = (v: unknown) => (v === null || v === undefined || v === '' ? null : v);
+        if (normalize(formValue) !== normalize(originalValue)) {
+          changes.push({
+            field,
+            label: FIELD_LABELS[field] || field,
+            oldValue: originalValue ?? '-',
+            newValue: formValue ?? '-',
+          });
+        }
+      }
+      if (changes.length > 0) {
+        // 有计划字段变更，弹出原因输入弹窗
+        setDetectedChanges(changes);
+        setPendingFormData(data);
+        setChangeReasonOpen(true);
+        return;
+      }
+    }
+
+    // 无需审批或无计划字段变更，直接提交
+    await submitFormData(data);
+  };
+
+  /** 携带变更原因提交表单 */
+  const handleChangeReasonConfirm = async (reason: string) => {
+    if (!pendingFormData) return;
+    const data = { ...pendingFormData, reason };
+    await submitFormData(data as TaskFormData);
+    setChangeReasonOpen(false);
+    setPendingFormData(null);
+    setDetectedChanges([]);
+  };
+
+  /** 实际提交表单数据 */
+  const submitFormData = async (data: TaskFormData) => {
     try {
       setIsSubmitting(true);
       setError(null);
@@ -250,6 +306,7 @@ export function TaskForm({
   };
 
   return (
+    <>
     <Dialog data-testid="task-dialog-form" open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
@@ -562,6 +619,7 @@ export function TaskForm({
             <div className="space-y-2">
               <Label htmlFor="fullTimeRatio">全职比 (%)</Label>
               <Input
+                data-testid="task-input-fulltime-ratio"
                 id="fullTimeRatio"
                 type="number"
                 min="0"
@@ -612,6 +670,7 @@ export function TaskForm({
                 )}
               </Label>
               <Input
+                data-testid="task-input-lag-days"
                 id="lagDays"
                 type="number"
                 {...register('lagDays', { valueAsNumber: true })}
@@ -697,5 +756,21 @@ export function TaskForm({
         </form>
       </DialogContent>
     </Dialog>
+
+    {/* 变更原因输入弹窗 */}
+    <ChangeReasonDialog
+      open={changeReasonOpen}
+      onOpenChange={(open) => {
+        setChangeReasonOpen(open);
+        if (!open) {
+          setPendingFormData(null);
+          setDetectedChanges([]);
+        }
+      }}
+      changes={detectedChanges}
+      onConfirm={handleChangeReasonConfirm}
+      loading={isSubmitting}
+    />
+    </>
   );
 }

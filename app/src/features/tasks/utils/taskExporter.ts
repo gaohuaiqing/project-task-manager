@@ -17,7 +17,7 @@ interface ExcelColumn {
 
 /** 列定义 */
 const EXCEL_COLUMNS: ExcelColumn[] = [
-  { key: 'id', label: 'ID', width: 36, editable: false },
+  { key: 'index', label: '序号', width: 8, editable: false },
   { key: 'wbsCode', label: 'WBS编码', width: 12, editable: false },
   { key: 'wbsLevel', label: 'WBS等级', width: 10, editable: true },
   { key: 'description', label: '任务描述', width: 30, editable: true },
@@ -56,7 +56,8 @@ export interface ExportOptions {
  */
 function taskToRow(
   task: WBSTaskListItem,
-  includeHistory: boolean
+  includeHistory: boolean,
+  index: number
 ): Record<string, unknown> {
   const row: Record<string, unknown> = {};
 
@@ -64,8 +65,8 @@ function taskToRow(
     const value = (task as any)[col.key];
 
     switch (col.key) {
-      case 'id':
-        row['ID'] = task.id;
+      case 'index':
+        row['序号'] = index;
         break;
       case 'status':
         row['任务状态'] = TASK_STATUS_LABELS[task.status] || task.status;
@@ -129,15 +130,21 @@ export async function exportTasksToExcel(
     throw new Error('没有可导出的任务');
   }
 
-  // 准备数据
-  const data = tasks.map(task => taskToRow(task, options.includeHistory));
-
-  // 添加表头
+  // 准备表头
   const headers = EXCEL_COLUMNS.map(c => c.label);
-  data.unshift(headers as unknown as Record<string, unknown>);
 
-  // 创建工作表
-  const ws = XLSX.utils.aoa_to_sheet(data as unknown[][], {
+  // 准备数据行（二维数组格式）
+  const rows: unknown[][] = [headers];
+
+  // 添加任务数据行（序号从1开始）
+  tasks.forEach((task, index) => {
+    const taskRow = taskToRow(task, options.includeHistory, index + 1);
+    const row: unknown[] = EXCEL_COLUMNS.map(col => taskRow[col.label] ?? '');
+    rows.push(row);
+  });
+
+  // 创建工作表（使用 aoa_to_sheet 处理二维数组）
+  const ws = XLSX.utils.aoa_to_sheet(rows, {
     cellStyles: true
   });
 
@@ -166,55 +173,44 @@ export async function exportTasksToExcel(
  * 下载导入模板
  */
 export function downloadImportTemplate(): void {
-  // 创建示例数据
-  const sampleData = [
-    {
-      'ID': '',
-      'WBS编码': '1',
-      'WBS等级': 1,
-      '任务描述': '示例任务（请删除此行）',
-      '任务状态': '未开始',
-      'Redmine链接': 'https://redmine.example.com/issues/123',
-      '负责人': '张三',
-      '任务类型': '固件',
-      '优先级': '中',
-      '前置任务WBS': '',
-      '提前/落后天数': 0,
-      '开始日期': new Date().toISOString().split('T')[0],
-      '工期(天)': 5,
-      '单休': '否',
-      '结束日期': '',
-      '预警天数': 3,
-      '实际开始': '',
-      '实际结束': '',
-      '全职比(%)': 100,
-      '项目名称': '',
-      '延期次数': 0,
-      '延期历史': '',
-      '计划调整次数': 0,
-      '计划调整历史': '',
-      '进展记录数': 0,
-      '进展记录': '',
-    },
+  // 准备表头
+  const headers = EXCEL_COLUMNS.map(c => c.label);
+
+  // 准备示例数据行
+  const sampleRow: unknown[] = [
+    1, // 序号
+    '1', // WBS编码
+    1, // WBS等级
+    '示例任务（请删除此行）', // 任务描述
+    '未开始', // 任务状态
+    'https://redmine.example.com/issues/123', // Redmine链接
+    '张三', // 负责人
+    '固件', // 任务类型
+    '中', // 优先级
+    '', // 前置任务WBS
+    0, // 提前/落后天数
+    new Date().toISOString().split('T')[0], // 开始日期
+    5, // 工期(天)
+    '否', // 单休
+    '', // 结束日期
+    3, // 预警天数
+    '', // 实际开始
+    '', // 实际结束
+    100, // 全职比(%)
+    '', // 项目名称
+    0, // 延期次数
+    '', // 延期历史
+    0, // 计划调整次数
+    '', // 计划调整历史
+    0, // 进展记录数
+    '', // 进展记录
   ];
 
-  // 准备数据
-  const data: Record<string, unknown>[] = [];
+  // 创建二维数组数据
+  const rows: unknown[][] = [headers, sampleRow];
 
-  // 添加表头
-  data.push(EXCEL_COLUMNS.map(c => c.label) as unknown as Record<string, unknown>);
-
-  // 添加示例数据
-  sampleData.forEach(sample => {
-    const row: Record<string, unknown> = {};
-    EXCEL_COLUMNS.forEach(col => {
-      row[col.label] = sample[col.label as keyof typeof sample] ?? '';
-    });
-    data.push(row);
-  });
-
-  // 创建工作表
-  const ws = XLSX.utils.aoa_to_sheet(data as unknown[][]);
+  // 创建工作表（使用 aoa_to_sheet 处理二维数组）
+  const ws = XLSX.utils.aoa_to_sheet(rows);
 
   // 设置列宽
   const colWidths = EXCEL_COLUMNS.map(c => ({ wch: c.width }));

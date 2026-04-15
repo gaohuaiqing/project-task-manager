@@ -60,8 +60,7 @@ export interface Project {
   // 成员摘要（列表页使用）
   members?: ProjectMemberSummary[];
   // 统计信息（列表页使用）
-  taskCount?: number;
-  completedTaskCount?: number;
+  timelineCount?: number;
   memberCount?: number;
   milestoneCount?: number;
 }
@@ -85,15 +84,11 @@ export interface Milestone {
 }
 
 // 时间线 - 使用 app/src/types/timeline.ts 中的定义
-export type { Timeline, TimelineTask } from '@/types/timeline';
+export type { Timeline } from '@/types/timeline';
 
 // 项目统计
 export interface ProjectStats {
-  totalTasks: number;
-  completedTasks: number;
-  inProgressTasks: number;
-  pendingTasks: number;
-  overdueTasks: number;
+  totalTimelines: number;
   totalMembers: number;
   avgProgress: number;
 }

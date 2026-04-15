@@ -17,8 +17,7 @@ export interface Project {
   actual_start_date: Date | null;
   actual_end_date: Date | null;
   progress: number;
-  task_count: number;
-  completed_task_count: number;
+  timeline_count: number;
   member_ids: string | null;
   version: number;
   created_at: Date;
@@ -139,52 +138,6 @@ export interface UpdateTimelineRequest {
   status?: TimelineStatus;
 }
 
-// ============ 时间线任务相关 ============
-
-export type TimelineTaskStatus = 'not_started' | 'in_progress' | 'completed' | 'delayed' | 'cancelled';
-export type TimelineTaskPriority = 'urgent' | 'high' | 'medium' | 'low';
-export type TimelineTaskSourceType = 'wbs' | 'manual';
-
-export interface TimelineTask {
-  id: string;
-  timeline_id: string;
-  title: string;
-  description: string | null;
-  start_date: Date;
-  end_date: Date;
-  status: TimelineTaskStatus;
-  priority: TimelineTaskPriority;
-  progress: number;
-  assignee_id: number | null;
-  source_type: TimelineTaskSourceType | null;
-  source_id: string | null;
-  sort_order: number;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface CreateTimelineTaskRequest {
-  title: string;
-  description?: string;
-  start_date: string;
-  end_date: string;
-  priority?: TimelineTaskPriority;
-  assignee_id?: number;
-  source_type?: TimelineTaskSourceType;
-  source_id?: string;
-}
-
-export interface UpdateTimelineTaskRequest {
-  title?: string;
-  description?: string;
-  start_date?: string;
-  end_date?: string;
-  status?: TimelineTaskStatus;
-  priority?: TimelineTaskPriority;
-  progress?: number;
-  assignee_id?: number;
-}
-
 // ============ 项目成员相关 ============
 
 export interface ProjectMember {
@@ -223,8 +176,6 @@ export interface CreateHolidayRequest {
 
 export interface ProjectStats {
   timeline_count: number;
-  task_count: number;
-  completed_task_count: number;
   milestone_count: number;
   achieved_milestone_count: number;
   member_count: number;

@@ -93,6 +93,15 @@ export class OrgService {
     return { allowed: false, reason: '无权限操作', member };
   }
 
+  /**
+   * 检查目标部门是否属于指定管理部门或其子部门
+   */
+  private async isManagedDepartment(targetDeptId: number, managedDeptId: number | null): Promise<boolean> {
+    if (!managedDeptId) return false;
+    if (targetDeptId === managedDeptId) return true;
+    return this.repo.isChildDepartment(targetDeptId, managedDeptId);
+  }
+
   // ========== 部门管理 ==========
 
   async getDepartmentTree(): Promise<DepartmentTreeNode[]> {
@@ -181,9 +190,20 @@ export class OrgService {
   }
 
   async deleteDepartment(id: number, currentUser: User): Promise<{ deletedDepartments: number; deletedMembers: number }> {
-    // 验证权限
+    // 验证权限：admin 可删除任意部门，dept_manager 只能删除本部门及子部门
     if (currentUser.role !== 'admin') {
-      throw new ForbiddenError('只有管理员可以删除部门');
+      if (currentUser.role !== 'dept_manager') {
+        throw new ForbiddenError('无权限删除部门');
+      }
+      // dept_manager 只能删除自己管理的部门及其子部门
+      const managedDept = await this.repo.getManagedDepartmentByUserId(currentUser.id);
+      if (!managedDept) {
+        throw new ForbiddenError('您不是部门经理，无权删除部门');
+      }
+      const isManaged = await this.repo.isChildDepartment(id, managedDept.id);
+      if (!isManaged) {
+        throw new ForbiddenError('只能删除本部门及其子部门');
+      }
     }
 
     // 验证部门存在

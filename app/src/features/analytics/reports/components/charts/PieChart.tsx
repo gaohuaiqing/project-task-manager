@@ -47,7 +47,11 @@ export function PieChart({
           outerRadius={outerRadius}
           paddingAngle={2}
           dataKey="value"
-          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+          label={({ name, percent, x, y }) => (
+            <text x={x} y={y} textAnchor="middle" dominantBaseline="middle" style={{ fontSize: '10px', fill: 'hsl(var(--foreground))' }}>
+              {`${name} (${(percent * 100).toFixed(0)}%)`}
+            </text>
+          )}
           labelLine={false}
         >
           {chartData.map((entry, index) => (
@@ -64,12 +68,12 @@ export function PieChart({
             border: '1px solid hsl(var(--border))',
             borderRadius: '8px',
             boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-            fontSize: '12px',
+            fontSize: '11px',
           }}
         />
         {showLegend && (
           <Legend
-            wrapperStyle={{ fontSize: '11px' }}
+            wrapperStyle={{ fontSize: '10px' }}
             iconType="circle"
           />
         )}

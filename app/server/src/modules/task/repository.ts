@@ -61,6 +61,11 @@ export class TaskRepository {
       const searchPattern = `%${options.search}%`;
       params.push(searchPattern, searchPattern);
     }
+    if (options.accessible_project_ids && options.accessible_project_ids.length > 0) {
+      const placeholders = options.accessible_project_ids.map(() => '?').join(', ');
+      conditions.push(`t.project_id IN (${placeholders})`);
+      params.push(...options.accessible_project_ids);
+    }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -174,8 +179,9 @@ export class TaskRepository {
     if (data.predecessor_id !== undefined) { fields.push('predecessor_id = ?'); values.push(data.predecessor_id); }
     if ((data as any).dependency_type !== undefined) { fields.push('dependency_type = ?'); values.push((data as any).dependency_type); }
     if (data.lag_days !== undefined) { fields.push('lag_days = ?'); values.push(data.lag_days); }
-    if (data.actual_start_date !== undefined) { fields.push('actual_start_date = ?'); values.push(data.actual_start_date); }
-    if (data.actual_end_date !== undefined) { fields.push('actual_end_date = ?'); values.push(data.actual_end_date); }
+    // 将空字符串日期转换为 null，避免 MySQL 错误
+    if (data.actual_start_date !== undefined) { fields.push('actual_start_date = ?'); values.push(data.actual_start_date || null); }
+    if (data.actual_end_date !== undefined) { fields.push('actual_end_date = ?'); values.push(data.actual_end_date || null); }
     if (data.redmine_link !== undefined) { fields.push('redmine_link = ?'); values.push(data.redmine_link); }
     if (data.full_time_ratio !== undefined) { fields.push('full_time_ratio = ?'); values.push(data.full_time_ratio); }
     if (data.last_plan_refresh_at !== undefined) { fields.push('last_plan_refresh_at = ?'); values.push(data.last_plan_refresh_at); }

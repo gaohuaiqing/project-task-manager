@@ -485,6 +485,7 @@ export function EnhancedTimelineView({
         <div className="flex items-center gap-2">
           {/* 📍 今天按钮 */}
           <Button
+            data-testid="timeline-btn-go-today"
             variant="outline"
             size="sm"
             onClick={handleGoToToday}
@@ -498,6 +499,7 @@ export function EnhancedTimelineView({
             <>
               {/* 添加时间轴按钮 */}
               <Button
+                data-testid="timeline-btn-add-timeline"
                 variant="outline"
                 size="sm"
                 onClick={() => setAddTimelineDialog(true)}
@@ -509,6 +511,7 @@ export function EnhancedTimelineView({
 
               {/* 添加里程碑按钮 */}
               <Button
+                data-testid="timeline-btn-add-milestone"
                 variant="outline"
                 size="sm"
                 onClick={() => setAddMilestoneDialog(true)}
@@ -531,18 +534,21 @@ export function EnhancedTimelineView({
             className="border rounded-md"
           >
             <ToggleGroupItem
+              data-testid="timeline-toggle-zoom-day"
               value="day"
               className="text-xs px-3 data-[state=on]:bg-blue-100 data-[state=on]:text-blue-700"
             >
               日
             </ToggleGroupItem>
             <ToggleGroupItem
+              data-testid="timeline-toggle-zoom-week"
               value="week"
               className="text-xs px-3 data-[state=on]:bg-blue-100 data-[state=on]:text-blue-700"
             >
               周
             </ToggleGroupItem>
             <ToggleGroupItem
+              data-testid="timeline-toggle-zoom-month"
               value="month"
               className="text-xs px-3 data-[state=on]:bg-blue-100 data-[state=on]:text-blue-700"
             >
@@ -553,6 +559,7 @@ export function EnhancedTimelineView({
           {/* 缩放滑块 */}
           <div className="flex items-center gap-2">
             <Slider
+              data-testid="timeline-slider-zoom"
               min={0}
               max={2}
               step={1}

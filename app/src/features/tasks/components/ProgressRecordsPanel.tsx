@@ -48,12 +48,14 @@ export function ProgressRecordsPanel({
       {onAddProgress && (
         <div className="flex gap-2">
           <Textarea
+            data-testid="progress-input-content"
             placeholder="记录新的进展..."
             value={newContent}
             onChange={(e) => setNewContent(e.target.value)}
             className="min-h-[60px]"
           />
           <Button
+            data-testid="progress-btn-submit"
             size="icon"
             onClick={handleSubmit}
             disabled={!newContent.trim() || isSubmitting}

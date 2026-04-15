@@ -170,6 +170,13 @@ router.post('/cache/warmup', async (req: Request, res: Response, next: NextFunct
 router.get('/audit-logs', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
+    // 只有 admin 和 dept_manager 可查看审计日志
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: '无权限查看审计日志' }
+      });
+    }
     const options = {
       user_id: req.query.user_id ? parseInt(req.query.user_id as string) : undefined,
       action: req.query.action as string,

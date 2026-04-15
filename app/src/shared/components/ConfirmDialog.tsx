@@ -65,6 +65,7 @@ export function ConfirmDialog({
             {cancelText}
           </AlertDialogCancel>
           <AlertDialogAction
+            data-testid="confirm-btn-ok"
             onClick={handleConfirm}
             disabled={loading}
             className={

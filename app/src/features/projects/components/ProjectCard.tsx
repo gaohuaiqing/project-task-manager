@@ -2,7 +2,7 @@
  * 项目卡片组件
  */
 import { useNavigate } from 'react-router-dom';
-import { MoreVertical, Calendar, ListTodo } from 'lucide-react';
+import { MoreVertical, Calendar, Layers } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -62,7 +62,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button data-testid="project-card-btn-menu" variant="ghost" size="icon" className="h-8 w-8">
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -97,18 +97,18 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
           {project.description || '暂无描述'}
         </p>
 
-        {/* 类型标签 + 任务数量 */}
+        {/* 类型标签 + 时间轴数量 */}
         <div className="flex items-center gap-2 flex-wrap">
           <Badge data-testid="project-card-type-badge" variant="outline" className="text-xs">
             {PROJECT_TYPE_CONFIG[project.projectType]?.label || project.projectType}
           </Badge>
-          {/* WBS任务数量 */}
+          {/* 时间轴数量 */}
           <Badge
-            variant={project.taskCount && project.taskCount > 0 ? "secondary" : "outline"}
+            variant={project.timelineCount && project.timelineCount > 0 ? "secondary" : "outline"}
             className="text-xs flex items-center gap-1"
           >
-            <ListTodo className="h-3 w-3" />
-            <span>{project.taskCount ?? 0} 任务</span>
+            <Layers className="h-3 w-3" />
+            <span>{project.timelineCount ?? 0} 时间轴</span>
           </Badge>
         </div>
 

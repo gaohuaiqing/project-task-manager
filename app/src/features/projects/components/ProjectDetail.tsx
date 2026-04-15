@@ -44,7 +44,7 @@ import { EnhancedTimelineView } from './EnhancedTimelineView';
 import { projectApi } from '@/lib/api/project.api';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
-import type { TimelineTask, Holiday } from '@/types/timeline';
+import type { Holiday } from '@/types/timeline';
 import type { Timeline } from '../types';
 import { Plus } from 'lucide-react';
 
@@ -112,89 +112,6 @@ export function ProjectDetail({
 
   // 总体加载状态
   const isLoading = isProjectLoading || isTimelinesLoading;
-
-  // 处理任务变更
-  const handleTaskChange = async (
-    timelineId: string,
-    taskId: string,
-    updates: { startDate: string; endDate: string }
-  ) => {
-    try {
-      await projectApi.updateTimelineTask(taskId, {
-        startDate: updates.startDate,
-        endDate: updates.endDate,
-      });
-
-      // 刷新时间线任务数据
-      queryClient.invalidateQueries({ queryKey: ['timeline-tasks', timelineId] });
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-
-      toast({
-        title: '成功',
-        description: '任务时间已更新',
-      });
-    } catch (error: any) {
-      toast({
-        title: '更新失败',
-        description: error.message || '操作失败，请稍后重试',
-        variant: 'destructive',
-      });
-      throw error; // 向上抛出，让调用方处理回滚
-    }
-  };
-
-  // 处理任务创建
-  const handleTaskCreate = async (timelineId: string, task: Partial<TimelineTask>) => {
-    try {
-      // 调用创建任务 API
-      await projectApi.createTimelineTask(timelineId, {
-        title: task.title || '新任务',
-        description: task.description || undefined,
-        startDate: task.startDate || new Date().toISOString().split('T')[0],
-        endDate: task.endDate || new Date().toISOString().split('T')[0],
-        priority: task.priority,
-        assigneeId: task.assigneeId,
-      });
-
-      // 刷新任务数据
-      queryClient.invalidateQueries({ queryKey: ['timeline-tasks', timelineId] });
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-
-      toast({
-        title: '成功',
-        description: '任务已创建',
-      });
-    } catch (error: any) {
-      toast({
-        title: '创建失败',
-        description: error.message || '操作失败，请稍后重试',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  // 处理任务删除
-  const handleTaskDelete = async (timelineId: string, taskId: string) => {
-    try {
-      await projectApi.deleteTimelineTask(taskId);
-
-      // 刷新时间线任务数据
-      queryClient.invalidateQueries({ queryKey: ['timeline-tasks', timelineId] });
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-
-      toast({
-        title: '成功',
-        description: '任务已删除',
-      });
-    } catch (error: any) {
-      toast({
-        title: '删除失败',
-        description: error.message || '操作失败，请稍后重试',
-        variant: 'destructive',
-      });
-      throw error; // 向上抛出，让调用方处理
-    }
-  };
 
   // 处理创建时间线
   const handleCreateTimeline = async () => {

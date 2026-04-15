@@ -82,6 +82,7 @@ export const queryKeys = {
     approvals: ['workflow', 'approvals'] as const,
     pendingApprovals: ['workflow', 'pending'] as const,
     approval: (id: string) => ['workflow', 'approval', id] as const,
+    planChangesList: (params?: object) => ['workflow', 'plan-changes', params] as const,
     rules: ['workflow', 'rules'] as const,
     notifications: ['workflow', 'notifications'] as const,
   },

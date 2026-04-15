@@ -193,22 +193,23 @@ export function ProjectList({ onCreateProject, onEditProject, onDeleteProject }:
           {/* 导入导出下拉菜单 */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5 h-9">
+              <Button data-testid="project-menu-import-export" variant="outline" size="sm" className="gap-1.5 h-9">
                 <FileSpreadsheet className="h-4 w-4 text-blue-500" />
                 <span>导入导出</span>
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/60" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuItem onClick={handleExport} className="gap-2.5 cursor-pointer">
+              <DropdownMenuItem data-testid="project-menuitem-export" onClick={handleExport} className="gap-2.5 cursor-pointer">
                 <FileDown className="h-4 w-4 text-emerald-500" />
                 <span>导出项目列表</span>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDownloadTemplate} className="gap-2.5 cursor-pointer">
+              <DropdownMenuItem data-testid="project-menuitem-download-template" onClick={handleDownloadTemplate} className="gap-2.5 cursor-pointer">
                 <Download className="h-4 w-4 text-violet-500" />
                 <span>下载导入模板</span>
               </DropdownMenuItem>
               <DropdownMenuItem
+                data-testid="project-menuitem-import"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={importing}
                 className="gap-2.5 cursor-pointer"

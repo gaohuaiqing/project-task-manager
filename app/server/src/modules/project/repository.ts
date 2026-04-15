@@ -2,12 +2,11 @@
 import { getPool } from '../../core/db';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import type {
-  Project, ProjectListItem, Milestone, Timeline, TimelineTask,
+  Project, ProjectListItem, Milestone, Timeline,
   ProjectMember, Holiday, ProjectStats,
   CreateProjectRequest, UpdateProjectRequest,
   CreateMilestoneRequest, UpdateMilestoneRequest,
   CreateTimelineRequest, UpdateTimelineRequest,
-  CreateTimelineTaskRequest, UpdateTimelineTaskRequest,
   AddProjectMemberRequest, CreateHolidayRequest
 } from './types';
 
@@ -16,7 +15,6 @@ import type {
 interface ProjectRow extends RowDataPacket, Project {}
 interface MilestoneRow extends RowDataPacket, Milestone {}
 interface TimelineRow extends RowDataPacket, Timeline {}
-interface TimelineTaskRow extends RowDataPacket, TimelineTask {}
 interface ProjectMemberRow extends RowDataPacket, ProjectMember {}
 interface HolidayRow extends RowDataPacket, Holiday {}
 interface ProjectStatsRow extends RowDataPacket, ProjectStats {}
@@ -72,7 +70,7 @@ export class ProjectRepository {
       `SELECT p.*,
         COALESCE(JSON_LENGTH(p.member_ids), 0) as member_count_calc,
         (SELECT COUNT(*) FROM milestones m WHERE m.project_id = p.id) as milestone_count_calc,
-        (SELECT COUNT(*) FROM wbs_tasks t WHERE t.project_id = p.id) as task_count_calc
+        (SELECT COUNT(*) FROM timelines tl WHERE tl.project_id = p.id) as timeline_count_calc
        FROM projects p
        ${whereClause}
        ORDER BY p.updated_at DESC
@@ -92,7 +90,7 @@ export class ProjectRepository {
       ...r,
       member_count: (r as any).member_count_calc || 0,
       milestone_count: (r as any).milestone_count_calc || 0,
-      task_count: (r as any).task_count_calc || 0,
+      timeline_count: (r as any).timeline_count_calc || 0,
       members: memberSummaries.get(r.id) || [],
     }));
 
@@ -156,8 +154,8 @@ export class ProjectRepository {
     const memberIdsStr = data.member_ids ? JSON.stringify(data.member_ids) : null;
 
     const [result] = await pool.execute<ResultSetHeader>(
-      `INSERT INTO projects (code, name, description, status, project_type, planned_start_date, planned_end_date, member_ids, progress, task_count, completed_task_count, version)
-       VALUES (?, ?, ?, 'planning', ?, ?, ?, ?, 0, 0, 0, 1)`,
+      `INSERT INTO projects (code, name, description, status, project_type, planned_start_date, planned_end_date, member_ids, progress, version)
+       VALUES (?, ?, ?, 'planning', ?, ?, ?, ?, 0, 1)`,
       [data.code, data.name, data.description || null, data.project_type, data.planned_start_date || null, data.planned_end_date || null, memberIdsStr]
     );
 
@@ -181,8 +179,8 @@ export class ProjectRepository {
 
       // 创建项目
       const [result] = await connection.execute<ResultSetHeader>(
-        `INSERT INTO projects (code, name, description, status, project_type, planned_start_date, planned_end_date, member_ids, progress, task_count, completed_task_count, version)
-         VALUES (?, ?, ?, 'planning', ?, ?, ?, ?, 0, 0, 0, 1)`,
+        `INSERT INTO projects (code, name, description, status, project_type, planned_start_date, planned_end_date, member_ids, progress, version)
+         VALUES (?, ?, ?, 'planning', ?, ?, ?, ?, 0, 1)`,
         [data.code, data.name, data.description || null, data.project_type, data.planned_start_date || null, data.planned_end_date || null, memberIdsStr]
       );
 
@@ -278,8 +276,6 @@ export class ProjectRepository {
     const pool = getPool();
     await pool.execute(
       `UPDATE projects p SET
-        task_count = (SELECT COUNT(*) FROM wbs_tasks WHERE project_id = p.id),
-        completed_task_count = (SELECT COUNT(*) FROM wbs_tasks WHERE project_id = p.id AND status IN ('early_completed', 'on_time_completed', 'overdue_completed')),
         progress = COALESCE(
           (SELECT ROUND(AVG(completion_percentage))
            FROM milestones
@@ -436,9 +432,7 @@ export class ProjectRepository {
     try {
       await connection.beginTransaction();
 
-      // 先删除关联的时间线任务
-      await connection.execute('DELETE FROM timeline_tasks WHERE timeline_id = ?', [id]);
-      // 再删除时间线
+      // 删除时间线
       const [result] = await connection.execute<ResultSetHeader>(
         'DELETE FROM timelines WHERE id = ?',
         [id]
@@ -452,75 +446,6 @@ export class ProjectRepository {
     } finally {
       connection.release();
     }
-  }
-
-  // ========== 时间线任务 CRUD ==========
-
-  async getTimelineTasks(timelineId: string): Promise<TimelineTask[]> {
-    const pool = getPool();
-    const [rows] = await pool.execute<TimelineTaskRow[]>(
-      'SELECT * FROM timeline_tasks WHERE timeline_id = ? ORDER BY sort_order, start_date',
-      [timelineId]
-    );
-    return rows;
-  }
-
-  async getTimelineTaskById(id: string): Promise<TimelineTask | null> {
-    const pool = getPool();
-    const [rows] = await pool.execute<TimelineTaskRow[]>(
-      'SELECT * FROM timeline_tasks WHERE id = ?',
-      [id]
-    );
-    return rows[0] || null;
-  }
-
-  async createTimelineTask(data: CreateTimelineTaskRequest & { id: string; timeline_id: string }): Promise<string> {
-    const pool = getPool();
-    const [maxOrder] = await pool.execute<RowDataPacket[]>(
-      'SELECT COALESCE(MAX(sort_order), 0) as max_order FROM timeline_tasks WHERE timeline_id = ?',
-      [data.timeline_id]
-    );
-    const sortOrder = maxOrder[0].max_order + 1;
-
-    await pool.execute(
-      `INSERT INTO timeline_tasks (id, timeline_id, title, description, start_date, end_date, status, priority, progress, assignee_id, source_type, source_id, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, ?, ?)`,
-      [data.id, data.timeline_id, data.title, data.description || null, data.start_date, data.end_date, data.priority || 'medium', data.assignee_id || null, data.source_type || null, data.source_id || null, sortOrder]
-    );
-    return data.id;
-  }
-
-  async updateTimelineTask(id: string, data: UpdateTimelineTaskRequest): Promise<boolean> {
-    const pool = getPool();
-    const fields: string[] = [];
-    const values: (string | number | null)[] = [];
-
-    if (data.title !== undefined) { fields.push('title = ?'); values.push(data.title); }
-    if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description); }
-    if (data.start_date !== undefined) { fields.push('start_date = ?'); values.push(data.start_date); }
-    if (data.end_date !== undefined) { fields.push('end_date = ?'); values.push(data.end_date); }
-    if (data.status !== undefined) { fields.push('status = ?'); values.push(data.status); }
-    if (data.priority !== undefined) { fields.push('priority = ?'); values.push(data.priority); }
-    if (data.progress !== undefined) { fields.push('progress = ?'); values.push(data.progress); }
-    if (data.assignee_id !== undefined) { fields.push('assignee_id = ?'); values.push(data.assignee_id); }
-
-    if (fields.length === 0) return false;
-
-    values.push(id);
-    const [result] = await pool.execute<ResultSetHeader>(
-      `UPDATE timeline_tasks SET ${fields.join(', ')} WHERE id = ?`,
-      values
-    );
-    return result.affectedRows > 0;
-  }
-
-  async deleteTimelineTask(id: string): Promise<boolean> {
-    const pool = getPool();
-    const [result] = await pool.execute<ResultSetHeader>(
-      'DELETE FROM timeline_tasks WHERE id = ?',
-      [id]
-    );
-    return result.affectedRows > 0;
   }
 
   // ========== 项目成员管理 ==========
@@ -546,6 +471,8 @@ export class ProjectRepository {
         `INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)`,
         [projectId, data.user_id, data.role || 'member']
       );
+      // 同步更新 projects.member_ids JSON 字段
+      await this.syncProjectMemberIds(projectId);
       return true;
     } catch {
       return false; // 已存在
@@ -558,7 +485,28 @@ export class ProjectRepository {
       'DELETE FROM project_members WHERE project_id = ? AND user_id = ?',
       [projectId, userId]
     );
-    return result.affectedRows > 0;
+    if (result.affectedRows > 0) {
+      // 同步更新 projects.member_ids JSON 字段
+      await this.syncProjectMemberIds(projectId);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 同步 project_members 表数据到 projects.member_ids JSON 字段
+   */
+  private async syncProjectMemberIds(projectId: string): Promise<void> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT user_id FROM project_members WHERE project_id = ?',
+      [projectId]
+    );
+    const memberIds = rows.map(r => r.user_id);
+    await pool.execute(
+      'UPDATE projects SET member_ids = ? WHERE id = ?',
+      [JSON.stringify(memberIds), projectId]
+    );
   }
 
   async isProjectMember(projectId: string, userId: number): Promise<boolean> {
@@ -568,6 +516,18 @@ export class ProjectRepository {
       [projectId, userId]
     );
     return rows[0].count > 0;
+  }
+
+  /**
+   * 获取用户作为成员参与的所有项目ID列表
+   */
+  async getProjectIdsByMember(userId: number): Promise<string[]> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT DISTINCT project_id FROM project_members WHERE user_id = ?',
+      [userId]
+    );
+    return rows.map(r => String(r.project_id));
   }
 
   // ========== 节假日管理 ==========
@@ -618,13 +578,11 @@ export class ProjectRepository {
     const [rows] = await pool.execute<ProjectStatsRow[]>(
       `SELECT
         (SELECT COUNT(*) FROM timelines WHERE project_id = ?) as timeline_count,
-        (SELECT COUNT(*) FROM wbs_tasks WHERE project_id = ?) as task_count,
-        (SELECT COUNT(*) FROM wbs_tasks WHERE project_id = ? AND status IN ('early_completed', 'on_time_completed', 'overdue_completed')) as completed_task_count,
         (SELECT COUNT(*) FROM milestones WHERE project_id = ?) as milestone_count,
         (SELECT COUNT(*) FROM milestones WHERE project_id = ? AND status = 'achieved') as achieved_milestone_count,
         (SELECT COUNT(*) FROM project_members WHERE project_id = ?) as member_count,
         (SELECT progress FROM projects WHERE id = ?) as progress`,
-      [projectId, projectId, projectId, projectId, projectId, projectId, projectId]
+      [projectId, projectId, projectId, projectId, projectId]
     );
     return rows[0];
   }

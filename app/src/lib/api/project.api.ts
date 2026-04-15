@@ -9,7 +9,6 @@ import type {
   ProjectMember,
   Milestone,
   Timeline,
-  TimelineTask,
   ProjectStats,
   ProjectQueryParams,
   CreateProjectRequest,
@@ -212,70 +211,6 @@ export async function deleteTimeline(id: string): Promise<void> {
   await apiClient.delete(`${BASE_PATH}/timelines/${id}`);
 }
 
-// ========== 时间线任务 ==========
-// 注：请求/响应拦截器会自动转换 snake_case <-> camelCase
-
-/**
- * 获取时间线任务
- */
-export async function getTimelineTasks(timelineId: string): Promise<TimelineTask[]> {
-  const response = await apiClient.get<ApiResponse<TimelineTask[]>>(`${BASE_PATH}/timelines/${timelineId}/tasks`);
-  return (response as any).data ?? [];
-}
-
-/**
- * 创建时间线任务
- */
-export async function createTimelineTask(
-  timelineId: string,
-  data: {
-    title: string;
-    description?: string;
-    startDate: string;
-    endDate: string;
-    priority?: 'urgent' | 'high' | 'medium' | 'low';
-    assigneeId?: number;
-  }
-): Promise<{ id: string }> {
-  const response = await apiClient.post<ApiResponse<{ id: string }>>(
-    `${BASE_PATH}/timelines/${timelineId}/tasks`,
-    { ...data, priority: data.priority || 'medium' }
-  );
-  return (response as any).data;
-}
-
-/**
- * 更新时间线任务
- * 注意：前端使用 camelCase，后端期望 snake_case
- */
-export async function updateTimelineTask(
-  taskId: string,
-  data: {
-    title?: string;
-    description?: string;
-    startDate?: string;
-    endDate?: string;
-    status?: string;
-    priority?: string;
-    progress?: number;
-    assigneeId?: number;
-  }
-): Promise<{ updated: boolean }> {
-  // 请求拦截器会自动转换 camelCase -> snake_case
-  const response = await apiClient.put<ApiResponse<{ updated: boolean }>>(
-    `${BASE_PATH}/timeline-tasks/${taskId}`,
-    data
-  );
-  return (response as any).data;
-}
-
-/**
- * 删除时间线任务
- */
-export async function deleteTimelineTask(taskId: string): Promise<void> {
-  await apiClient.delete(`${BASE_PATH}/timeline-tasks/${taskId}`);
-}
-
 // ========== 项目成员 ==========
 
 /**
@@ -356,10 +291,6 @@ export const projectApi = {
   createTimeline,
   updateTimeline,
   deleteTimeline,
-  getTimelineTasks,
-  createTimelineTask,
-  updateTimelineTask,
-  deleteTimelineTask,
   getProjectMembers,
   addProjectMember,
   removeProjectMember,

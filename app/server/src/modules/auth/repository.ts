@@ -139,12 +139,14 @@ export class AuthRepository {
     const total = countRows[0].count;
 
     // 查询列表
+    // 注意：LIMIT/OFFSET 使用模板字符串直接拼接，因为 pageSize 和 offset 是内部计算的数值，安全可控
+    // mysql2 的 prepared statement 对 LIMIT 参数类型处理有问题
     const [rows] = await pool.execute<UserRow[]>(
       `SELECT id, username, real_name, role, department_id, email, phone, is_active, created_at, updated_at
        FROM users ${whereClause}
        ORDER BY created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, pageSize, offset]
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params
     );
 
     return { items: rows, total };
@@ -153,9 +155,9 @@ export class AuthRepository {
   async createUser(data: CreateUserRequest & { password: string }): Promise<number> {
     const pool = getPool();
     const [result] = await pool.execute(
-      `INSERT INTO users (username, password, real_name, role, department_id, email, phone, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
-      [data.username, data.password, data.real_name, data.role, data.department_id || null, data.email || null, data.phone || null]
+      `INSERT INTO users (username, password, name, real_name, role, department_id, email, phone, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
+      [data.username, data.password, data.real_name, data.real_name, data.role, data.department_id || null, data.email || null, data.phone || null]
     );
     return (result as any).insertId;
   }

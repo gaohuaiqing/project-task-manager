@@ -129,6 +129,11 @@
 | `project-card-progress` | div | 项目进度条 |
 | `project-card-btn-edit` | Button | 编辑项目按钮 |
 | `project-card-btn-delete` | Button | 删除项目按钮 |
+| `project-card-btn-menu` | Button | 卡片右上角 MoreVertical 按钮 |
+| `project-menu-import-export` | DropdownMenuTrigger | 导入导出下拉菜单触发器 |
+| `project-menuitem-export` | DropdownMenuItem | 导出项目列表 |
+| `project-menuitem-download-template` | DropdownMenuItem | 下载导入模板 |
+| `project-menuitem-import` | DropdownMenuItem | 导入项目数据 |
 
 ### 2.5 项目表单 (/projects - 新建/编辑弹窗)
 
@@ -176,6 +181,13 @@
 | `detail-dialog-add-milestone` | Dialog | 添加里程碑对话框 |
 | `detail-dialog-edit-milestone` | Dialog | 编辑里程碑对话框 |
 | `detail-dialog-delete-confirm` | ConfirmDialog | 删除确认对话框 |
+| `timeline-btn-go-today` | Button | 定位到今天按钮 |
+| `timeline-btn-add-timeline` | Button | 添加时间轴按钮 |
+| `timeline-btn-add-milestone` | Button | 添加里程碑按钮 |
+| `timeline-toggle-zoom-day` | ToggleGroupItem | 日视图切换 |
+| `timeline-toggle-zoom-week` | ToggleGroupItem | 周视图切换 |
+| `timeline-toggle-zoom-month` | ToggleGroupItem | 月视图切换 |
+| `timeline-slider-zoom` | Slider | 缩放滑块 |
 
 ### 2.7 任务管理 (/tasks)
 
@@ -204,8 +216,6 @@
 | `task-table-header` | TableHeader | 表头区域 |
 | `task-table-row` | TableRow | 任务行 |
 | `task-table-row-toggle` | Button | 行展开/折叠按钮 |
-| `task-table-checkbox-single` | Checkbox | 单行勾选框 |
-| `task-table-checkbox-header` | Checkbox | 表头全选勾选框 |
 | `task-table-badge-status` | Badge | 任务状态标签 |
 | `task-table-badge-type` | Badge | 任务类型标签 |
 | `task-table-badge-priority` | Badge | 任务优先级标签 |
@@ -223,6 +233,8 @@
 | `task-menuitem-export-all` | DropdownMenuItem | 导出全部任务 |
 | `task-checkbox-export-history` | Checkbox | 导出时包含延期历史 |
 | `task-dialog-delete-confirm` | ConfirmDialog | 删除确认对话框 |
+| `task-import-btn-upload` | Button | 导入上传按钮 |
+| `confirm-btn-ok` | Button | 确认对话框确认按钮 |
 
 ### 2.9 任务表单 (/tasks - 新建/编辑弹窗)
 
@@ -231,22 +243,19 @@
 | data-testid | 元素 | 说明 |
 |-------------|------|------|
 | `task-dialog-form` | Dialog | 任务表单对话框 |
-| `task-input-description` | Input | 任务描述输入框 |
+| `task-input-description` | Textarea | 任务描述输入框 |
 | `task-select-project` | Select | 所属项目下拉选择 |
 | `task-select-type` | Select | 任务类型下拉选择 |
-| `task-select-status` | Select | 任务状态下拉选择 |
 | `task-select-priority` | Select | 优先级下拉选择 |
 | `task-input-start-date` | Input[type=date] | 计划开始日期 |
-| `task-input-end-date` | Input[type=date] | 计划结束日期 |
 | `task-input-estimated-days` | Input | 预估工期（天） |
-| `task-input-progress` | Input | 完成百分比 |
+| `task-input-fulltime-ratio` | Input | 全职比（%） |
 | `task-input-actual-start-date` | Input[type=date] | 实际开始日期 |
 | `task-input-actual-end-date` | Input[type=date] | 实际结束日期 |
-| `task-input-actual-days` | Input | 实际工期（天） |
 | `task-select-assignee` | Select | 负责人下拉选择 |
 | `task-selector-predecessors` | PredecessorSelector | 前置任务选择器 |
 | `task-select-dependency-type` | DependencyTypeSelector | 依赖类型选择器 |
-| `task-textarea-remark` | Textarea | 备注文本框 |
+| `task-input-lag-days` | Input | 提前/落后天数 |
 | `task-btn-submit` | Button[type=submit] | 提交表单按钮 |
 | `task-btn-cancel` | Button | 取消按钮 |
 
@@ -263,6 +272,8 @@
 | `task-detail-panel-progress` | ProgressRecordsPanel | 进展记录面板 |
 | `task-detail-panel-delays` | DelayHistoryPanel | 延期历史面板 |
 | `task-detail-panel-changes` | PlanChangesPanel | 计划变更面板 |
+| `progress-input-content` | Textarea | 进展记录内容输入框 |
+| `progress-btn-submit` | Button | 提交进展记录按钮 |
 
 ### 2.11 任务导入弹窗
 
@@ -500,9 +511,9 @@
 | 登录页 | 6 |
 | 全局布局 | 15 |
 | 仪表板 | 17 |
-| 项目列表 | 11 |
+| 项目列表 | 16 |
 | 项目表单 | 15 |
-| 项目详情 | 18 |
+| 项目详情 | 25 |
 | 任务筛选栏 | 9 |
 | WBS 表格 | 24 |
 | 任务表单 | 20 |
@@ -519,7 +530,7 @@
 | 设置 - 能力模型 | 8 |
 | 设置 - 节假日 | 12 |
 | 设置 - 系统日志 | 10 |
-| **合计** | **273** |
+| **合计** | **296** |
 
 ---
 

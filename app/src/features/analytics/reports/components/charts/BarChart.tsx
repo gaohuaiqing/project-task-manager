@@ -80,16 +80,16 @@ export function BarChart({
         {isVertical ? (
           <XAxis
             type="number"
-            tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
             stroke="hsl(var(--border))"
             tickLine={false}
             axisLine={false}
-            label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -5, fontSize: 11, fill: 'hsl(var(--muted-foreground))' } : undefined}
+            label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -5, fontSize: 10, fill: 'hsl(var(--muted-foreground))' } : undefined}
           />
         ) : (
           <XAxis
             dataKey="name"
-            tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
             stroke="hsl(var(--border))"
             tickLine={false}
             axisLine={false}
@@ -97,7 +97,7 @@ export function BarChart({
             angle={needRotate ? -35 : 0}
             textAnchor={needRotate ? 'end' : 'middle'}
             height={needRotate ? 60 : 40}
-            label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: needRotate ? -5 : -2, fontSize: 11, fill: 'hsl(var(--muted-foreground))' } : undefined}
+            label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: needRotate ? -5 : -2, fontSize: 10, fill: 'hsl(var(--muted-foreground))' } : undefined}
           />
         )}
 
@@ -106,7 +106,7 @@ export function BarChart({
           <YAxis
             type="category"
             dataKey="name"
-            tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
             stroke="hsl(var(--border))"
             tickLine={false}
             axisLine={false}
@@ -114,11 +114,11 @@ export function BarChart({
           />
         ) : (
           <YAxis
-            tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
             stroke="hsl(var(--border))"
             tickLine={false}
             axisLine={false}
-            label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: 'hsl(var(--muted-foreground))', style: { textAnchor: 'middle' } } : undefined}
+            label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, fontSize: 10, fill: 'hsl(var(--muted-foreground))', style: { textAnchor: 'middle' } } : undefined}
           />
         )}
 
@@ -128,10 +128,10 @@ export function BarChart({
             border: '1px solid hsl(var(--border))',
             borderRadius: '8px',
             boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-            fontSize: '12px',
+            fontSize: '11px',
           }}
         />
-        {showLegend && <Legend wrapperStyle={{ fontSize: '11px' }} iconType="circle" />}
+        {showLegend && <Legend wrapperStyle={{ fontSize: '10px' }} iconType="circle" />}
         {data.datasets.map((dataset, index) => (
           <Bar
             key={dataset.label}

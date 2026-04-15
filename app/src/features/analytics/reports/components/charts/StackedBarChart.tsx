@@ -52,7 +52,7 @@ export function StackedBarChart({
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
         <XAxis
           dataKey="name"
-          tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
           stroke="hsl(var(--border))"
           tickLine={false}
           axisLine={false}
@@ -62,7 +62,7 @@ export function StackedBarChart({
           height={60}
         />
         <YAxis
-          tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
           stroke="hsl(var(--border))"
           tickLine={false}
           axisLine={false}
@@ -73,10 +73,10 @@ export function StackedBarChart({
             border: '1px solid hsl(var(--border))',
             borderRadius: '8px',
             boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-            fontSize: '12px',
+            fontSize: '11px',
           }}
         />
-        {showLegend && <Legend wrapperStyle={{ fontSize: '11px' }} iconType="circle" />}
+        {showLegend && <Legend wrapperStyle={{ fontSize: '10px' }} iconType="circle" />}
         {data.datasets.map((dataset, index) => (
           <Bar
             key={dataset.label}

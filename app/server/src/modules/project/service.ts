@@ -5,12 +5,11 @@ import { ValidationError, ForbiddenError } from '../../core/errors';
 import { audit } from '../../core/audit';
 import type { User } from '../../core/types';
 import type {
-  Project, ProjectListItem, Milestone, Timeline, TimelineTask,
+  Project, ProjectListItem, Milestone, Timeline,
   ProjectMember, Holiday, ProjectStats,
   CreateProjectRequest, UpdateProjectRequest,
   CreateMilestoneRequest, UpdateMilestoneRequest,
   CreateTimelineRequest, UpdateTimelineRequest,
-  CreateTimelineTaskRequest, UpdateTimelineTaskRequest,
   AddProjectMemberRequest, CreateHolidayRequest
 } from './types';
 
@@ -302,95 +301,6 @@ export class ProjectService {
     }
   }
 
-  // ========== 时间线任务管理 ==========
-
-  async getTimelineTasks(timelineId: string): Promise<TimelineTask[]> {
-    return this.repo.getTimelineTasks(timelineId);
-  }
-
-  async getTimelineTasksWithAuth(timelineId: string, currentUser: User): Promise<TimelineTask[]> {
-    // 先获取时间线所属项目
-    const timeline = await this.repo.getTimelineById(timelineId);
-    if (!timeline) {
-      throw new ValidationError('时间线不存在');
-    }
-
-    // 验证权限
-    const isMember = await this.repo.isProjectMember(timeline.project_id, currentUser.id);
-    if (currentUser.role !== 'admin' && !isMember) {
-      throw new ForbiddenError('无权限访问此时间线');
-    }
-
-    return this.repo.getTimelineTasks(timelineId);
-  }
-
-  async createTimelineTask(timelineId: string, data: CreateTimelineTaskRequest, currentUser: User): Promise<string> {
-    // 验证时间线存在
-    const timeline = await this.repo.getTimelineById(timelineId);
-    if (!timeline) {
-      throw new ValidationError('时间线不存在');
-    }
-
-    // 验证时间范围
-    const startDate = data.start_date;
-    const endDate = data.end_date;
-    const timelineStart = timeline.start_date.toISOString().split('T')[0];
-    const timelineEnd = timeline.end_date.toISOString().split('T')[0];
-
-    if (startDate < timelineStart) {
-      throw new ValidationError('任务开始日期不能早于时间线开始日期');
-    }
-    if (endDate > timelineEnd) {
-      throw new ValidationError('任务结束日期不能晚于时间线结束日期');
-    }
-    if (endDate < startDate) {
-      throw new ValidationError('任务结束日期不能早于开始日期');
-    }
-
-    const taskId = uuidv4();
-    await this.repo.createTimelineTask({ ...data, id: taskId, timeline_id: timelineId });
- return taskId;
-  }
-
-  async updateTimelineTask(id: string, data: UpdateTimelineTaskRequest, currentUser: User): Promise<boolean> {
-    // 如果有日期变更，需要验证时间范围
-    if (data.start_date || data.end_date) {
-      const task = await this.repo.getTimelineTaskById(id);
-      if (!task) {
-        throw new ValidationError('任务不存在');
-      }
-
-      const timeline = await this.repo.getTimelineById(task.timeline_id);
-      if (!timeline) {
-        throw new ValidationError('时间线不存在');
-      }
-
-      const startDate = data.start_date || task.start_date.toISOString().split('T')[0];
-      const endDate = data.end_date || task.end_date.toISOString().split('T')[0];
-      const timelineStart = timeline.start_date.toISOString().split('T')[0];
-      const timelineEnd = timeline.end_date.toISOString().split('T')[0];
-
-      if (startDate < timelineStart) {
-        throw new ValidationError('任务开始日期不能早于时间线开始日期');
-      }
-      if (endDate > timelineEnd) {
-        throw new ValidationError('任务结束日期不能晚于时间线结束日期');
-      }
-      if (endDate < startDate) {
-        throw new ValidationError('任务结束日期不能早于开始日期');
-      }
-    }
-
-    return this.repo.updateTimelineTask(id, data);
-  }
-
-  async deleteTimelineTask(id: string, currentUser: User): Promise<void> {
-    const deleted = await this.repo.deleteTimelineTask(id);
-    if (!deleted) {
-      throw new ValidationError('删除任务失败');
-    }
-  }
-
   // ========== 项目成员管理 ==========
 
   async getProjectMembers(projectId: string): Promise<ProjectMember[]> {
@@ -439,8 +349,8 @@ export class ProjectService {
   }
 
   async createHoliday(data: CreateHolidayRequest, currentUser: User): Promise<void> {
-    if (currentUser.role !== 'admin') {
-      throw new ForbiddenError('只有管理员可以管理节假日');
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
+      throw new ForbiddenError('只有管理员或部门经理可以管理节假日');
     }
 
     const created = await this.repo.createHoliday(data);
@@ -450,8 +360,8 @@ export class ProjectService {
   }
 
   async deleteHoliday(date: string, currentUser: User): Promise<void> {
-    if (currentUser.role !== 'admin') {
-      throw new ForbiddenError('只有管理员可以管理节假日');
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
+      throw new ForbiddenError('只有管理员或部门经理可以管理节假日');
     }
 
     const deleted = await this.repo.deleteHoliday(date);
