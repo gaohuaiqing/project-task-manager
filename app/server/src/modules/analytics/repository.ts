@@ -1,5 +1,6 @@
 // app/server/src/modules/analytics/repository.ts
 import { getPool } from '../../core/db';
+import { sanitizeString } from '../../core/utils/sanitize';
 import type { RowDataPacket } from 'mysql2/promise';
 import type {
   DashboardStats, ProjectProgressReport, TaskStatisticsReport,
@@ -20,13 +21,22 @@ import type {
   HighRiskProjectItem, GroupEfficiencyItem, MemberStatusItem,
   GroupActivityTrendPoint, MemberActivityTrendPoint, TodoTaskItem,
 } from './types';
-import { buildTaskScopeFilter, buildProjectScopeFilter, ScopeFilter } from './query-builder';
+import { buildTaskScopeFilter, buildProjectScopeFilter, buildUserDepartmentScopeFilter, ScopeFilter, getManagedDepartmentIds as getManagedDepartmentIdsSafe, getTechManagerGroupIds as getTechManagerGroupIdsSafe } from './query-builder';
+import { QUERY_LIMITS, TIME_INTERVALS, ACTIVITY_PERCENTAGES, STATUS_THRESHOLDS, ESTIMATION_THRESHOLDS, WBS_COMPLEXITY, DEFAULTS, STATUS_CONDITIONS, MUTEX_STATUS_CONDITIONS } from './constants';
 import type { User } from '../../core/types';
+import CacheService from '../../services/CacheService';
 
 export class AnalyticsRepository {
-  // ========== 仪表板统计（优化版：角色感知数据隔离）==========
+  // ========== 仪表板统计（优化版：角色感知数据隔离 + 缓存）==========
 
   async getDashboardStats(user: User): Promise<DashboardStats> {
+    // 尝试从缓存获取（缓存键基于用户角色和部门）
+    const cacheKey = `dashboard:stats:${user.role}:${user.id}`;
+    const cached = CacheService.get<DashboardStats>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const pool = getPool();
 
     // 构建角色感知的项目过滤条件
@@ -35,54 +45,98 @@ export class AnalyticsRepository {
     const [projectRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         COUNT(*) as total_projects,
-        SUM(CASE WHEN p.status = 'in_progress' THEN 1 ELSE 0 END) as active_projects,
+        SUM(CASE WHEN p.status IN ('in_progress', 'planning', 'active') THEN 1 ELSE 0 END) as active_projects,
         SUM(CASE WHEN p.status = 'completed' THEN 1 ELSE 0 END) as completed_projects,
-        COALESCE(AVG(CASE WHEN p.status = 'in_progress' THEN p.progress ELSE NULL END), 0) as avg_progress
+        COALESCE(AVG(p.progress), 0) as avg_progress
        FROM projects p
        WHERE ${projectScope.clause}`,
       projectScope.params
     );
 
+    // 工程师角色: 任务统计仅统计个人分配的任务
+    const isEngineer = user.role === 'engineer';
+
     // 构建角色感知的任务过滤条件
-    const taskScope = await buildTaskScopeFilter(user, 't', true);
+    const taskScope = isEngineer
+      ? { clause: 't.assignee_id = ?', params: [user.id] }
+      : await buildTaskScopeFilter(user, 't', true);
 
     const [taskRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         COUNT(*) as total_tasks,
-        SUM(CASE WHEN t.status = 'not_started' THEN 1 ELSE 0 END) as pending_tasks,
-        SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_tasks,
-        SUM(CASE WHEN t.status IN ('early_completed', 'on_time_completed', 'overdue_completed') THEN 1 ELSE 0 END) as completed_tasks,
-        SUM(CASE WHEN t.status = 'delay_warning' THEN 1 ELSE 0 END) as delay_warning_tasks,
-        SUM(CASE WHEN t.status = 'delayed' THEN 1 ELSE 0 END) as overdue_tasks
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.pendingApproval} THEN 1 ELSE 0 END) as pending_approval_tasks,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.rejected} THEN 1 ELSE 0 END) as rejected_tasks,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.notStarted} THEN 1 ELSE 0 END) as pending_tasks,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.inProgress} THEN 1 ELSE 0 END) as in_progress_tasks,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_tasks,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 1 ELSE 0 END) as delay_warning_tasks,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as overdue_tasks
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        WHERE ${taskScope.clause}`,
       taskScope.params
     );
 
-    // 查询3：成员统计（简单的单查询）
-    const [memberRows] = await pool.execute<RowDataPacket[]>(
-      'SELECT COUNT(*) as total_members FROM users WHERE is_active = 1',
-      []
-    );
+    // 成员统计: admin 显示全局，其他角色按部门/组过滤
+    let memberCount = 0;
+    if (user.role === 'admin') {
+      const [memberRows] = await pool.execute<RowDataPacket[]>(
+        'SELECT COUNT(*) as total_members FROM users WHERE is_active = 1',
+        []
+      );
+      memberCount = memberRows[0].total_members || 0;
+    } else if (user.department_id) {
+      // 获取当前角色可见范围内的成员数
+      const deptIds = await this.getVisibleDepartmentIds(user);
+      if (deptIds.length > 0) {
+        const placeholders = deptIds.map(() => '?').join(',');
+        const [memberRows] = await pool.execute<RowDataPacket[]>(
+          `SELECT COUNT(DISTINCT id) as total_members FROM users WHERE is_active = 1 AND department_id IN (${placeholders})`,
+          deptIds
+        );
+        memberCount = memberRows[0].total_members || 0;
+      }
+    }
 
     const projectResult = projectRows[0];
     const taskResult = taskRows[0];
-    const memberResult = memberRows[0];
 
-    return {
-      total_projects: projectResult.total_projects || 0,
-      active_projects: projectResult.active_projects || 0,
-      completed_projects: projectResult.completed_projects || 0,
-      total_tasks: taskResult.total_tasks || 0,
-      pending_tasks: taskResult.pending_tasks || 0,
-      in_progress_tasks: taskResult.in_progress_tasks || 0,
-      completed_tasks: taskResult.completed_tasks || 0,
-      delay_warning_tasks: taskResult.delay_warning_tasks || 0,
-      overdue_tasks: taskResult.overdue_tasks || 0,
-      total_members: memberResult.total_members || 0,
-      avg_progress: Math.round(projectResult.avg_progress || 0),
+    // 活跃度计算：7日内有更新的任务占比（基于 updated_at）
+    const [activityRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT
+        COUNT(*) as total_tasks,
+        SUM(CASE WHEN t.updated_at >= DATE_SUB(NOW(), INTERVAL ${TIME_INTERVALS.WEEK_DAYS} DAY) THEN 1 ELSE 0 END) as active_tasks
+       FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
+       WHERE ${taskScope.clause}`,
+      taskScope.params
+    );
+    const activityResult = activityRows[0];
+    const activityRate = (Number(activityResult.total_tasks) || 0) > 0
+      ? Math.round((Number(activityResult.active_tasks) / Number(activityResult.total_tasks)) * 100)
+      : 0;
+
+    const result: DashboardStats = {
+      total_projects: Number(projectResult.total_projects) || 0,
+      active_projects: Number(projectResult.active_projects) || 0,
+      completed_projects: Number(projectResult.completed_projects) || 0,
+      total_tasks: Number(taskResult.total_tasks) || 0,
+      pending_approval_tasks: Number(taskResult.pending_approval_tasks) || 0,
+      rejected_tasks: Number(taskResult.rejected_tasks) || 0,
+      pending_tasks: Number(taskResult.pending_tasks) || 0,
+      in_progress_tasks: Number(taskResult.in_progress_tasks) || 0,
+      completed_tasks: Number(taskResult.completed_tasks) || 0,
+      delay_warning_tasks: Number(taskResult.delay_warning_tasks) || 0,
+      overdue_tasks: Number(taskResult.overdue_tasks) || 0,
+      total_members: memberCount,
+      avg_progress: Math.round(Number(projectResult.avg_progress) || 0),
+      activity_rate: activityRate,  // 新增：活跃度（7日内有更新的任务占比）
     };
+
+    // 缓存结果（3分钟，仪表板数据更新频繁）
+    CacheService.set(cacheKey, result, 180);
+
+    return result;
   }
 
   async getUrgentTasks(user: User): Promise<unknown[]> {
@@ -95,10 +149,10 @@ export class AnalyticsRepository {
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
-       WHERE t.priority = 'urgent' AND t.status NOT IN ('early_completed', 'on_time_completed', 'overdue_completed')
+       WHERE t.priority = 'urgent' AND ${STATUS_CONDITIONS.notCompleted}
        AND ${scope.clause}
        ORDER BY t.end_date ASC
-       LIMIT 10`,
+       LIMIT ${QUERY_LIMITS.URGENT_TASKS}`,
       scope.params
     );
     return rows;
@@ -109,7 +163,7 @@ export class AnalyticsRepository {
 
     // 设置默认日期范围（最近30天）
     const end = endDate || new Date().toISOString().split('T')[0];
-    const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const start = startDate || new Date(Date.now() - TIME_INTERVALS.MONTH_DAYS * TIME_INTERVALS.MS_PER_DAY).toISOString().split('T')[0];
 
     // 构建角色感知的任务过滤条件
     const scope = await buildTaskScopeFilter(user, 't', true);
@@ -119,13 +173,15 @@ export class AnalyticsRepository {
     const projectParams = projectId && projectId !== 'all' ? [projectId] : [];
 
     // 使用 UNION ALL 合并三个查询，减少数据库往返
+    // 性能优化：使用范围查询替代 DATE() 函数，使索引可精确命中
+    // DATE(col) BETWEEN a AND b → col >= a AND col < b + 1 DAY（避免函数计算导致索引失效）
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT date, type, count FROM (
         -- 每日新建任务数
         SELECT DATE(t.created_at) as date, 'created' as type, COUNT(*) as count
         FROM wbs_tasks t
         JOIN projects p ON t.project_id = p.id
-        WHERE DATE(t.created_at) BETWEEN ? AND ?
+        WHERE t.created_at >= ? AND t.created_at < DATE_ADD(?, INTERVAL 1 DAY)
           AND ${projectFilter}
           AND ${scope.clause}
         GROUP BY DATE(t.created_at)
@@ -136,8 +192,8 @@ export class AnalyticsRepository {
         SELECT DATE(t.updated_at) as date, 'completed' as type, COUNT(*) as count
         FROM wbs_tasks t
         JOIN projects p ON t.project_id = p.id
-        WHERE DATE(t.updated_at) BETWEEN ? AND ?
-          AND t.status IN ('early_completed', 'on_time_completed', 'overdue_completed')
+        WHERE t.updated_at >= ? AND t.updated_at < DATE_ADD(?, INTERVAL 1 DAY)
+          AND ${STATUS_CONDITIONS.completed}
           AND ${projectFilter}
           AND ${scope.clause}
         GROUP BY DATE(t.updated_at)
@@ -148,8 +204,8 @@ export class AnalyticsRepository {
         SELECT DATE(t.updated_at) as date, 'delayed' as type, COUNT(*) as count
         FROM wbs_tasks t
         JOIN projects p ON t.project_id = p.id
-        WHERE DATE(t.updated_at) BETWEEN ? AND ?
-          AND t.status IN ('delay_warning', 'delayed')
+        WHERE t.updated_at >= ? AND t.updated_at < DATE_ADD(?, INTERVAL 1 DAY)
+          AND ${STATUS_CONDITIONS.delayedOrWarning}
           AND ${projectFilter}
           AND ${scope.clause}
         GROUP BY DATE(t.updated_at)
@@ -176,7 +232,74 @@ export class AnalyticsRepository {
       else if (r.type === 'delayed') point.delayed = r.count;
     });
 
+    // 补全日期范围内缺失的日期（确保图表X轴连续）
+    let cursor = new Date(start);
+    const endDateObj = new Date(end);
+    while (cursor <= endDateObj) {
+      const dateStr = cursor.toISOString().split('T')[0];
+      if (!dateMap.has(dateStr)) {
+        dateMap.set(dateStr, { date: dateStr, created: 0, completed: 0, delayed: 0 });
+      }
+      cursor = new Date(cursor.getTime() + TIME_INTERVALS.MS_PER_DAY);
+    }
+
     return Array.from(dateMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * 获取优先级完成率趋势
+   * 返回按周聚合的各优先级任务完成率
+   */
+  async getPriorityCompletionTrend(
+    startDate: string,
+    endDate: string,
+    user: User,
+    projectId?: string
+  ): Promise<Array<{ period: string; priority: string; completionRate: number; totalTasks: number; completedTasks: number }>> {
+    const pool = getPool();
+
+    // 设置默认日期范围（最近8周）
+    const end = endDate || new Date().toISOString().split('T')[0];
+    const start = startDate || new Date(Date.now() - 8 * 7 * TIME_INTERVALS.MS_PER_DAY).toISOString().split('T')[0];
+
+    // 构建角色感知的任务过滤条件
+    const scope = await buildTaskScopeFilter(user, 't', true);
+
+    // 构建项目过滤条件
+    const projectFilter = projectId && projectId !== 'all' ? 't.project_id = ?' : '1=1';
+    const projectParams = projectId && projectId !== 'all' ? [projectId] : [];
+
+    // 按周聚合各优先级的完成率
+    // 使用 YEARWEEK 函数按周分组
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT
+        DATE_FORMAT(MIN(DATE(t.created_at)), '%Y-%m-%d') as period_start,
+        YEARWEEK(DATE(t.created_at), 1) as year_week,
+        t.priority,
+        COUNT(*) as total_tasks,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_tasks,
+        ROUND(
+          SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+          1
+        ) as completion_rate
+       FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
+       WHERE t.created_at >= ? AND t.created_at < DATE_ADD(?, INTERVAL 1 DAY)
+         AND ${projectFilter}
+         AND ${scope.clause}
+         AND t.priority IN ('urgent', 'high', 'medium', 'low')
+       GROUP BY YEARWEEK(DATE(t.created_at), 1), t.priority
+       ORDER BY year_week ASC, FIELD(t.priority, 'urgent', 'high', 'medium', 'low')`,
+      [start, end, ...projectParams, ...scope.params]
+    );
+
+    return rows.map(r => ({
+      period: r.period_start,
+      priority: r.priority,
+      completionRate: r.completion_rate || 0,
+      totalTasks: r.total_tasks,
+      completedTasks: r.completed_tasks,
+    }));
   }
 
   // ========== 获取所有项目进度（仪表板专用） ==========
@@ -193,14 +316,14 @@ export class AnalyticsRepository {
         p.planned_end_date as deadline,
         p.progress,
         COUNT(t.id) as total_tasks,
-        SUM(CASE WHEN t.status IN ('early_completed', 'on_time_completed', 'overdue_completed') THEN 1 ELSE 0 END) as completed_tasks,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_tasks,
         p.member_ids
        FROM projects p
        LEFT JOIN wbs_tasks t ON p.id = t.project_id
-       WHERE p.status IN ('planning', 'active', 'completed') AND ${scope.clause}
+       WHERE p.status IN ('planning', 'active', 'in_progress', 'completed') AND ${scope.clause}
        GROUP BY p.id, p.name, p.status, p.planned_end_date, p.progress, p.member_ids
        ORDER BY p.planned_end_date ASC
-       LIMIT 10`,
+       LIMIT ${QUERY_LIMITS.PROJECTS}`,
       scope.params
     );
 
@@ -249,9 +372,11 @@ export class AnalyticsRepository {
         project_id: row.project_id,
         project_name: row.project_name,
         status: row.status,
-        progress: row.progress || (row.total_tasks > 0 ? Math.round((row.completed_tasks / row.total_tasks) * 100) : 0),
-        total_tasks: row.total_tasks || 0,
-        completed_tasks: row.completed_tasks || 0,
+        progress: (row.progress !== null && row.progress !== undefined)
+          ? Number(row.progress)
+          : (Number(row.total_tasks) > 0 ? Math.round((Number(row.completed_tasks) / Number(row.total_tasks)) * 100) : 0),
+        total_tasks: Number(row.total_tasks) || 0,
+        completed_tasks: Number(row.completed_tasks) || 0,
         deadline: row.deadline ? (row.deadline instanceof Date ? row.deadline.toISOString().split('T')[0] : String(row.deadline)) : null,
         members
       });
@@ -278,13 +403,16 @@ export class AnalyticsRepository {
 
   // ========== 项目进度报表 ==========
 
-  async getProjectProgressReport(projectId: string): Promise<ProjectProgressReport | null> {
+  async getProjectProgressReport(projectId: string, user: User): Promise<ProjectProgressReport | null> {
     const pool = getPool();
 
-    // 获取项目基本信息
+    // 角色过滤：验证用户有权访问该项目
+    const projectScope = await buildProjectScopeFilter(user, 'p');
+
+    // 获取项目基本信息（带角色过滤）
     const [projectRows] = await pool.execute<RowDataPacket[]>(
-      'SELECT id, name, progress FROM projects WHERE id = ?',
-      [projectId]
+      `SELECT id, name, progress FROM projects p WHERE id = ? AND ${projectScope.clause}`,
+      [projectId, ...projectScope.params]
     );
     if (projectRows.length === 0) return null;
     const project = projectRows[0];
@@ -293,8 +421,8 @@ export class AnalyticsRepository {
     const [statsRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         COUNT(*) as total_tasks,
-        SUM(CASE WHEN status IN ('early_completed', 'on_time_completed', 'overdue_completed') THEN 1 ELSE 0 END) as completed_tasks,
-        SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_tasks
+        SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_tasks,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.inProgress} THEN 1 ELSE 0 END) as in_progress_tasks
        FROM wbs_tasks WHERE project_id = ?`,
       [projectId]
     );
@@ -315,10 +443,15 @@ export class AnalyticsRepository {
       [projectId]
     );
 
+    // 进度计算：优先使用存储值，仅当 null/undefined 时才使用计算值（统一使用 Number() 包裹）
+    const progress = (project.progress !== null && project.progress !== undefined)
+      ? Number(project.progress)
+      : (Number(stats.total_tasks) > 0 ? Math.round((Number(stats.completed_tasks) / Number(stats.total_tasks)) * 100) : 0);
+
     return {
       project_id: project.id,
       project_name: project.name,
-      progress: project.progress || (stats.total_tasks > 0 ? Math.round((stats.completed_tasks / stats.total_tasks) * 100) : 0),
+      progress,
       total_tasks: stats.total_tasks,
       completed_tasks: stats.completed_tasks,
       in_progress_tasks: stats.in_progress_tasks || 0,
@@ -327,12 +460,102 @@ export class AnalyticsRepository {
     };
   }
 
+  /**
+   * 获取项目进度汇总报表（多项目对比视图）
+   * 性能优化：使用 Promise.all 并行执行多个查询
+   */
+  async getProjectProgressSummary(user: User): Promise<import('./types').ProjectProgressSummary> {
+    const pool = getPool();
+
+    // 尝试从缓存获取（缓存键基于用户角色和部门）
+    const cacheKey = `report:project_progress_summary:${user.role}:${user.department_id || 'all'}`;
+    const cached = CacheService.get<import('./types').ProjectProgressSummary>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const [projectScope, taskScope] = await Promise.all([
+      buildProjectScopeFilter(user, 'p'),
+      buildTaskScopeFilter(user, 't', true),
+    ]);
+
+    // 并行执行所有查询（性能优化：从4个串行查询改为并行）
+    const [projectStatsRows, projects, statusRows, milestoneRows] = await Promise.all([
+      // 1. 整体项目统计
+      pool.execute<RowDataPacket[]>(
+        `SELECT
+          COUNT(*) as total_projects,
+          SUM(CASE WHEN p.status IN ('in_progress', 'active') THEN 1 ELSE 0 END) as active_projects,
+          SUM(CASE WHEN p.status = 'completed' THEN 1 ELSE 0 END) as completed_projects,
+          COALESCE(AVG(p.progress), 0) as avg_progress,
+          SUM(CASE WHEN p.planned_end_date < CURDATE() AND p.status NOT IN ('completed', 'cancelled') THEN 1 ELSE 0 END) as delayed_projects
+         FROM projects p
+         WHERE ${projectScope.clause}`,
+        projectScope.params
+      ),
+      // 2. 各项目进度列表
+      this.getAllProjectsProgress(user),
+      // 3. 整体任务状态分布
+      pool.execute<RowDataPacket[]>(
+        `SELECT t.status, COUNT(*) as count
+         FROM wbs_tasks t
+         JOIN projects p ON t.project_id = p.id
+         WHERE ${taskScope.clause}
+         GROUP BY t.status`,
+        taskScope.params
+      ),
+      // 4. 近期里程碑（未来30天内）
+      pool.execute<RowDataPacket[]>(
+        `SELECT m.id, m.name, m.target_date, m.status, m.completion_percentage, p.name as project_name
+         FROM milestones m
+         JOIN projects p ON m.project_id = p.id
+         WHERE m.target_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ${TIME_INTERVALS.MONTH_DAYS} DAY)
+           AND m.status != 'completed'
+           AND ${projectScope.clause}
+         ORDER BY m.target_date ASC
+         LIMIT ${QUERY_LIMITS.MILESTONES}`,
+        projectScope.params
+      ),
+    ]);
+
+    const projectStats = projectStatsRows[0][0];
+    const statusData = statusRows[0];
+    const milestoneData = milestoneRows[0];
+
+    const result: import('./types').ProjectProgressSummary = {
+      total_projects: Number(projectStats.total_projects) || 0,
+      active_projects: Number(projectStats.active_projects) || 0,
+      completed_projects: Number(projectStats.completed_projects) || 0,
+      avg_progress: Math.round(Number(projectStats.avg_progress) || 0),
+      delayed_projects: Number(projectStats.delayed_projects) || 0,
+      projects,
+      status_distribution: statusData.map(r => ({ status: r.status, count: Number(r.count) })),
+      upcoming_milestones: milestoneData.map(m => ({
+        id: m.id,
+        name: m.name,
+        target_date: m.target_date,
+        status: m.status,
+        completion_percentage: Number(m.completion_percentage) || 0,
+        project_name: m.project_name
+      }))
+    };
+
+    // 缓存结果（5分钟）
+    CacheService.set(cacheKey, result, 300);
+
+    return result;
+  }
+
   // ========== 任务统计报表 ==========
 
-  async getTaskStatisticsReport(options: ReportQueryOptions): Promise<TaskStatisticsReport> {
+  async getTaskStatisticsReport(options: ReportQueryOptions, user: User): Promise<TaskStatisticsReport> {
     const pool = getPool();
-    const conditions: string[] = [];
-    const params: (string | number)[] = [];
+
+    // 角色过滤：确保用户只能看到权限范围内的数据
+    const scopeFilter = await buildTaskScopeFilter(user, 't', true);
+
+    const conditions: string[] = [scopeFilter.clause];
+    const params: (string | number)[] = [...scopeFilter.params];
 
     if (options.project_id) {
       conditions.push('t.project_id = ?');
@@ -347,15 +570,16 @@ export class AnalyticsRepository {
       params.push(options.task_type);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         COUNT(*) as total_tasks,
         ROUND(AVG(t.progress), 1) as avg_completion_rate,
-        ROUND(SUM(CASE WHEN t.status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 2) as delay_rate,
+        ROUND(SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 2) as delay_rate,
         SUM(CASE WHEN priority = 'urgent' THEN 1 ELSE 0 END) as urgent_count
        FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
        ${whereClause}`,
       params
     );
@@ -364,19 +588,20 @@ export class AnalyticsRepository {
 
     // 获取优先级分布
     const [priorityRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT priority, COUNT(*) as count FROM wbs_tasks t ${whereClause} GROUP BY priority`,
+      `SELECT priority, COUNT(*) as count FROM wbs_tasks t JOIN projects p ON t.project_id = p.id ${whereClause} GROUP BY priority`,
       params
     );
     const priority_distribution: Record<string, number> = {};
-    priorityRows.forEach(r => { priority_distribution[r.priority] = r.count; });
+    priorityRows.forEach(r => { priority_distribution[r.priority] = Number(r.count); });
 
     // 获取负责人分布
     const [assigneeRows] = await pool.execute<RowDataPacket[]>(
       `SELECT t.assignee_id, u.real_name as assignee_name,
               COUNT(*) as task_count,
-              SUM(CASE WHEN t.status IN ('early_completed', 'on_time_completed', 'overdue_completed') THEN 1 ELSE 0 END) as completed_count,
-              SUM(CASE WHEN t.status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as delayed_count
+              SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_count,
+              SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_count
        FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
        ${whereClause}
        GROUP BY t.assignee_id, u.real_name`,
@@ -384,15 +609,30 @@ export class AnalyticsRepository {
     );
 
     // 获取任务明细列表（需求文档要求：任务统计明细表格）
+    // 包含：WBS编码、延期天数计算、活跃度计算
+    // 延期天数统一逻辑：仅真正延期（已过期或超期完成）才计算正值，预警任务返回0
     const [taskListRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, p.name as project_name, u.real_name as assignee_name,
-              t.status, t.progress, t.priority, t.end_date as planned_end_date
+      `SELECT t.id, t.description, t.wbs_code, p.name as project_name, u.real_name as assignee_name,
+              t.status, t.progress, t.priority, t.end_date as planned_end_date, t.task_type,
+              CASE
+                WHEN t.end_date IS NULL THEN 0
+                WHEN t.actual_end_date IS NOT NULL AND t.actual_end_date > t.end_date
+                  THEN GREATEST(0, DATEDIFF(t.actual_end_date, t.end_date))
+                WHEN t.end_date < CURDATE() THEN GREATEST(0, DATEDIFF(CURDATE(), t.end_date))
+                ELSE 0
+              END as delay_days,
+              CASE
+                WHEN t.updated_at >= DATE_SUB(NOW(), INTERVAL ${TIME_INTERVALS.WEEK_DAYS} DAY) THEN ${ACTIVITY_PERCENTAGES.HIGH}
+                WHEN t.updated_at >= DATE_SUB(NOW(), INTERVAL ${TIME_INTERVALS.FORTNIGHT_DAYS} DAY) THEN ${ACTIVITY_PERCENTAGES.MEDIUM}
+                WHEN t.updated_at >= DATE_SUB(NOW(), INTERVAL ${TIME_INTERVALS.MONTH_DAYS} DAY) THEN 50
+                ELSE ${ACTIVITY_PERCENTAGES.DEFAULT}
+              END as activity_rate
        FROM wbs_tasks t
-       LEFT JOIN projects p ON t.project_id = p.id
+       JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
        ${whereClause}
        ORDER BY t.priority DESC, t.end_date ASC
-       LIMIT 100`,
+       LIMIT ${QUERY_LIMITS.TASK_STATISTICS}`,
       params
     );
 
@@ -401,10 +641,11 @@ export class AnalyticsRepository {
       `SELECT
         t.task_type,
         COUNT(*) as count,
-        SUM(CASE WHEN t.status IN ('early_completed', 'on_time_completed', 'overdue_completed') THEN 1 ELSE 0 END) as completed_count,
-        SUM(CASE WHEN t.status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as delayed_count,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_count,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_count,
         ROUND(AVG(t.duration), 1) as avg_duration
        FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
        ${whereClause}
        GROUP BY t.task_type`,
       params
@@ -437,17 +678,96 @@ export class AnalyticsRepository {
       avg_duration: r.avg_duration || 0,
     }));
 
+    // 获取任务趋势数据（最近30天）
+    const endDate = new Date().toISOString().split('T')[0];
+    const startDate = new Date(Date.now() - TIME_INTERVALS.MONTH_DAYS * TIME_INTERVALS.MS_PER_DAY).toISOString().split('T')[0];
+
+    // 构建趋势查询的条件（复用现有条件，scope 已包含）
+    const trendWhereClause = whereClause;
+
+    const [trendRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT date, type, count FROM (
+        -- 每日新建任务数
+        SELECT DATE(t.created_at) as date, 'created' as type, COUNT(*) as count
+        FROM wbs_tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE t.created_at >= ? AND t.created_at < DATE_ADD(?, INTERVAL 1 DAY)
+          ${conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : ''}
+        GROUP BY DATE(t.created_at)
+
+        UNION ALL
+
+        -- 每日完成任务数
+        SELECT DATE(t.updated_at) as date, 'completed' as type, COUNT(*) as count
+        FROM wbs_tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE t.updated_at >= ? AND t.updated_at < DATE_ADD(?, INTERVAL 1 DAY)
+          AND ${STATUS_CONDITIONS.completed}
+          ${conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : ''}
+        GROUP BY DATE(t.updated_at)
+
+        UNION ALL
+
+        -- 每日延期任务数
+        SELECT DATE(t.updated_at) as date, 'delayed' as type, COUNT(*) as count
+        FROM wbs_tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE t.updated_at >= ? AND t.updated_at < DATE_ADD(?, INTERVAL 1 DAY)
+          AND ${STATUS_CONDITIONS.delayedOrWarning}
+          ${conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : ''}
+        GROUP BY DATE(t.updated_at)
+      ) AS combined
+      ORDER BY date`,
+      [
+        startDate, endDate, ...params,
+        startDate, endDate, ...params,
+        startDate, endDate, ...params,
+      ]
+    );
+
+    // 合并趋势数据
+    const dateMap = new Map<string, TrendDataPoint>();
+    trendRows.forEach((r) => {
+      const dateStr = r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date);
+      if (!dateMap.has(dateStr)) {
+        dateMap.set(dateStr, { date: dateStr, created: 0, completed: 0, delayed: 0 });
+      }
+      const point = dateMap.get(dateStr)!;
+      if (r.type === 'created') point.created = r.count;
+      else if (r.type === 'completed') point.completed = r.count;
+      else if (r.type === 'delayed') point.delayed = r.count;
+    });
+
+    // 补全日期范围内缺失的日期（确保图表X轴连续）
+    let cursor = new Date(startDate);
+    const trendEndObj = new Date(endDate);
+    while (cursor <= trendEndObj) {
+      const dateStr = cursor.toISOString().split('T')[0];
+      if (!dateMap.has(dateStr)) {
+        dateMap.set(dateStr, { date: dateStr, created: 0, completed: 0, delayed: 0 });
+      }
+      cursor = new Date(cursor.getTime() + TIME_INTERVALS.MS_PER_DAY);
+    }
+
+    const task_trend = Array.from(dateMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+
     return {
-      total_tasks: stats.total_tasks,
-      avg_completion_rate: Math.round(stats.avg_completion_rate || 0),
-      delay_rate: Math.round(stats.delay_rate || 0),
-      urgent_count: stats.urgent_count,
+      total_tasks: Number(stats.total_tasks) || 0,
+      avg_completion_rate: Math.round(Number(stats.avg_completion_rate) || 0),
+      delay_rate: Math.round(Number(stats.delay_rate) || 0),
+      urgent_count: Number(stats.urgent_count) || 0,
       priority_distribution,
-      assignee_distribution: assigneeRows as AssigneeTaskCount[],
+      assignee_distribution: (assigneeRows as AssigneeTaskCount[]).map(r => ({
+        ...r,
+        task_count: Number(r.task_count) || 0,
+        completed_count: Number(r.completed_count) || 0,
+        delayed_count: Number(r.delayed_count) || 0,
+      })),
       task_type_distribution,
       task_list: taskListRows.map(t => ({
         id: t.id,
-        description: t.description,
+        description: sanitizeString(t.description),  // XSS 防护：消毒任务描述
+        wbs_code: t.wbs_code || null,
         project_name: t.project_name || '未分配',
         assignee_name: t.assignee_name || '未分配',
         status: t.status,
@@ -455,35 +775,66 @@ export class AnalyticsRepository {
         priority: t.priority,
         planned_end_date: t.planned_end_date ? (t.planned_end_date instanceof Date ? t.planned_end_date.toISOString().split('T')[0] : String(t.planned_end_date)) : null,
         task_type: t.task_type || 'other',
+        delay_days: t.delay_days || 0,
+        activity_rate: t.activity_rate || ACTIVITY_PERCENTAGES.DEFAULT,
       })),
+      task_trend,
     };
   }
 
   // ========== 延期分析报表 ==========
 
-  async getDelayAnalysisReport(options: ReportQueryOptions): Promise<DelayAnalysisReport> {
+  async getDelayAnalysisReport(options: ReportQueryOptions, user: User): Promise<DelayAnalysisReport> {
     const pool = getPool();
-    const conditions: string[] = ["t.status IN ('delay_warning', 'delayed', 'overdue_completed')"];
-    const params: (string | number)[] = [];
+
+    // 角色过滤：确保用户只能看到权限范围内的数据
+    const scopeFilter = await buildTaskScopeFilter(user, 't', true);
+
+    // 基于日期条件实时判断延期状态（与 calculateStatus 逻辑一致）
+    // 数据库 status 字段可能未及时更新，使用日期条件保证准确性
+    const DELAY_CONDITIONS = {
+      delay_warning:
+        `t.actual_end_date IS NULL AND t.end_date IS NOT NULL ` +
+        `AND t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) <= t.warning_days`,
+      delayed:
+        `t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date < CURDATE()`,
+      overdue_completed:
+        `t.actual_end_date IS NOT NULL AND t.end_date IS NOT NULL AND t.actual_end_date > t.end_date`,
+    } as const;
+
+    const allDelayCondition = `(${DELAY_CONDITIONS.delay_warning} OR ${DELAY_CONDITIONS.delayed} OR ${DELAY_CONDITIONS.overdue_completed})`;
+
+    // 计算延期类型的 CASE 表达式（复用于多个查询）
+    const delayTypeCase = `
+      CASE
+        WHEN ${DELAY_CONDITIONS.overdue_completed} THEN 'overdue_completed'
+        WHEN ${DELAY_CONDITIONS.delayed} THEN 'delayed'
+        WHEN ${DELAY_CONDITIONS.delay_warning} THEN 'delay_warning'
+        ELSE NULL
+      END`;
+
+    const conditions: string[] = [scopeFilter.clause, allDelayCondition];
+    const params: (string | number)[] = [...scopeFilter.params];
 
     if (options.project_id) {
       conditions.push('t.project_id = ?');
       params.push(options.project_id);
     }
-    if (options.delay_type) {
-      conditions.push('t.status = ?');
-      params.push(options.delay_type);
+    if (options.delay_type && DELAY_CONDITIONS[options.delay_type as keyof typeof DELAY_CONDITIONS]) {
+      conditions.push(`(${DELAY_CONDITIONS[options.delay_type as keyof typeof DELAY_CONDITIONS]})`);
     }
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
+    // 获取统计卡片数据：基于日期条件分类统计
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         COUNT(*) as total_delayed,
-        SUM(CASE WHEN t.status = 'delay_warning' THEN 1 ELSE 0 END) as warning_count,
-        SUM(CASE WHEN t.status = 'delayed' THEN 1 ELSE 0 END) as delayed_count,
-        SUM(CASE WHEN t.status = 'overdue_completed' THEN 1 ELSE 0 END) as overdue_completed_count
+        SUM(CASE WHEN ${DELAY_CONDITIONS.delay_warning} THEN 1 ELSE 0 END) as warning_count,
+        SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed_count,
+        SUM(CASE WHEN ${DELAY_CONDITIONS.overdue_completed} THEN 1 ELSE 0 END) as overdue_completed_count
        FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
        ${whereClause}`,
       params
     );
@@ -495,80 +846,94 @@ export class AnalyticsRepository {
       `SELECT dr.reason, COUNT(*) as count
        FROM delay_records dr
        JOIN wbs_tasks t ON dr.task_id = t.id
+       JOIN projects p ON t.project_id = p.id
        ${whereClause}
        GROUP BY dr.reason
        ORDER BY count DESC
-       LIMIT 10`,
+       LIMIT ${QUERY_LIMITS.DELAY_REASONS}`,
       params
     );
 
-    // 获取延期任务列表（需求文档要求：延期任务列表表格）
+    // 获取延期任务列表：使用 CASE 表达式实时计算延期类型
     const [delayedTaskRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, p.name as project_name, u.real_name as assignee_name,
-              t.status as delay_type,
+      `SELECT t.id, t.description, t.wbs_code, p.name as project_name, u.real_name as assignee_name,
+              ${delayTypeCase} as delay_type,
+              t.end_date as planned_end_date,
               CASE
                 WHEN t.end_date IS NULL THEN 0
-                ELSE DATEDIFF(COALESCE(t.actual_end_date, NOW()), t.end_date)
+                WHEN t.actual_end_date IS NOT NULL THEN GREATEST(0, DATEDIFF(t.actual_end_date, t.end_date))
+                WHEN t.end_date < CURDATE() THEN GREATEST(0, DATEDIFF(CURDATE(), t.end_date))
+                ELSE 0
               END as delay_days,
-              COALESCE(dr.reason, '未填写') as reason,
+              COALESCE(
+                (SELECT dr2.reason FROM delay_records dr2 WHERE dr2.task_id = t.id ORDER BY dr2.created_at DESC LIMIT 1),
+                '未填写'
+              ) as reason,
               t.status
        FROM wbs_tasks t
-       LEFT JOIN projects p ON t.project_id = p.id
+       JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
-       LEFT JOIN delay_records dr ON t.id = dr.task_id
        ${whereClause}
        ORDER BY delay_days DESC
-       LIMIT 50`,
+       LIMIT ${QUERY_LIMITS.DELAY_TASKS}`,
       params
     );
 
-    // 获取延期趋势数据（按日统计新增延期和已解决延期）
-    const trendConditions = ["t.status IN ('delay_warning', 'delayed', 'overdue_completed')"];
-    const trendParams: (string | number)[] = [];
-    if (options.project_id) {
-      trendConditions.push('t.project_id = ?');
-      trendParams.push(options.project_id);
-    }
-    const dateFilter = options.start_date && options.end_date
-      ? 'DATE(t.updated_at) BETWEEN ? AND ?'
-      : 'DATE(t.updated_at) >= DATE_SUB(NOW(), INTERVAL 30 DAY)';
-    trendConditions.push(dateFilter);
-    if (options.start_date && options.end_date) {
-      trendParams.push(options.start_date, options.end_date);
-    }
-
-    const trendWhere = `WHERE ${trendConditions.join(' AND ')}`;
+    // 获取延期趋势数据：基于日期条件的累计延期/解决统计
+    const trendDays = TIME_INTERVALS.MONTH_DAYS;
     const [trendRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT DATE(t.updated_at) as date,
-              SUM(CASE WHEN t.status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as created,
-              SUM(CASE WHEN t.status = 'overdue_completed' THEN 1 ELSE 0 END) as completed
-       FROM wbs_tasks t
-       ${trendWhere}
-       GROUP BY DATE(t.updated_at)
-       ORDER BY date`,
-      trendParams
+      `WITH RECURSIVE date_series AS (
+          SELECT DATE_SUB(CURDATE(), INTERVAL ${trendDays - 1} DAY) as date
+          UNION ALL
+          SELECT DATE_ADD(date, INTERVAL 1 DAY) FROM date_series WHERE date < CURDATE()
+        ),
+        delayed_tasks AS (
+          SELECT t.end_date, t.actual_end_date, t.warning_days
+          FROM wbs_tasks t
+          JOIN projects p ON t.project_id = p.id
+          WHERE t.end_date IS NOT NULL
+            AND (${scopeFilter.clause})
+            AND (${allDelayCondition})
+            ${options.project_id ? 'AND t.project_id = ?' : ''}
+        )
+        SELECT
+          ds.date,
+          SUM(CASE WHEN dt.end_date <= ds.date
+              AND dt.actual_end_date IS NULL THEN 1 ELSE 0 END) as created,
+          SUM(CASE WHEN dt.end_date <= ds.date
+              AND dt.actual_end_date IS NOT NULL AND dt.actual_end_date > dt.end_date
+              AND dt.actual_end_date <= ds.date THEN 1 ELSE 0 END) as completed
+        FROM date_series ds
+        LEFT JOIN delayed_tasks dt ON dt.end_date <= ds.date
+        GROUP BY ds.date
+        ORDER BY ds.date`,
+      options.project_id
+        ? [...scopeFilter.params, options.project_id]
+        : scopeFilter.params
     );
 
     const delayTrend = trendRows.map((r: RowDataPacket) => ({
       date: r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date),
       created: r.created || 0,
       completed: r.completed || 0,
-      delayed: (r.created || 0) - (r.completed || 0),  // 净增延期
+      delayed: (r.created || 0) - (r.completed || 0),  // 净增延期（未解决数）
     }));
 
     return {
-      total_delayed: stats.total_delayed,
-      warning_count: stats.warning_count,
-      delayed_count: stats.delayed_count,
-      overdue_completed_count: stats.overdue_completed_count,
-      delay_reasons: reasonRows as DelayReasonCount[],
+      total_delayed: Number(stats.total_delayed) || 0,
+      warning_count: Number(stats.warning_count) || 0,
+      delayed_count: Number(stats.delayed_count) || 0,
+      overdue_completed_count: Number(stats.overdue_completed_count) || 0,
+      delay_reasons: (reasonRows as DelayReasonCount[]).map(r => ({ reason: r.reason, count: Number(r.count) })),
       delay_trend: delayTrend,
       delayed_tasks: delayedTaskRows.map(t => ({
         id: t.id,
-        description: t.description,
+        description: sanitizeString(t.description),  // XSS 防护：消毒任务描述
+        wbs_code: t.wbs_code || null,
         project_name: t.project_name || '未分配',
         assignee_name: t.assignee_name || '未分配',
         delay_type: t.delay_type,
+        planned_end_date: t.planned_end_date || null,
         delay_days: t.delay_days || 0,
         reason: t.reason || '未填写',
         status: t.status,
@@ -583,18 +948,19 @@ export class AnalyticsRepository {
 
     // 获取成员信息
     const [memberRows] = await pool.execute<RowDataPacket[]>(
-      'SELECT id, real_name FROM users WHERE id = ?',
+      'SELECT id, real_name, gender FROM users WHERE id = ?',
       [memberId]
     );
     if (memberRows.length === 0) return null;
     const member = memberRows[0];
 
     // 获取任务统计（全部任务参与统计，区分进行中和已完成）
+    // full_time_ratio 存储为百分比值（100=100%），需除以100转为倍率
     const [statsRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         COUNT(*) as total_tasks,
-        SUM(CASE WHEN status NOT IN ('early_completed', 'on_time_completed', 'overdue_completed') THEN 1 ELSE 0 END) as current_tasks,
-        SUM(full_time_ratio) as total_full_time_ratio,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.notCompleted} THEN 1 ELSE 0 END) as current_tasks,
+        COALESCE(SUM(full_time_ratio) / 100.0, 0) as total_full_time_ratio,
         ROUND(AVG(progress), 1) as avg_completion_rate
        FROM wbs_tasks WHERE assignee_id = ?`,
       [memberId]
@@ -614,7 +980,7 @@ export class AnalyticsRepository {
        LEFT JOIN projects p ON t.project_id = p.id
        WHERE t.assignee_id = ?
        ORDER BY t.status, t.end_date
-       LIMIT 20`,
+       LIMIT ${QUERY_LIMITS.MEMBER_TASKS}`,
       [memberId]
     );
 
@@ -629,7 +995,7 @@ export class AnalyticsRepository {
       avg_completion_rate: Math.round(stats.avg_completion_rate || 0),
       task_list: taskRows.map(t => ({
         id: t.id,
-        description: t.description,
+        description: sanitizeString(t.description),  // XSS 防护：消毒任务描述
         project_name: t.project_name || '未分配',
         status: t.status,
         full_time_ratio: t.full_time_ratio,
@@ -661,7 +1027,7 @@ export class AnalyticsRepository {
         DATEDIFF(t.actual_end_date, t.actual_start_date) as actual_duration
        FROM wbs_tasks t
        WHERE t.assignee_id = ?
-        AND t.status IN ('early_completed', 'on_time_completed', 'overdue_completed')
+        AND ${STATUS_CONDITIONS.completed}
         AND t.duration IS NOT NULL
         AND t.duration > 0
         AND t.actual_start_date IS NOT NULL
@@ -693,11 +1059,11 @@ export class AnalyticsRepository {
 
       totalAccuracy += accuracy;
 
-      if (deviation <= 0.1) {
+      if (deviation <= ESTIMATION_THRESHOLDS.ACCURATE) {
         accurateCount++;
-      } else if (deviation <= 0.3) {
+      } else if (deviation <= ESTIMATION_THRESHOLDS.SLIGHT) {
         slightDeviationCount++;
-      } else if (deviation <= 0.5) {
+      } else if (deviation <= ESTIMATION_THRESHOLDS.OBVIOUS) {
         obviousDeviationCount++;
       } else {
         seriousDeviationCount++;
@@ -715,32 +1081,33 @@ export class AnalyticsRepository {
 
   // ========== 资源效能分析报表（v1.2 新增） ==========
 
-  async getResourceEfficiencyReport(options: ResourceEfficiencyQueryOptions): Promise<ResourceEfficiencyReport> {
+  async getResourceEfficiencyReport(options: ResourceEfficiencyQueryOptions, user: User): Promise<ResourceEfficiencyReport> {
     const pool = getPool();
 
-    // 获取成员效能明细
-    const memberEfficiencyList = await this.getMemberEfficiencyList(pool, options);
+    // 获取成员效能明细（带角色过滤）
+    const memberEfficiencyList = await this.getMemberEfficiencyList(pool, options, user);
 
-    // 计算汇总统计
+    // 计算汇总统计（过滤None值，防止NaN传播）
     const totalMembers = memberEfficiencyList.length;
+    const safeSum = (arr: number[]) => arr.reduce((s, v) => s + (v ?? 0), 0);
     const avgProductivity = totalMembers > 0
-      ? Math.round((memberEfficiencyList.reduce((sum, m) => sum + m.productivity, 0) / totalMembers) * 100) / 100
+      ? Math.round((safeSum(memberEfficiencyList.map(m => m.productivity)) / totalMembers) * 100) / 100
       : 0;
     const avgEstimationAccuracy = totalMembers > 0
-      ? Math.round((memberEfficiencyList.reduce((sum, m) => sum + m.estimation_accuracy, 0) / totalMembers) * 100) / 100
+      ? Math.round((safeSum(memberEfficiencyList.map(m => m.estimation_accuracy)) / totalMembers) * 100) / 100
       : 0;
     const avgReworkRate = totalMembers > 0
-      ? Math.round((memberEfficiencyList.reduce((sum, m) => sum + m.rework_rate, 0) / totalMembers) * 100) / 100
+      ? Math.round((safeSum(memberEfficiencyList.map(m => m.rework_rate)) / totalMembers) * 100) / 100
       : 0;
     const avgFulltimeUtilization = totalMembers > 0
-      ? Math.round((memberEfficiencyList.reduce((sum, m) => sum + m.fulltime_utilization, 0) / totalMembers) * 100) / 100
+      ? Math.round((safeSum(memberEfficiencyList.map(m => m.fulltime_utilization)) / totalMembers) * 100) / 100
       : 0;
 
-    // 获取产能趋势
-    const productivityTrend = await this.getProductivityTrend(pool, options);
+    // 获取产能趋势（带角色过滤）
+    const productivityTrend = await this.getProductivityTrend(pool, options, user);
 
-    // 获取团队效能对比
-    const teamEfficiencyComparison = await this.getTeamEfficiencyComparison(pool, options);
+    // 获取团队效能对比（带角色过滤）
+    const teamEfficiencyComparison = await this.getTeamEfficiencyComparison(pool, options, user);
 
     return {
       avg_productivity: avgProductivity,
@@ -753,10 +1120,13 @@ export class AnalyticsRepository {
     };
   }
 
-  // 获取成员效能明细
-  private async getMemberEfficiencyList(pool: ReturnType<typeof getPool>, options: ResourceEfficiencyQueryOptions): Promise<MemberEfficiencyItem[]> {
-    const conditions: string[] = [];
-    const params: (string | number)[] = [];
+  // 获取成员效能明细（带角色过滤）
+  private async getMemberEfficiencyList(pool: ReturnType<typeof getPool>, options: ResourceEfficiencyQueryOptions, user: User): Promise<MemberEfficiencyItem[]> {
+    // 角色过滤
+    const scopeFilter = await buildTaskScopeFilter(user, 't', true);
+
+    const conditions: string[] = [scopeFilter.clause];
+    const params: (string | number)[] = [...scopeFilter.params];
 
     // 时间范围筛选
     if (options.start_date) {
@@ -769,17 +1139,18 @@ export class AnalyticsRepository {
     }
 
     // 只统计已完成的任务
-    conditions.push("t.status IN ('early_completed', 'on_time_completed', 'overdue_completed')");
+    conditions.push(STATUS_CONDITIONS.completed);
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    // 构建 JOIN 条件（scope + 时间 + 状态）
+    const joinConditions = conditions.join(' AND ');
 
     // WBS等级复杂度系数
     const complexityFactor = `
       CASE
-        WHEN t.wbs_level = 1 THEN 1.0
-        WHEN t.wbs_level = 2 THEN 1.2
-        WHEN t.wbs_level = 3 THEN 1.5
-        ELSE 2.0
+        WHEN t.wbs_level = 1 THEN ${WBS_COMPLEXITY[1]}
+        WHEN t.wbs_level = 2 THEN ${WBS_COMPLEXITY[2]}
+        WHEN t.wbs_level = 3 THEN ${WBS_COMPLEXITY[3]}
+        ELSE ${WBS_COMPLEXITY[4]}
       END
     `;
 
@@ -797,12 +1168,13 @@ export class AnalyticsRepository {
         SUM(CASE WHEN t.actual_start_date IS NOT NULL AND t.actual_end_date IS NOT NULL
             THEN DATEDIFF(t.actual_end_date, t.actual_start_date) ELSE 0 END) as total_days,
         AVG(CASE WHEN t.duration IS NOT NULL AND t.duration > 0
-            THEN 1 - ABS(COALESCE(DATEDIFF(t.actual_end_date, t.actual_start_date), t.duration) - t.duration) / t.duration
+                AND t.actual_start_date IS NOT NULL AND t.actual_end_date IS NOT NULL
+            THEN GREATEST(0, 1 - ABS(DATEDIFF(t.actual_end_date, t.actual_start_date) - t.duration) / t.duration)
             ELSE NULL END) as estimation_accuracy,
         0 as rework_tasks,
         SUM(t.full_time_ratio) as total_fulltime_ratio
        FROM users u
-       LEFT JOIN wbs_tasks t ON u.id = t.assignee_id ${whereClause.replace('WHERE', 'AND')}
+       LEFT JOIN wbs_tasks t ON u.id = t.assignee_id AND t.project_id IS NOT NULL AND ${joinConditions}
        LEFT JOIN departments d ON u.department_id = d.id
        GROUP BY u.id, u.real_name, d.name
        HAVING completed_tasks > 0
@@ -811,35 +1183,40 @@ export class AnalyticsRepository {
     );
 
     return rows.map((r: any) => {
-      // 计算产能：完成任务复杂度 / 投入天数
-      const totalDays = r.total_days || 1;
-      const productivity = r.total_complexity / totalDays;
+      // 计算产能：完成任务复杂度 / 投入天数（除零保护）
+      const totalDays = Number(r.total_days) || 0;
+      const totalComplexity = Number(r.total_complexity) || 0;
+      const completedTasks = Number(r.completed_tasks) || 0;
+      const totalFulltimeRatio = Number(r.total_fulltime_ratio) || 0;
+      const productivity = totalDays > 0 ? totalComplexity / totalDays : 0;
 
       // 计算返工率
-      const reworkRate = r.completed_tasks > 0 ? (r.rework_tasks / r.completed_tasks) * 100 : 0;
+      const reworkRate = completedTasks > 0 ? (Number(r.rework_tasks) / completedTasks) * 100 : 0;
 
-      // 计算全职比利用率（假设每人标准全职比为1）
-      const fulltimeUtilization = r.total_fulltime_ratio > 0 ? Math.min((r.completed_tasks / r.total_fulltime_ratio) * 100, 100) : 0;
+      // 计算全职比利用率：实际全职比(百分比转小数) / 标准全职比(1.0) * 100
+      const normalizedFulltime = totalFulltimeRatio / 100;
+      const fulltimeUtilization = normalizedFulltime > 0 ? Math.min((normalizedFulltime / 1.0) * 100, 100) : 0;
 
       return {
         member_id: r.member_id,
         member_name: r.member_name,
         department: r.department || '未分配',
         tech_group: r.tech_group || '未分配',
-        completed_tasks: r.completed_tasks,
+        completed_tasks: completedTasks,
         productivity: Math.round(productivity * 100) / 100,
-        estimation_accuracy: Math.round((r.estimation_accuracy || 0) * 100) / 100,
+        estimation_accuracy: Math.round((Number(r.estimation_accuracy) || 0) * 100) / 100,
         rework_rate: Math.round(reworkRate * 100) / 100,
         fulltime_utilization: Math.round(fulltimeUtilization * 100) / 100,
-        avg_task_complexity: Math.round((r.total_complexity / r.completed_tasks) * 100) / 100,
+        avg_task_complexity: completedTasks > 0 ? Math.round((totalComplexity / completedTasks) * 100) / 100 : 0,
       };
     });
   }
 
-  // 获取产能趋势（按周聚合）
-  private async getProductivityTrend(pool: ReturnType<typeof getPool>, options: ResourceEfficiencyQueryOptions): Promise<ProductivityTrendItem[]> {
-    const conditions: string[] = ["t.status IN ('early_completed', 'on_time_completed', 'overdue_completed')"];
-    const params: (string | number)[] = [];
+  // 获取产能趋势（按周聚合，带角色过滤）
+  private async getProductivityTrend(pool: ReturnType<typeof getPool>, options: ResourceEfficiencyQueryOptions, user: User): Promise<ProductivityTrendItem[]> {
+    const scopeFilter = await buildTaskScopeFilter(user, 't', true);
+    const conditions: string[] = [scopeFilter.clause, STATUS_CONDITIONS.completed];
+    const params: (string | number)[] = [...scopeFilter.params];
 
     if (options.start_date) {
       conditions.push('t.actual_end_date >= ?');
@@ -854,10 +1231,10 @@ export class AnalyticsRepository {
 
     const complexityFactor = `
       CASE
-        WHEN t.wbs_level = 1 THEN 1.0
-        WHEN t.wbs_level = 2 THEN 1.2
-        WHEN t.wbs_level = 3 THEN 1.5
-        ELSE 2.0
+        WHEN t.wbs_level = 1 THEN ${WBS_COMPLEXITY[1]}
+        WHEN t.wbs_level = 2 THEN ${WBS_COMPLEXITY[2]}
+        WHEN t.wbs_level = 3 THEN ${WBS_COMPLEXITY[3]}
+        ELSE ${WBS_COMPLEXITY[4]}
       END
     `;
 
@@ -872,21 +1249,22 @@ export class AnalyticsRepository {
        ${whereClause}
        GROUP BY DATE_FORMAT(t.actual_end_date, '%x-W%v')
        ORDER BY period DESC
-       LIMIT 12`,
+       LIMIT ${QUERY_LIMITS.TREND_WEEKS}`,
       params
     );
 
     return rows.map((r: any) => ({
       period: r.period,
-      task_count: r.task_count,
-      productivity: Math.round((r.total_complexity / (r.total_days || 1)) * 100) / 100,
+      task_count: Number(r.task_count) || 0,
+      productivity: Number(r.total_days) > 0 ? Math.round((Number(r.total_complexity) / Number(r.total_days)) * 100) / 100 : 0,
     })).reverse();
   }
 
-  // 获取团队效能对比
-  private async getTeamEfficiencyComparison(pool: ReturnType<typeof getPool>, options: ResourceEfficiencyQueryOptions): Promise<TeamEfficiencyItem[]> {
-    const conditions: string[] = ["t.status IN ('early_completed', 'on_time_completed', 'overdue_completed')"];
-    const params: (string | number)[] = [];
+  // 获取团队效能对比（带角色过滤）
+  private async getTeamEfficiencyComparison(pool: ReturnType<typeof getPool>, options: ResourceEfficiencyQueryOptions, user: User): Promise<TeamEfficiencyItem[]> {
+    const scopeFilter = await buildTaskScopeFilter(user, 't', true);
+    const conditions: string[] = [scopeFilter.clause, STATUS_CONDITIONS.completed];
+    const params: (string | number)[] = [...scopeFilter.params];
 
     if (options.start_date) {
       conditions.push('t.actual_end_date >= ?');
@@ -899,16 +1277,27 @@ export class AnalyticsRepository {
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
-    // 按部门统计
-    // 注：plan_version 列可能不存在，返工率暂时设为0
+    // 按部门统计，产能计算基于复杂度/天数（与成员明细一致）
+    const complexityFactor = `
+      CASE
+        WHEN t.wbs_level = 1 THEN ${WBS_COMPLEXITY[1]}
+        WHEN t.wbs_level = 2 THEN ${WBS_COMPLEXITY[2]}
+        WHEN t.wbs_level = 3 THEN ${WBS_COMPLEXITY[3]}
+        ELSE ${WBS_COMPLEXITY[4]}
+      END
+    `;
     const [deptRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         d.name as team_name,
         'department' as team_type,
         COUNT(DISTINCT u.id) as member_count,
         COUNT(t.id) as total_tasks,
+        SUM(${complexityFactor}) as total_complexity,
+        SUM(CASE WHEN t.actual_start_date IS NOT NULL AND t.actual_end_date IS NOT NULL
+            THEN DATEDIFF(t.actual_end_date, t.actual_start_date) ELSE 0 END) as total_days,
         AVG(CASE WHEN t.duration IS NOT NULL AND t.duration > 0
-            THEN 1 - ABS(COALESCE(DATEDIFF(t.actual_end_date, t.actual_start_date), t.duration) - t.duration) / t.duration
+                AND t.actual_start_date IS NOT NULL AND t.actual_end_date IS NOT NULL
+            THEN GREATEST(0, 1 - ABS(DATEDIFF(t.actual_end_date, t.actual_start_date) - t.duration) / t.duration)
             ELSE NULL END) as avg_estimation_accuracy,
         0 as avg_rework_rate
        FROM departments d
@@ -926,12 +1315,14 @@ export class AnalyticsRepository {
     const results: TeamEfficiencyItem[] = [];
 
     for (const r of deptRows) {
+      const totalDays = Number(r.total_days) || 0;
+      const totalComplexity = Number(r.total_complexity) || 0;
       results.push({
         team_name: r.team_name,
         team_type: 'department',
-        member_count: r.member_count,
-        avg_productivity: Math.round((r.total_tasks / r.member_count) * 100) / 100,
-        avg_estimation_accuracy: Math.round((r.avg_estimation_accuracy || 0) * 100) / 100,
+        member_count: Number(r.member_count) || 0,
+        avg_productivity: totalDays > 0 ? Math.round((totalComplexity / totalDays) * 100) / 100 : 0,
+        avg_estimation_accuracy: Math.round((Number(r.avg_estimation_accuracy) || 0) * 100) / 100,
         avg_rework_rate: 0,
       });
     }
@@ -996,10 +1387,17 @@ export class AnalyticsRepository {
     const avgAccuracy = totalMembers > 0
       ? Math.round((membersSummary.reduce((s, m) => s + m.estimation_accuracy, 0) / totalMembers) * 100) / 100
       : 0;
-    const overloadedMembers = membersSummary.filter(m => m.total_full_time_ratio > 1.5).length;
+    const overloadedMembers = membersSummary.filter(m => m.total_full_time_ratio > STATUS_THRESHOLDS.MEMBER_OVERLOAD).length;
 
     // 计算活跃度
     const activityRate = await this.getActivityRate(pool, userScopeFilter, scopeFilter);
+
+    // 批量计算每个成员的活跃度（7日内有更新的任务占比）
+    const memberActivityMap = await this.getMemberActivityRates(pool, userScopeFilter, scopeFilter);
+    // 回写到成员数据中
+    for (const m of membersSummary) {
+      m.activity_rate = memberActivityMap.get(m.member_id) || 0;
+    }
 
     // 生成分配建议
     const suggestions = this.generateAllocationSuggestions(membersSummary);
@@ -1037,17 +1435,10 @@ export class AnalyticsRepository {
 
     const pool = getPool();
 
-    // 复用 query-builder 的部门/组查找逻辑
+    // 复用 query-builder 的部门/组查找逻辑（departments 表无 is_active 列，不使用）
     if (currentUser.role === 'dept_manager' && currentUser.department_id) {
-      const [rows] = await pool.execute<RowDataPacket[]>(
-        `WITH RECURSIVE dept_tree AS (
-          SELECT id FROM departments WHERE manager_id = ? AND is_active = 1
-          UNION ALL
-          SELECT d.id FROM departments d JOIN dept_tree dt ON d.parent_id = dt.id WHERE d.is_active = 1
-        ) SELECT id FROM dept_tree`,
-        [currentUser.id]
-      );
-      const deptIds = rows.map((r: RowDataPacket) => r.id);
+      // 复用 query-builder 的部门查找逻辑（支持 department_managers 表可选）
+      const deptIds = await getManagedDepartmentIdsSafe(currentUser.id, currentUser.department_id);
       if (deptIds.length === 0 && currentUser.department_id) {
         deptIds.push(currentUser.department_id);
       }
@@ -1056,15 +1447,8 @@ export class AnalyticsRepository {
     }
 
     if (currentUser.role === 'tech_manager' && currentUser.department_id) {
-      const [rows] = await pool.execute<RowDataPacket[]>(
-        `WITH RECURSIVE group_tree AS (
-          SELECT id FROM departments WHERE manager_id = ? AND is_active = 1
-          UNION ALL
-          SELECT d.id FROM departments d JOIN group_tree gt ON d.parent_id = gt.id WHERE d.is_active = 1
-        ) SELECT id FROM group_tree`,
-        [currentUser.id]
-      );
-      const groupIds = rows.map((r: RowDataPacket) => r.id);
+      // 复用 query-builder 的技术组查找逻辑（支持 department_managers 表可选）
+      const groupIds = await getTechManagerGroupIdsSafe(currentUser.id, currentUser.department_id);
       if (groupIds.length === 0 && currentUser.department_id) {
         groupIds.push(currentUser.department_id);
       }
@@ -1088,19 +1472,26 @@ export class AnalyticsRepository {
     memberClause: string,
     memberParams: (string | number)[],
   ): Promise<MemberSummaryItem[]> {
+    // full_time_ratio 存储为百分比值（100=100%）
+    // 成员负载 = 未完成任务的 AVG(full_time_ratio) / 100，表示平均每任务的全职占用
+    // 一个人的负载指标 = 平均每任务全职占用（0.x ~ 1.x 表示 x0% ~ 100%+）
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         u.id as member_id,
         u.real_name as member_name,
         d.name as department,
         COUNT(t.id) as total_tasks,
-        SUM(CASE WHEN t.status NOT IN ('early_completed', 'on_time_completed', 'overdue_completed')
+        SUM(CASE WHEN ${STATUS_CONDITIONS.notCompleted}
             THEN 1 ELSE 0 END) as current_tasks,
-        COALESCE(SUM(t.full_time_ratio), 0) as total_full_time_ratio,
-        ROUND(AVG(t.progress), 1) as avg_completion_rate,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.completed}
+            THEN 1 ELSE 0 END) as completed_tasks,
+        COALESCE(AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted}
+            THEN t.full_time_ratio END) / 100.0, 0) as total_full_time_ratio,
+        ROUND(AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted}
+            THEN t.progress ELSE NULL END), 1) as avg_completion_rate,
         AVG(CASE WHEN t.duration IS NOT NULL AND t.duration > 0
             AND t.actual_start_date IS NOT NULL AND t.actual_end_date IS NOT NULL
-            THEN 1 - ABS(DATEDIFF(t.actual_end_date, t.actual_start_date) - t.duration) / t.duration
+            THEN GREATEST(0, 1 - ABS(DATEDIFF(t.actual_end_date, t.actual_start_date) - t.duration) / t.duration)
             ELSE NULL END) as estimation_accuracy
        FROM users u
        LEFT JOIN departments d ON u.department_id = d.id
@@ -1112,16 +1503,17 @@ export class AnalyticsRepository {
       [...taskScope.params, ...timeParams, ...memberParams, ...userScope.params]
     );
 
-    // 计算每个成员的活跃度
+    // 计算每个成员的汇总数据
     return rows.map((r: any) => ({
       member_id: r.member_id,
       member_name: r.member_name,
       department: r.department || null,
-      current_tasks: r.current_tasks || 0,
-      total_full_time_ratio: Math.round((r.total_full_time_ratio || 0) * 100) / 100,
-      avg_completion_rate: Math.round(r.avg_completion_rate || 0),
-      estimation_accuracy: Math.round((r.estimation_accuracy || 0) * 100) / 100,
-      activity_rate: 0, // 将在 getActivityRate 中批量计算
+      current_tasks: Number(r.current_tasks) || 0,
+      completed_tasks: Number(r.completed_tasks) || 0,
+      total_full_time_ratio: Math.round((Number(r.total_full_time_ratio) || 0) * 100) / 100,
+      avg_completion_rate: Math.round(Number(r.avg_completion_rate) || 0),
+      estimation_accuracy: Math.round((Number(r.estimation_accuracy) || 0) * 100) / 100,
+      activity_rate: 0, // 将在 getMemberActivityRates 中批量回写
     }));
   }
 
@@ -1178,7 +1570,7 @@ export class AnalyticsRepository {
         END as category,
         COUNT(*) as count
        FROM wbs_tasks t
-       WHERE t.status IN ('early_completed', 'on_time_completed', 'overdue_completed')
+       WHERE ${STATUS_CONDITIONS.completed}
         AND (${taskScope.clause})${timeClause}${memberClause}
        GROUP BY category
        HAVING category IS NOT NULL
@@ -1193,7 +1585,7 @@ export class AnalyticsRepository {
   }
 
   /**
-   * 获取负载趋势（按周聚合）
+   * 获取负载趋势（按周聚合，统计每周在执行任务的累计全职比）
    */
   private async getWorkloadTrend(
     pool: ReturnType<typeof getPool>,
@@ -1204,30 +1596,43 @@ export class AnalyticsRepository {
     const conditions: string[] = [`(${taskScope.clause})`];
     const params: (string | number)[] = [...taskScope.params];
 
+    // 时间范围：默认最近12周
+    const startCondition = startDate
+      ? '?'
+      : `DATE_SUB(CURDATE(), INTERVAL ${TIME_INTERVALS.QUARTER_WEEKS} WEEK)`;
     if (startDate) {
-      conditions.push('t.start_date >= ?');
       params.push(startDate);
-    } else {
-      // 默认最近12周
-      conditions.push("t.start_date >= DATE_SUB(CURDATE(), INTERVAL 12 WEEK)");
     }
+
+    const endCondition = endDate ? '?' : 'CURDATE()';
     if (endDate) {
-      conditions.push('t.end_date <= ?');
       params.push(endDate);
     }
 
-    const whereClause = `WHERE ${conditions.join(' AND ')}`;
-
+    // 统计每周在执行中（未完成）任务的累计全职比和任务数
+    // full_time_ratio 存储为百分比值（100=100%），需除以100转为小数
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
-        DATE_FORMAT(t.start_date, '%x-W%v') as period,
-        ROUND(AVG(t.full_time_ratio), 2) as avg_full_time_ratio,
-        COUNT(*) as task_count
-       FROM wbs_tasks t
-       ${whereClause}
-       GROUP BY DATE_FORMAT(t.start_date, '%x-W%v')
+        CONCAT(YEAR(w.week_start), '-W', LPAD(WEEK(w.week_start, 1), 2, '0')) as period,
+        COALESCE(ROUND(AVG(w.weekly_load), 2), 0) as avg_full_time_ratio,
+        COALESCE(SUM(w.task_count), 0) as task_count
+       FROM (
+         SELECT
+           DATE_SUB(DATE(t.start_date), INTERVAL WEEKDAY(t.start_date) DAY) as week_start,
+           AVG(t.full_time_ratio) / 100.0 as weekly_load,
+           COUNT(*) as task_count
+         FROM wbs_tasks t
+         JOIN projects p ON t.project_id = p.id
+         WHERE (${taskScope.clause})
+           AND t.start_date IS NOT NULL
+           AND t.start_date <= ${endCondition}
+           AND ${STATUS_CONDITIONS.notCompleted} AND t.status != 'cancelled'
+         GROUP BY week_start, t.assignee_id
+       ) w
+       WHERE w.week_start >= ${startCondition}
+       GROUP BY period
        ORDER BY period ASC
-       LIMIT 12`,
+       LIMIT ${QUERY_LIMITS.TREND_WEEKS}`,
       params
     );
 
@@ -1249,10 +1654,10 @@ export class AnalyticsRepository {
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         COUNT(*) as total_tasks,
-        SUM(CASE WHEN t.updated_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        SUM(CASE WHEN t.updated_at >= DATE_SUB(CURDATE(), INTERVAL ${TIME_INTERVALS.WEEK_DAYS} DAY)
             OR EXISTS (
               SELECT 1 FROM progress_records pr
-              WHERE pr.task_id = t.id AND pr.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+              WHERE pr.task_id = t.id AND pr.created_at >= DATE_SUB(CURDATE(), INTERVAL ${TIME_INTERVALS.WEEK_DAYS} DAY)
             )
             THEN 1 ELSE 0 END) as active_tasks
        FROM wbs_tasks t
@@ -1263,9 +1668,42 @@ export class AnalyticsRepository {
       [...taskScope.params, ...userScope.params]
     );
 
-    const total = rows[0]?.total_tasks || 0;
-    const active = rows[0]?.active_tasks || 0;
+    const total = Number(rows[0]?.total_tasks) || 0;
+    const active = Number(rows[0]?.active_tasks) || 0;
     return total > 0 ? Math.round((active / total) * 100) : 0;
+  }
+
+  /**
+   * 批量计算每个成员的活跃度（7日内有更新的任务占比）
+   */
+  private async getMemberActivityRates(
+    pool: ReturnType<typeof getPool>,
+    userScope: { clause: string; params: (string | number)[] },
+    taskScope: ScopeFilter,
+  ): Promise<Map<number, number>> {
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT
+        t.assignee_id as member_id,
+        COUNT(*) as total_tasks,
+        SUM(CASE WHEN t.updated_at >= DATE_SUB(CURDATE(), INTERVAL ${TIME_INTERVALS.WEEK_DAYS} DAY)
+            THEN 1 ELSE 0 END) as active_tasks
+       FROM wbs_tasks t
+       WHERE (${taskScope.clause})
+        AND t.assignee_id IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM users u WHERE u.id = t.assignee_id AND (${userScope.clause})
+        )
+       GROUP BY t.assignee_id`,
+      [...taskScope.params, ...userScope.params]
+    );
+
+    const map = new Map<number, number>();
+    for (const r of rows) {
+      const total = Number(r.total_tasks) || 0;
+      const active = Number(r.active_tasks) || 0;
+      map.set(Number(r.member_id), total > 0 ? Math.round((active / total) * 100) : 0);
+    }
+    return map;
   }
 
   /**
@@ -1286,6 +1724,7 @@ export class AnalyticsRepository {
               p.name as project_name, t.status, t.full_time_ratio,
               t.progress, t.duration as planned_duration,
               t.end_date as planned_end_date,
+              u.real_name as assignee_name,
               CASE
                 WHEN t.actual_start_date IS NOT NULL AND t.actual_end_date IS NOT NULL
                 THEN DATEDIFF(t.actual_end_date, t.actual_start_date)
@@ -1294,22 +1733,25 @@ export class AnalyticsRepository {
               t.updated_at as last_updated
        FROM wbs_tasks t
        LEFT JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON t.assignee_id = u.id
        WHERE (${taskScope.clause})${timeClause}${memberFilter}
        ORDER BY t.status, t.end_date
-       LIMIT 100`,
+       LIMIT ${QUERY_LIMITS.MEMBER_TASKS_DETAIL}`,
       [...taskScope.params, ...timeParams, ...memberParams]
     );
 
     return rows.map((t: any) => ({
       id: t.id,
-      description: t.description,
+      description: sanitizeString(t.description),  // XSS 防护：消毒任务描述
       project_name: t.project_name || '未分配',
+      assignee_name: t.assignee_name || '未分配',
       status: t.status,
       full_time_ratio: t.full_time_ratio,
       progress: t.progress,
       planned_duration: t.planned_duration,
       actual_duration: t.actual_duration,
       estimation_accuracy: this.calculateTaskEstimationAccuracy(t.planned_duration, t.actual_duration) ?? undefined,
+      updated_at: t.last_updated ? (t.last_updated instanceof Date ? t.last_updated.toISOString() : String(t.last_updated)) : null,
     }));
   }
 
@@ -1320,7 +1762,7 @@ export class AnalyticsRepository {
     const suggestions: AllocationSuggestionItem[] = [];
 
     for (const m of members) {
-      if (m.total_full_time_ratio > 1.5) {
+      if (m.total_full_time_ratio > STATUS_THRESHOLDS.MEMBER_OVERLOAD) {
         suggestions.push({
           type: 'overloaded',
           member_name: m.member_name,
@@ -1338,7 +1780,7 @@ export class AnalyticsRepository {
     }
 
     // 最多返回5条建议
-    return suggestions.slice(0, 5);
+    return suggestions.slice(0, QUERY_LIMITS.ALLOCATION_SUGGESTIONS);
   }
 
   // ========== 系统配置 ==========
@@ -1448,7 +1890,7 @@ export class AnalyticsRepository {
 
     // Data
     const page = options.page || 1;
-    const pageSize = options.pageSize || 50;
+    const pageSize = options.pageSize || QUERY_LIMITS.DEFAULT_PAGE_SIZE;
     const offset = (page - 1) * pageSize;
 
     const [rows] = await pool.execute<RowDataPacket[]>(
@@ -1524,7 +1966,7 @@ export class AnalyticsRepository {
       const scope = await buildProjectScopeFilter(user, 'p');
       const [rows] = await pool.execute<RowDataPacket[]>(
         `SELECT COUNT(*) as cnt FROM projects p
-         WHERE p.status = 'in_progress'
+         WHERE p.status IN ('in_progress', 'planning', 'active')
          AND p.updated_at BETWEEN ? AND ?
          AND ${scope.clause}`,
         [startDate, endDate, ...scope.params]
@@ -1540,13 +1982,13 @@ export class AnalyticsRepository {
         statusCondition = "1=1";
         break;
       case 'completed_tasks':
-        statusCondition = "t.status IN ('early_completed', 'on_time_completed', 'overdue_completed')";
+        statusCondition = STATUS_CONDITIONS.completed;
         break;
       case 'delay_warning':
-        statusCondition = "t.status = 'delay_warning'";
+        statusCondition = STATUS_CONDITIONS.delayWarning;
         break;
       case 'overdue':
-        statusCondition = "t.status = 'delayed'";
+        statusCondition = STATUS_CONDITIONS.delayed;
         break;
       default:
         statusCondition = "1=1";
@@ -1587,20 +2029,20 @@ export class AnalyticsRepository {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
-    // 日期范围
+    // 日期范围（性能优化：范围查询替代 DATE() 函数，使索引可命中）
     const dateColumn = metric === 'tasks_created' ? 't.created_at'
       : metric === 'tasks_completed' ? 't.updated_at'
       : 't.updated_at';
-    conditions.push(`DATE(${dateColumn}) BETWEEN ? AND ?`);
+    conditions.push(`${dateColumn} >= ? AND ${dateColumn} < DATE_ADD(?, INTERVAL 1 DAY)`);
     params.push(startDate, endDate);
 
     // 状态过滤
     switch (metric) {
       case 'tasks_completed':
-        conditions.push("t.status IN ('early_completed', 'on_time_completed', 'overdue_completed')");
+        conditions.push(STATUS_CONDITIONS.completed);
         break;
       case 'tasks_delayed':
-        conditions.push("t.status IN ('delay_warning', 'delayed')");
+        conditions.push(STATUS_CONDITIONS.delayedOrWarning);
         break;
     }
 
@@ -1628,6 +2070,50 @@ export class AnalyticsRepository {
       date: r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date),
       value: r.value,
     }));
+  }
+
+  // ========== 辅助方法 ==========
+
+  /**
+   * 获取角色可见范围内的部门ID列表
+   * - dept_manager: 管理部门及所有子部门
+   * - tech_manager: 本组 + 授权组
+   * - engineer: 本部门
+   */
+  private async getVisibleDepartmentIds(user: User): Promise<number[]> {
+    if (!user.department_id) return [];
+    const pool = getPool();
+
+    if (user.role === 'dept_manager') {
+      const cacheKey = `scope:dept_ids:managed:${user.id}`;
+      const cached = CacheService.get<number[]>(cacheKey);
+      if (cached) return cached;
+
+      // 复用 query-builder 的安全方法（department_managers 表可选）
+      const deptIds = await getManagedDepartmentIdsSafe(user.id, user.department_id!);
+      if (deptIds.length === 0 && user.department_id) {
+        deptIds.push(user.department_id);
+      }
+      CacheService.set(cacheKey, deptIds, 300);
+      return deptIds;
+    }
+
+    if (user.role === 'tech_manager') {
+      const cacheKey = `scope:dept_ids:tech:${user.id}`;
+      const cached = CacheService.get<number[]>(cacheKey);
+      if (cached) return cached;
+
+      // 复用 query-builder 的安全方法（department_managers 表可选）
+      const deptIds = await getTechManagerGroupIdsSafe(user.id, user.department_id!);
+      if (deptIds.length === 0 && user.department_id) {
+        deptIds.push(user.department_id);
+      }
+      CacheService.set(cacheKey, deptIds, 300);
+      return deptIds;
+    }
+
+    // engineer: 仅本部门
+    return [user.department_id];
   }
 
   // ========== 仪表板 Detail API（按角色聚合） ==========
@@ -1688,11 +2174,11 @@ export class AnalyticsRepository {
 
     const [groupEfficiency, memberStatus, taskTypeDistribution, allocationSuggestions, groupActivityTrends] =
       await Promise.all([
-        this.getGroupEfficiencyByParentDept(pool, user),
+        this.getGroupEfficiencyByParentDept(pool, user, taskScope),
         this.getMemberStatusForScope(pool, user, taskScope),
         this.getTaskTypeDistribution(pool, taskScope),
         this.getAllocationSuggestionsForScope(pool, user),
-        this.getGroupActivityTrends(pool, user),
+        this.getGroupActivityTrends(pool, user, taskScope),
       ]);
 
     return {
@@ -1736,14 +2222,12 @@ export class AnalyticsRepository {
   async getDashboardEngineerDetail(user: User): Promise<EngineerDashboardDetailResponse> {
     const pool = getPool();
 
-    const [todoTasks, needUpdateTasks, taskStatusDistribution] = await Promise.all([
-      this.getUserTodoTasks(pool, user.id),
+    const [needUpdateTasks, taskStatusDistribution] = await Promise.all([
       this.getStaleTasks(pool, user.id),
       this.getUserTaskStatusDistribution(pool, user.id),
     ]);
 
     return {
-      todo_tasks: todoTasks,
       need_update_tasks: needUpdateTasks,
       task_status_distribution: taskStatusDistribution,
     };
@@ -1759,10 +2243,12 @@ export class AnalyticsRepository {
       `SELECT
         d.id, d.name,
         COUNT(t.id) as total_tasks,
-        SUM(CASE WHEN t.status IN ('early_completed', 'on_time_completed', 'overdue_completed') THEN 1 ELSE 0 END) as completed_tasks,
-        SUM(CASE WHEN t.status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as delayed_tasks,
-        AVG(t.full_time_ratio) as avg_utilization,
-        AVG(t.progress) as avg_activity
+        SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_tasks,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_tasks,
+        AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted} AND t.status != 'cancelled'
+            THEN t.full_time_ratio / 100.0 END) as avg_utilization,
+        AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted} AND t.status != 'cancelled'
+            THEN t.progress END) as avg_activity
        FROM departments d
        LEFT JOIN users u ON u.department_id = d.id AND u.is_active = 1
        LEFT JOIN wbs_tasks t ON u.id = t.assignee_id AND (${taskScope.clause})
@@ -1803,8 +2289,8 @@ export class AnalyticsRepository {
       `SELECT
         t.task_type,
         COUNT(*) as count,
-        SUM(CASE WHEN t.status IN ('early_completed', 'on_time_completed', 'overdue_completed') THEN 1 ELSE 0 END) as completed_count,
-        SUM(CASE WHEN t.status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as delayed_count,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_count,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_count,
         ROUND(AVG(t.duration), 1) as avg_duration
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
@@ -1831,12 +2317,14 @@ export class AnalyticsRepository {
   private async getAllocationSuggestionsForScope(pool: ReturnType<typeof getPool>, user: User): Promise<AllocationSuggestionItem[]> {
     const taskScope = await buildTaskScopeFilter(user, 't', true);
 
+    // full_time_ratio 存储为百分比值（100=100%），需除以100转为小数
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         u.id as member_id,
         u.real_name as member_name,
-        COALESCE(SUM(t.full_time_ratio), 0) as total_load,
-        SUM(CASE WHEN t.status NOT IN ('early_completed', 'on_time_completed', 'overdue_completed')
+        COALESCE(AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted}
+            THEN t.full_time_ratio END) / 100.0, 0) as total_load,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.notCompleted}
             THEN 1 ELSE 0 END) as current_tasks
        FROM users u
        LEFT JOIN wbs_tasks t ON u.id = t.assignee_id AND (${taskScope.clause})
@@ -1865,64 +2353,118 @@ export class AnalyticsRepository {
         });
       }
     }
-    return suggestions.slice(0, 5);
+    return suggestions.slice(0, QUERY_LIMITS.ALLOCATION_SUGGESTIONS);
   }
 
   /**
    * Admin: 部门延期率趋势（30天，按日期+部门聚合）
    */
   private async getDepartmentDelayTrends(pool: ReturnType<typeof getPool>, taskScope: ScopeFilter): Promise<DepartmentDelayTrendPoint[]> {
+    // 基于任务截止日期计算累计延期率趋势（30天）
+    // 使用递归CTE生成完整日期序列，避免X轴断档
+    // 统计截至每天的：未完成任务总数 + 其中延期状态数量 → 累计延期率
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT
-        DATE(t.updated_at) as date,
-        d.name as dept_name,
-        COUNT(*) as total,
-        SUM(CASE WHEN t.status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as delayed_count
-       FROM wbs_tasks t
-       JOIN projects p ON t.project_id = p.id
-       JOIN users u ON t.assignee_id = u.id
-       LEFT JOIN departments d ON u.department_id = d.id
-       WHERE (${taskScope.clause})
-         AND t.updated_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-       GROUP BY DATE(t.updated_at), d.name
-       ORDER BY date`,
+      `WITH RECURSIVE date_series AS (
+          SELECT DATE_SUB(CURDATE(), INTERVAL ${TIME_INTERVALS.MONTH_DAYS - 1} DAY) as date
+          UNION ALL
+          SELECT DATE_ADD(date, INTERVAL 1 DAY) FROM date_series WHERE date < CURDATE()
+        ),
+        scoped_tasks AS (
+          SELECT t.end_date, t.actual_end_date, t.warning_days, u.department_id
+          FROM wbs_tasks t
+          JOIN projects p ON t.project_id = p.id
+          JOIN users u ON t.assignee_id = u.id
+          WHERE t.end_date IS NOT NULL
+            AND (${taskScope.clause})
+        )
+        SELECT
+          ds.date,
+          COALESCE(d.name, '未知部门') as dept_name,
+          SUM(CASE WHEN st.actual_end_date IS NULL OR st.actual_end_date > ds.date THEN 1 ELSE 0 END) as total,
+          SUM(CASE WHEN st.actual_end_date IS NULL AND st.end_date <= ds.date THEN 1 ELSE 0 END) as delayed_count
+        FROM date_series ds
+        LEFT JOIN scoped_tasks st ON st.end_date <= ds.date
+        LEFT JOIN departments d ON st.department_id = d.id
+        GROUP BY ds.date, d.name
+        HAVING total > 0
+        ORDER BY ds.date`,
       taskScope.params
     );
 
-    // 按日期聚合为宽表格式 { date, 部门A: rate, 部门B: rate }
-    const dateMap = new Map<string, Record<string, string | number>>();
-    for (const r of rows) {
-      const date = r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date);
-      if (!dateMap.has(date)) dateMap.set(date, { date });
-      const entry = dateMap.get(date)!;
-      const rate = r.total > 0 ? Math.round((r.delayed_count / r.total) * 100) : 0;
-      entry[r.dept_name || '未知部门'] = rate;
+    // 生成完整30天日期序列（前端图表需要连续X轴）
+    const today = new Date();
+    const allDates: string[] = [];
+    for (let i = TIME_INTERVALS.MONTH_DAYS - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      allDates.push(d.toISOString().split('T')[0]);
     }
 
-    return Array.from(dateMap.values()) as DepartmentDelayTrendPoint[];
+    // 收集所有出现过的部门名称
+    const deptNames = new Set<string>();
+    for (const r of rows) {
+      if (r.dept_name) {
+        deptNames.add(r.dept_name);
+      }
+    }
+
+    // 构建宽表：30天 × N部门，缺失值补0
+    const result: Record<string, string | number>[] = allDates.map(date => {
+      const entry: Record<string, string | number> = { date };
+      for (const dept of deptNames) {
+        entry[dept] = 0;
+      }
+      return entry;
+    });
+
+    // 填充实际数据
+    const dateEntryMap = new Map(result.map(e => [e.date as string, e]));
+    for (const r of rows) {
+      const date = r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date);
+      const entry = dateEntryMap.get(date);
+      if (entry && r.dept_name && r.total > 0) {
+        entry[r.dept_name] = Math.round((r.delayed_count / r.total) * 100);
+      }
+    }
+
+    return result as DepartmentDelayTrendPoint[];
   }
 
   /**
    * Admin: 资源利用率趋势（30天）
    */
   private async getUtilizationTrends(pool: ReturnType<typeof getPool>, taskScope: ScopeFilter): Promise<UtilizationTrendPoint[]> {
+    // 基于每日在执行任务的累计全职比计算资源利用率趋势（30天）
+    // 使用递归CTE生成完整日期序列 + 只统计活跃任务
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT
-        DATE(t.start_date) as date,
-        ROUND(AVG(t.full_time_ratio) * 100, 1) as utilization
-       FROM wbs_tasks t
-       JOIN projects p ON t.project_id = p.id
-       WHERE (${taskScope.clause})
-         AND t.start_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-       GROUP BY DATE(t.start_date)
-       ORDER BY date`,
+      `WITH RECURSIVE date_series AS (
+          SELECT DATE_SUB(CURDATE(), INTERVAL ${TIME_INTERVALS.MONTH_DAYS - 1} DAY) as date
+          UNION ALL
+          SELECT DATE_ADD(date, INTERVAL 1 DAY) FROM date_series WHERE date < CURDATE()
+        ),
+        active_tasks AS (
+          SELECT t.start_date, t.full_time_ratio / 100.0 as full_time_ratio
+          FROM wbs_tasks t
+          JOIN projects p ON t.project_id = p.id
+          WHERE t.start_date IS NOT NULL
+            AND t.start_date <= CURDATE()
+            AND ${STATUS_CONDITIONS.notCompleted} AND t.status != 'cancelled'
+            AND (${taskScope.clause})
+        )
+        SELECT
+          ds.date,
+          ROUND(COALESCE(AVG(at.full_time_ratio), 0), 1) as utilization
+        FROM date_series ds
+        LEFT JOIN active_tasks at ON at.start_date <= ds.date
+        GROUP BY ds.date
+        ORDER BY ds.date`,
       taskScope.params
     );
 
     return rows.map((r: RowDataPacket) => ({
       date: r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date),
       utilization: r.utilization || 0,
-      target: 80,
+      target: DEFAULTS.TARGET_UTILIZATION,
     }));
   }
 
@@ -1933,7 +2475,7 @@ export class AnalyticsRepository {
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         p.id, p.name, p.progress,
-        COUNT(CASE WHEN t.status IN ('delay_warning', 'delayed') THEN 1 END) as delayed_tasks,
+        COUNT(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 END) as delayed_tasks,
         u.real_name as manager
        FROM projects p
        LEFT JOIN wbs_tasks t ON p.id = t.project_id
@@ -1941,9 +2483,9 @@ export class AnalyticsRepository {
        WHERE (${projectScope.clause})
          AND p.status NOT IN ('completed', 'cancelled')
        GROUP BY p.id, p.name, p.progress, u.real_name
-       HAVING (p.progress < 50 AND delayed_tasks > 0) OR delayed_tasks > 3
+       HAVING (p.progress < ${STATUS_THRESHOLDS.PROJECT_LOW_PROGRESS} AND delayed_tasks > 0) OR delayed_tasks > ${STATUS_THRESHOLDS.PROJECT_MANY_DELAYED}
        ORDER BY p.progress ASC
-       LIMIT 5`,
+       LIMIT ${QUERY_LIMITS.HIGH_RISK_PROJECTS}`,
       projectScope.params
     );
 
@@ -1968,7 +2510,7 @@ export class AnalyticsRepository {
   /**
    * DeptManager: 组效能（用子部门模拟"组"）
    */
-  private async getGroupEfficiencyByParentDept(pool: ReturnType<typeof getPool>, user: User): Promise<GroupEfficiencyItem[]> {
+  private async getGroupEfficiencyByParentDept(pool: ReturnType<typeof getPool>, user: User, taskScope: ScopeFilter): Promise<GroupEfficiencyItem[]> {
     // 获取用户管理的部门ID
     const [deptRows] = await pool.execute<RowDataPacket[]>(
       `SELECT department_id FROM users WHERE id = ?`,
@@ -1992,17 +2534,20 @@ export class AnalyticsRepository {
         d.id, d.name,
         COUNT(DISTINCT u.id) as member_count,
         COUNT(t.id) as total_tasks,
-        SUM(CASE WHEN t.status IN ('early_completed', 'on_time_completed', 'overdue_completed') THEN 1 ELSE 0 END) as completed_tasks,
-        SUM(CASE WHEN t.status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as delayed_tasks,
-        AVG(t.full_time_ratio) as avg_load,
-        AVG(t.progress) as avg_activity
+        SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_tasks,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_tasks,
+        AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted} AND t.status != 'cancelled'
+            THEN t.full_time_ratio / 100.0 END) as avg_load,
+        AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted} AND t.status != 'cancelled'
+            THEN t.progress END) as avg_activity
        FROM departments d
        LEFT JOIN users u ON u.department_id = d.id AND u.is_active = 1
-       LEFT JOIN wbs_tasks t ON u.id = t.assignee_id
+       LEFT JOIN (wbs_tasks t JOIN projects p ON t.project_id = p.id)
+         ON u.id = t.assignee_id AND (${taskScope.clause})
        WHERE d.id IN (${placeholders})
        GROUP BY d.id, d.name
        ORDER BY completed_tasks DESC`,
-      childIds
+      [...taskScope.params, ...childIds]
     );
 
     return rows.map((r: RowDataPacket) => {
@@ -2034,38 +2579,42 @@ export class AnalyticsRepository {
    */
   private async getMemberStatusForScope(pool: ReturnType<typeof getPool>, user: User, taskScope: ScopeFilter): Promise<MemberStatusItem[]> {
     // 获取用户可见范围内的成员
+    // 使用嵌套 JOIN: tasks INNER JOIN projects 保证 p 别名可用，外层 LEFT JOIN 保留无任务用户
+    const userScope = await buildUserDepartmentScopeFilter(user);
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
-        u.id, u.real_name as name, u.avatar,
-        COUNT(t.id) as total_tasks,
-        SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
-        SUM(CASE WHEN t.status IN ('early_completed', 'on_time_completed', 'overdue_completed') THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN t.status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as delayed_count,
-        ROUND(COALESCE(SUM(t.full_time_ratio), 0), 2) as load_rate,
+        u.id, u.real_name as name,
+        COUNT(DISTINCT t.id) as total_tasks,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.inProgress} THEN 1 ELSE 0 END) as in_progress,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_count,
+        ROUND(COALESCE(AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted}
+            THEN t.full_time_ratio END) / 100.0, 0), 2) as load_rate,
         ROUND(AVG(t.progress), 1) as activity
        FROM users u
-       LEFT JOIN wbs_tasks t ON u.id = t.assignee_id AND (${taskScope.clause})
-       WHERE u.is_active = 1
-       GROUP BY u.id, u.real_name, u.avatar
+       LEFT JOIN (wbs_tasks t JOIN projects p ON t.project_id = p.id)
+         ON u.id = t.assignee_id AND (${taskScope.clause})
+       WHERE u.is_active = 1 AND (${userScope.clause})
+       GROUP BY u.id, u.real_name
        ORDER BY load_rate DESC`,
-      taskScope.params
+      [...taskScope.params, ...userScope.params]
     );
 
     return rows.map((r: RowDataPacket) => {
       const load = r.load_rate || 0;
       let status: 'healthy' | 'warning' | 'risk' | 'idle' = 'healthy';
       if (r.total_tasks === 0) status = 'idle';
-      else if (load > 1.5 || r.delayed_count > 3) status = 'risk';
-      else if (load > 1.2 || r.delayed_count > 1) status = 'warning';
+      else if (load > 150 || r.delayed_count > 3) status = 'risk';
+      else if (load > 120 || r.delayed_count > 1) status = 'warning';
 
       return {
         id: r.id,
         name: r.name,
-        avatar: r.avatar || null,
+        avatar: null,
         in_progress: r.in_progress || 0,
         completed: r.completed || 0,
         delayed: r.delayed_count || 0,
-        load_rate: Math.round(load * 100),
+        load_rate: Math.round(load),
         activity: Math.round(r.activity || 0),
         trend: 0,
         status,
@@ -2076,7 +2625,7 @@ export class AnalyticsRepository {
   /**
    * DeptManager: 组活跃度趋势（12周，按子部门聚合）
    */
-  private async getGroupActivityTrends(pool: ReturnType<typeof getPool>, user: User): Promise<GroupActivityTrendPoint[]> {
+  private async getGroupActivityTrends(pool: ReturnType<typeof getPool>, user: User, taskScope: ScopeFilter): Promise<GroupActivityTrendPoint[]> {
     const [deptRows] = await pool.execute<RowDataPacket[]>(
       `SELECT department_id FROM users WHERE id = ?`,
       [user.id]
@@ -2093,26 +2642,29 @@ export class AnalyticsRepository {
     const childIds = childDepts.map((d: RowDataPacket) => d.id);
     const placeholders = childIds.map(() => '?').join(',');
 
+    // 基于任务更新时间的活跃度统计：每周每个组有多少任务被更新过
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
-        DATE_FORMAT(t.start_date, '%x-W%v') as period,
+        CONCAT(YEAR(t.updated_at), '-W', LPAD(WEEK(t.updated_at, 1), 2, '0')) as period,
         d.name as group_name,
-        ROUND(AVG(t.progress), 1) as avg_activity
+        COUNT(DISTINCT t.id) as activity
        FROM wbs_tasks t
        JOIN users u ON t.assignee_id = u.id
        JOIN departments d ON u.department_id = d.id
+       JOIN projects p ON t.project_id = p.id
        WHERE d.id IN (${placeholders})
-         AND t.start_date >= DATE_SUB(CURDATE(), INTERVAL 12 WEEK)
+         AND t.updated_at >= DATE_SUB(CURDATE(), INTERVAL ${TIME_INTERVALS.QUARTER_WEEKS} WEEK)
+         AND (${taskScope.clause})
        GROUP BY period, d.name
        ORDER BY period`,
-      childIds
+      [...childIds, ...taskScope.params]
     );
 
     // 按周期聚合为宽表
     const periodMap = new Map<string, Record<string, string | number>>();
     for (const r of rows) {
       if (!periodMap.has(r.period)) periodMap.set(r.period, { date: r.period });
-      periodMap.get(r.period)![r.group_name] = r.avg_activity || 0;
+      periodMap.get(r.period)![r.group_name] = r.activity || 0;
     }
     return Array.from(periodMap.values()) as GroupActivityTrendPoint[];
   }
@@ -2148,7 +2700,7 @@ export class AnalyticsRepository {
        WHERE u.is_active = 1
        GROUP BY u.id, u.real_name
        ORDER BY COUNT(t.id) DESC
-       LIMIT 6`,
+       LIMIT ${QUERY_LIMITS.TOP_MEMBERS}`,
       taskScope.params
     );
     if (memberRows.length === 0) return [];
@@ -2156,59 +2708,29 @@ export class AnalyticsRepository {
     const memberIds = memberRows.map((m: RowDataPacket) => m.id);
     const placeholders = memberIds.map(() => '?').join(',');
 
+    // 基于任务更新时间的活跃度统计：每周每个成员有多少任务被更新过
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
-        DATE_FORMAT(t.start_date, '%x-W%v') as period,
+        CONCAT(YEAR(t.updated_at), '-W', LPAD(WEEK(t.updated_at, 1), 2, '0')) as period,
         u.real_name as member_name,
-        ROUND(AVG(t.progress), 1) as avg_activity
+        COUNT(DISTINCT t.id) as activity
        FROM wbs_tasks t
        JOIN users u ON t.assignee_id = u.id
+       JOIN projects p ON t.project_id = p.id
        WHERE u.id IN (${placeholders})
-         AND t.start_date >= DATE_SUB(CURDATE(), INTERVAL 12 WEEK)
+         AND t.updated_at >= DATE_SUB(CURDATE(), INTERVAL ${TIME_INTERVALS.QUARTER_WEEKS} WEEK)
+         AND (${taskScope.clause})
        GROUP BY period, u.real_name
        ORDER BY period`,
-      memberIds
+      [...memberIds, ...taskScope.params]
     );
 
     const periodMap = new Map<string, Record<string, string | number>>();
     for (const r of rows) {
       if (!periodMap.has(r.period)) periodMap.set(r.period, { date: r.period });
-      periodMap.get(r.period)![r.member_name] = r.avg_activity || 0;
+      periodMap.get(r.period)![r.member_name] = r.activity || 0;
     }
     return Array.from(periodMap.values()) as MemberActivityTrendPoint[];
-  }
-
-  /**
-   * Engineer: 用户待办任务
-   */
-  private async getUserTodoTasks(pool: ReturnType<typeof getPool>, userId: number): Promise<TodoTaskItem[]> {
-    const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT
-        t.id, t.description as name, p.name as project_name,
-        t.end_date as due_date, t.progress, t.priority,
-        DATEDIFF(CURDATE(), t.end_date) as days_overdue,
-        t.updated_at as last_updated
-       FROM wbs_tasks t
-       JOIN projects p ON t.project_id = p.id
-       WHERE t.assignee_id = ?
-         AND t.status NOT IN ('early_completed', 'on_time_completed', 'overdue_completed')
-       ORDER BY
-         CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-         t.end_date ASC
-       LIMIT 20`,
-      [userId]
-    );
-
-    return rows.map((r: RowDataPacket) => ({
-      id: String(r.id),
-      name: r.name || '',
-      project_name: r.project_name || '',
-      due_date: r.due_date instanceof Date ? r.due_date.toISOString().split('T')[0] : (r.due_date || null),
-      progress: r.progress || 0,
-      priority: r.priority || 'medium',
-      days_overdue: r.days_overdue > 0 ? r.days_overdue : undefined,
-      last_updated: r.last_updated instanceof Date ? r.last_updated.toISOString() : (r.last_updated || undefined),
-    }));
   }
 
   /**
@@ -2224,10 +2746,10 @@ export class AnalyticsRepository {
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        WHERE t.assignee_id = ?
-         AND t.status IN ('in_progress', 'delay_warning')
-         AND t.updated_at < DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+         AND ${STATUS_CONDITIONS.notCompleted} AND t.actual_start_date IS NOT NULL
+         AND t.updated_at < DATE_SUB(CURDATE(), INTERVAL ${TIME_INTERVALS.WEEK_DAYS} DAY)
        ORDER BY t.updated_at ASC
-       LIMIT 10`,
+       LIMIT ${QUERY_LIMITS.STALE_TASKS}`,
       [userId]
     );
 
