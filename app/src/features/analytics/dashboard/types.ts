@@ -215,8 +215,6 @@ export interface TechManagerDashboardData extends DashboardStats {
 export interface EngineerDashboardData {
   /** 紧急任务预警 */
   alerts: AlertData[];
-  /** 待办任务 */
-  todoTasks: TodoTask[];
   /** 需要更新的任务 */
   needUpdateTasks: TodoTask[];
   /** 核心指标 */
