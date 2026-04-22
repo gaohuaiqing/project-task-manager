@@ -213,7 +213,6 @@ export function getEngineerDashboardData(): EngineerDashboardData {
   return {
     alerts: generateEngineerAlerts(),
     metrics: generateEngineerMetrics(),
-    todoTasks: generateTodoTasks(),
     needUpdateTasks: generateNeedUpdateTasks(),
     trends: generateTaskTrends(),
     taskStatusDistribution: generateTaskStatusDistribution(),
