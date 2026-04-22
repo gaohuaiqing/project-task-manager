@@ -18,6 +18,50 @@ import type {
   EngineerDashboardData,
 } from '../types';
 import type { PieChartDataItem } from '../../shared/types';
+import { DEFAULT_CHART_COLORS } from '../../shared/constants/colors';
+
+// ============ 动态 Series 工具函数 ============
+
+/**
+ * 从宽表趋势数据中动态提取 series 配置
+ * 后端返回的趋势数据为宽表格式（如 { date, "部门A": 15, "部门B": 8 }），
+ * 此函数自动排除日期列，为每个实体名分配颜色
+ *
+ * @param data - 后端返回的宽表趋势数据
+ * @param excludeKeys - 需要排除的非数据 key（默认排除 date/period）
+ */
+export function buildDynamicSeries(
+  data: Record<string, unknown>[],
+  excludeKeys: string[] = ['date', 'period'],
+): Array<{ dataKey: string; name: string; color: string }> {
+  if (!data || data.length === 0) return [];
+
+  const firstRow = data[0];
+  const keys = Object.keys(firstRow).filter(
+    (k) => !excludeKeys.includes(k) && typeof firstRow[k] === 'number',
+  );
+
+  return keys.map((key, i) => ({
+    dataKey: key,
+    name: key,
+    color: DEFAULT_CHART_COLORS[i % DEFAULT_CHART_COLORS.length],
+  }));
+}
+
+// ============ 趋势 API 错误处理 ============
+
+/**
+ * 趋势数据获取失败的统一处理
+ * 记录警告日志并返回空对象，避免阻塞仪表板渲染
+ */
+function handleTrendError(context: string): (err: unknown) => Record<string, never> {
+  return (err: unknown) => {
+    if (err instanceof Error && err.name !== 'AbortError') {
+      console.warn(`[Dashboard] 趋势数据获取失败 (${context}):`, err.message);
+    }
+    return {};
+  };
+}
 
 // ============ 缓存配置 ============
 
@@ -49,7 +93,11 @@ function buildTrendHelper(
   invertColors?: boolean,
 ) {
   const t = trendMap[key]?.trend;
-  if (!t || t.direction === 'flat') return undefined;
+  if (!t) return undefined;
+  // 持平趋势显示为中性状态，而非隐藏
+  if (t.direction === 'flat') {
+    return { trend: 0, trendText: '– 持平' };
+  }
   const sign = t.direction === 'up' ? '↑' : '↓';
   const text = `${sign}${Math.abs(t.changePercent)}% vs 上周`;
   return { trend: invertColors ? -t.changePercent : t.changePercent, trendText: text };
@@ -87,13 +135,15 @@ function mapStatusDistribution(
 ): PieChartDataItem[] {
   if (!items || items.length === 0) return [];
   const statusNames: Record<string, string> = {
+    pending_approval: '待审批',
+    rejected: '已驳回',
     not_started: '未开始',
     in_progress: '进行中',
-    delay_warning: '延期预警',
-    delayed: '已延期',
     early_completed: '提前完成',
     on_time_completed: '按时完成',
-    overdue_completed: '逾期完成',
+    delay_warning: '延期预警',
+    delayed: '已延期',
+    overdue_completed: '超期完成',
   };
   const total = items.reduce((sum, i) => sum + i.count, 0);
   return items.map((i) => ({
@@ -121,9 +171,9 @@ function transformAdminData(
       type: 'delay_warning' as const,
       count: stats.delayWarningTasks || 0,
       label: '延期预警',
-      trend: trendMap.delay_warning?.trend?.changePercent,
-      trendText: trendMap.delay_warning?.trend?.direction === 'flat' ? undefined
-        : `${trendMap.delay_warning?.trend?.direction === 'up' ? '↑' : '↓'}${Math.abs(trendMap.delay_warning?.trend?.changePercent || 0)}% vs 上周`,
+      trend: trendMap.delayWarning?.trend?.changePercent,
+      trendText: trendMap.delayWarning?.trend?.direction === 'flat' ? undefined
+        : `${trendMap.delayWarning?.trend?.direction === 'up' ? '↑' : '↓'}${Math.abs(trendMap.delayWarning?.trend?.changePercent || 0)}% vs 上周`,
       color: 'warning' as const,
       actionLabel: '查看详情',
       actionPath: '/reports/delay-analysis',
@@ -139,19 +189,27 @@ function transformAdminData(
       actionLabel: '查看详情',
       actionPath: '/reports/delay-analysis',
     },
+    {
+      type: 'pending_approval' as const,
+      count: stats.pendingApprovalTasks || 0,
+      label: '待审批',
+      color: 'info' as const,
+      actionLabel: '立即审批',
+      actionPath: '/settings/approvals',
+    },
   ].filter(a => a.count > 0);
 
   return {
     alerts,
     metrics: [
-      { label: '项目总数', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), ...buildTrendHelper(trendMap, 'active_projects') },
-      { label: '任务总数', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), ...buildTrendHelper(trendMap, 'total_tasks') },
-      { label: '完成率', value: stats.avgProgress || 0, displayValue: `${stats.avgProgress || 0}%`, ...buildTrendHelper(trendMap, 'completed_tasks') },
-      { label: '延期率', value: stats.delayWarningTasks && stats.totalTasks ? Math.round((stats.delayWarningTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.delayWarningTasks && stats.totalTasks ? Math.round((stats.delayWarningTasks / stats.totalTasks) * 100) : 0}%`, ...buildTrendHelper(trendMap, 'delay_warning', true) },
-      { label: '总人数', value: stats.totalMembers || 0, displayValue: String(stats.totalMembers || 0) },
-      { label: '进行中', value: stats.inProgressTasks || 0, displayValue: String(stats.inProgressTasks || 0) },
-      { label: '已完成', value: stats.completedTasks || 0, displayValue: String(stats.completedTasks || 0), ...buildTrendHelper(trendMap, 'completed_tasks') },
-      { label: '本周到期', value: stats.delayWarningTasks || 0, displayValue: String(stats.delayWarningTasks || 0), ...buildTrendHelper(trendMap, 'delay_warning', true) },
+      { label: '项目总数', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), description: '当前系统中所有项目的总数量', ...buildTrendHelper(trendMap, 'activeProjects') },
+      { label: '任务总数', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), description: '所有项目中的任务总数量', ...buildTrendHelper(trendMap, 'totalTasks') },
+      { label: '完成率', value: stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0}%`, description: '已完成任务占总任务的百分比', ...buildTrendHelper(trendMap, 'completedTasks') },
+      { label: '延期率', value: stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0}%`, description: '延期任务占总任务的百分比', ...buildTrendHelper(trendMap, 'overdue', true) },
+      { label: '总人数', value: stats.totalMembers || 0, displayValue: String(stats.totalMembers || 0), description: '系统中注册的用户总数' },
+      { label: '进行中', value: stats.inProgressTasks || 0, displayValue: String(stats.inProgressTasks || 0), description: '当前正在执行中的任务数量' },
+      { label: '已完成', value: stats.completedTasks || 0, displayValue: String(stats.completedTasks || 0), description: '已完成并关闭的任务数量', ...buildTrendHelper(trendMap, 'completedTasks') },
+      { label: '本周到期', value: stats.delayWarningTasks || 0, displayValue: String(stats.delayWarningTasks || 0), description: '本周内需要完成的任务数量', ...buildTrendHelper(trendMap, 'delayWarning', true) },
     ],
     departmentEfficiency: (detail?.departmentEfficiency || []).map((d: any) => ({
       id: d.id, name: d.name,
@@ -192,19 +250,20 @@ function transformDeptManagerData(
   const alerts = [
     { type: 'delay_warning' as const, count: stats.delayWarningTasks || 0, label: '延期预警', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/reports/delay-analysis' },
     { type: 'overdue' as const, count: stats.overdueTasks || 0, label: '已延期', color: 'danger' as const, actionLabel: '查看详情', actionPath: '/reports/delay-analysis' },
+    { type: 'pending_approval' as const, count: stats.pendingApprovalTasks || 0, label: '待我审批', color: 'info' as const, actionLabel: '立即审批', actionPath: '/settings/approvals' },
   ].filter(a => a.count > 0);
 
   return {
     alerts,
     metrics: [
-      { label: '部门项目', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), ...buildTrendHelper(trendMap, 'active_projects') },
-      { label: '部门任务', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), ...buildTrendHelper(trendMap, 'total_tasks') },
-      { label: '完成率', value: stats.avgProgress || 0, displayValue: `${stats.avgProgress || 0}%`, ...buildTrendHelper(trendMap, 'completed_tasks') },
-      { label: '延期率', value: stats.delayWarningTasks && stats.totalTasks ? Math.round((stats.delayWarningTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.delayWarningTasks && stats.totalTasks ? Math.round((stats.delayWarningTasks / stats.totalTasks) * 100) : 0}%`, ...buildTrendHelper(trendMap, 'delay_warning', true) },
-      { label: '部门人数', value: stats.totalMembers || 0, displayValue: String(stats.totalMembers || 0) },
-      { label: '进行中', value: stats.inProgressTasks || 0, displayValue: String(stats.inProgressTasks || 0) },
-      { label: '本周到期', value: stats.delayWarningTasks || 0, displayValue: String(stats.delayWarningTasks || 0), ...buildTrendHelper(trendMap, 'delay_warning', true) },
-      { label: '活跃度', value: stats.avgProgress || 0, displayValue: `${stats.avgProgress || 0}%` },
+      { label: '部门项目', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), description: '本部门负责的项目总数', ...buildTrendHelper(trendMap, 'activeProjects') },
+      { label: '部门任务', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), description: '本部门所有项目中的任务总数', ...buildTrendHelper(trendMap, 'totalTasks') },
+      { label: '完成率', value: stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0}%`, description: '本部门已完成任务占比', ...buildTrendHelper(trendMap, 'completedTasks') },
+      { label: '延期率', value: stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0}%`, description: '本部门延期任务占比', ...buildTrendHelper(trendMap, 'overdue', true) },
+      { label: '部门人数', value: stats.totalMembers || 0, displayValue: String(stats.totalMembers || 0), description: '本部门当前的成员总数' },
+      { label: '进行中', value: stats.inProgressTasks || 0, displayValue: String(stats.inProgressTasks || 0), description: '本部门当前正在执行中的任务数量' },
+      { label: '本周到期', value: stats.delayWarningTasks || 0, displayValue: String(stats.delayWarningTasks || 0), description: '本周内需要完成的任务数量', ...buildTrendHelper(trendMap, 'delayWarning', true) },
+      { label: '活跃度', value: stats.activityRate || 0, displayValue: `${stats.activityRate || 0}%`, description: '7日内有进展更新的任务占比' },
     ],
     groupEfficiency: (detail?.groupEfficiency || []).map((g: any) => ({
       id: g.id, name: g.name,
@@ -244,19 +303,20 @@ function transformTechManagerData(
   const alerts = [
     { type: 'delay_warning' as const, count: stats.delayWarningTasks || 0, label: '延期预警', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/reports/delay-analysis' },
     { type: 'overdue' as const, count: stats.overdueTasks || 0, label: '已延期', color: 'danger' as const, actionLabel: '查看详情', actionPath: '/reports/delay-analysis' },
+    { type: 'pending_approval' as const, count: stats.pendingApprovalTasks || 0, label: '待我审批', color: 'info' as const, actionLabel: '立即审批', actionPath: '/settings/approvals' },
   ].filter(a => a.count > 0);
 
   return {
     alerts,
     metrics: [
-      { label: '组内项目', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), ...buildTrendHelper(trendMap, 'active_projects') },
-      { label: '组内任务', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), ...buildTrendHelper(trendMap, 'total_tasks') },
-      { label: '完成率', value: stats.avgProgress || 0, displayValue: `${stats.avgProgress || 0}%`, ...buildTrendHelper(trendMap, 'completed_tasks') },
-      { label: '延期率', value: stats.delayWarningTasks && stats.totalTasks ? Math.round((stats.delayWarningTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.delayWarningTasks && stats.totalTasks ? Math.round((stats.delayWarningTasks / stats.totalTasks) * 100) : 0}%`, ...buildTrendHelper(trendMap, 'delay_warning', true) },
-      { label: '组内人数', value: stats.totalMembers || 0, displayValue: String(stats.totalMembers || 0) },
-      { label: '进行中', value: stats.inProgressTasks || 0, displayValue: String(stats.inProgressTasks || 0) },
-      { label: '本周到期', value: stats.delayWarningTasks || 0, displayValue: String(stats.delayWarningTasks || 0), ...buildTrendHelper(trendMap, 'delay_warning', true) },
-      { label: '活跃度', value: stats.avgProgress || 0, displayValue: `${stats.avgProgress || 0}%` },
+      { label: '组内项目', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), description: '当前技术组参与的项目数量', ...buildTrendHelper(trendMap, 'activeProjects') },
+      { label: '组内任务', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), description: '组内所有成员的任务总数', ...buildTrendHelper(trendMap, 'totalTasks') },
+      { label: '完成率', value: stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0}%`, description: '组内已完成任务占比', ...buildTrendHelper(trendMap, 'completedTasks') },
+      { label: '延期率', value: stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0}%`, description: '超过计划截止日期的任务占比', ...buildTrendHelper(trendMap, 'overdue', true) },
+      { label: '组内人数', value: stats.totalMembers || 0, displayValue: String(stats.totalMembers || 0), description: '当前技术组的成员总数' },
+      { label: '进行中', value: stats.inProgressTasks || 0, displayValue: String(stats.inProgressTasks || 0), description: '组内当前正在执行中的任务数量' },
+      { label: '本周到期', value: stats.delayWarningTasks || 0, displayValue: String(stats.delayWarningTasks || 0), description: '本周内需要完成的任务数量', ...buildTrendHelper(trendMap, 'delayWarning', true) },
+      { label: '活跃度', value: stats.activityRate || 0, displayValue: `${stats.activityRate || 0}%`, description: '7日内有进展更新的任务占比' },
     ],
     currentGroupId: groupId || (detail?.availableGroups?.[0]?.id) || 1,
     availableGroups: detail?.availableGroups || [],
@@ -295,17 +355,11 @@ function transformEngineerData(
       { type: 'week_due' as const, count: stats.delayWarningTasks || 0, label: '本周到期', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/tasks' },
     ].filter(a => a.count > 0),
     metrics: [
-      { label: '参与项目', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), ...buildTrendHelper(trendMap, 'active_projects') },
-      { label: '进行中', value: stats.inProgressTasks || 0, displayValue: String(stats.inProgressTasks || 0), ...buildTrendHelper(trendMap, 'total_tasks') },
-      { label: '已完成', value: stats.completedTasks || 0, displayValue: String(stats.completedTasks || 0), ...buildTrendHelper(trendMap, 'completed_tasks') },
-      { label: '待开始', value: stats.pendingTasks || 0, displayValue: String(stats.pendingTasks || 0) },
+      { label: '参与项目', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), description: '当前参与的项目数量', ...buildTrendHelper(trendMap, 'activeProjects') },
+      { label: '进行中', value: stats.inProgressTasks || 0, displayValue: String(stats.inProgressTasks || 0), description: '当前正在进行中的任务数量', ...buildTrendHelper(trendMap, 'totalTasks') },
+      { label: '已完成', value: stats.completedTasks || 0, displayValue: String(stats.completedTasks || 0), description: '已完成并关闭的任务数量', ...buildTrendHelper(trendMap, 'completedTasks') },
+      { label: '待开始', value: stats.pendingTasks || 0, displayValue: String(stats.pendingTasks || 0), description: '已分配但尚未开始的任务数量' },
     ],
-    todoTasks: (detail?.todoTasks || []).map((t: any) => ({
-      id: t.id, name: t.name, projectName: t.projectName,
-      dueDate: t.dueDate || '', progress: t.progress,
-      priority: t.priority as 'high' | 'medium' | 'low',
-      daysOverdue: t.daysOverdue, lastUpdated: t.lastUpdated,
-    })),
     needUpdateTasks: (detail?.needUpdateTasks || []).map((t: any) => ({
       id: t.id, name: t.name, projectName: t.projectName,
       dueDate: t.dueDate || '', progress: t.progress,
@@ -327,124 +381,6 @@ function transformEngineerData(
   };
 }
 
-// ============ React Query Hooks ============
-
-/**
- * Admin仪表板数据Hook
- */
-export function useAdminDashboardData(projectId?: string) {
-  return useQuery({
-    queryKey: queryKeys.analytics.adminDashboard(projectId),
-    queryFn: async ({ signal }) => {
-      const [stats, trends, projects, trendsSummary, detail] = await Promise.all([
-        analyticsApi.getDashboardStats(signal),
-        analyticsApi.getTaskTrend({ days: 30 }, signal),
-        analyticsApi.getAllProjectsProgress(signal),
-        analyticsApi.getDashboardTrends(7, signal).catch(() => ({})),
-        analyticsApi.getAdminDashboardDetail(signal).catch(() => null),
-      ]);
-
-      return transformAdminData(stats, trends, trendsSummary, detail);
-    },
-    staleTime: DASHBOARD_STALE_TIME,
-    refetchInterval: DASHBOARD_REFETCH_INTERVAL,
-  });
-}
-
-/**
- * DeptManager仪表板数据Hook
- */
-export function useDeptManagerDashboardData(projectId?: string) {
-  return useQuery({
-    queryKey: queryKeys.analytics.deptManagerDashboard(projectId),
-    queryFn: async ({ signal }) => {
-      const [stats, trends, trendsSummary, detail] = await Promise.all([
-        analyticsApi.getDashboardStats(signal),
-        analyticsApi.getTaskTrend({ days: 30 }, signal),
-        analyticsApi.getDashboardTrends(7, signal).catch(() => ({})),
-        analyticsApi.getDeptManagerDashboardDetail(signal).catch(() => null),
-      ]);
-
-      return transformDeptManagerData(stats, trends, trendsSummary, detail);
-    },
-    staleTime: DASHBOARD_STALE_TIME,
-    refetchInterval: DASHBOARD_REFETCH_INTERVAL,
-  });
-}
-
-/**
- * TechManager仪表板数据Hook
- */
-export function useTechManagerDashboardData(projectId?: string, groupId?: number) {
-  return useQuery({
-    queryKey: queryKeys.analytics.techManagerDashboard(projectId, groupId),
-    queryFn: async () => {
-      const [stats, trends, trendsSummary, detail] = await Promise.all([
-        analyticsApi.getDashboardStats(),
-        analyticsApi.getTaskTrend({ days: 30 }),
-        analyticsApi.getDashboardTrends(7).catch(() => ({})),
-        analyticsApi.getTechManagerDashboardDetail(groupId).catch(() => null),
-      ]);
-
-      return transformTechManagerData(stats, trends, trendsSummary, detail, groupId);
-    },
-    staleTime: DASHBOARD_STALE_TIME,
-    refetchInterval: DASHBOARD_REFETCH_INTERVAL,
-  });
-}
-
-/**
- * Engineer仪表板数据Hook
- */
-export function useEngineerDashboardData(projectId?: string) {
-  return useQuery({
-    queryKey: queryKeys.analytics.engineerDashboard(projectId),
-    queryFn: async () => {
-      const [stats, trends, projects, trendsSummary, detail] = await Promise.all([
-        analyticsApi.getDashboardStats(),
-        analyticsApi.getTaskTrend({ days: 30 }),
-        analyticsApi.getAllProjectsProgress(),
-        analyticsApi.getDashboardTrends(7).catch(() => ({})),
-        analyticsApi.getEngineerDashboardDetail().catch(() => null),
-      ]);
-
-      return transformEngineerData(stats, trends, projects, trendsSummary, detail);
-    },
-    staleTime: DASHBOARD_STALE_TIME,
-    refetchInterval: DASHBOARD_REFETCH_INTERVAL,
-  });
-}
-
-/**
- * 统一的仪表板数据Hook
- * 根据用户角色自动选择对应的数据获取逻辑
- * 优化：按需加载，避免调用不必要的API
- */
-export function useDashboardData(projectId?: string) {
-  const { user } = useAuth();
-  const role = user?.role;
-
-  // 根据角色只调用对应的 Hook，避免不必要的 API 请求
-  // React Hook 条件调用模式：通过提前返回避免调用其他 Hook
-  switch (role) {
-    case 'admin':
-      // eslint-disable-next-line react-hooks/rules-of-hooks
-      return useAdminDashboardData(projectId);
-    case 'dept_manager':
-      // eslint-disable-next-line react-hooks/rules-of-hooks
-      return useDeptManagerDashboardData(projectId);
-    case 'tech_manager':
-      // eslint-disable-next-line react-hooks/rules-of-hooks
-      return useTechManagerDashboardData(projectId);
-    case 'engineer':
-    default:
-      // eslint-disable-next-line react-hooks/rules-of-hooks
-      return useEngineerDashboardData(projectId);
-  }
-}
-
-export default useDashboardData;
-
 // ============ Mock 数据支持的 Hooks ============
 
 /**
@@ -465,14 +401,14 @@ export function useAdminDashboard(projectId?: string) {
         analyticsApi.getDashboardStats(),
         analyticsApi.getTaskTrend({ days: 30 }),
         analyticsApi.getAllProjectsProgress(),
-        analyticsApi.getDashboardTrends(7).catch(() => ({})),
+        analyticsApi.getDashboardTrends(7).catch(handleTrendError('admin')),
         analyticsApi.getAdminDashboardDetail().catch(() => null),
       ]);
       return transformAdminData(stats, trends, trendsSummary, detail);
     },
     staleTime: DASHBOARD_STALE_TIME,
     refetchInterval: DASHBOARD_REFETCH_INTERVAL,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false, // 性能优化：关闭窗口焦点刷新，已有10分钟定时刷新
   });
 }
 
@@ -493,14 +429,14 @@ export function useDeptManagerDashboard(projectId?: string) {
       const [stats, trends, trendsSummary, detail] = await Promise.all([
         analyticsApi.getDashboardStats(),
         analyticsApi.getTaskTrend({ days: 30 }),
-        analyticsApi.getDashboardTrends(7).catch(() => ({})),
+        analyticsApi.getDashboardTrends(7).catch(handleTrendError('dept_manager')),
         analyticsApi.getDeptManagerDashboardDetail().catch(() => null),
       ]);
       return transformDeptManagerData(stats, trends, trendsSummary, detail);
     },
     staleTime: DASHBOARD_STALE_TIME,
     refetchInterval: DASHBOARD_REFETCH_INTERVAL,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false, // 性能优化：关闭窗口焦点刷新，已有10分钟定时刷新
   });
 }
 
@@ -521,14 +457,14 @@ export function useTechManagerDashboard(projectId?: string, groupId?: number) {
       const [stats, trends, trendsSummary, detail] = await Promise.all([
         analyticsApi.getDashboardStats(),
         analyticsApi.getTaskTrend({ days: 30 }),
-        analyticsApi.getDashboardTrends(7).catch(() => ({})),
+        analyticsApi.getDashboardTrends(7).catch(handleTrendError('tech_manager')),
         analyticsApi.getTechManagerDashboardDetail(groupId).catch(() => null),
       ]);
       return transformTechManagerData(stats, trends, trendsSummary, detail, groupId);
     },
     staleTime: DASHBOARD_STALE_TIME,
     refetchInterval: DASHBOARD_REFETCH_INTERVAL,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false, // 性能优化：关闭窗口焦点刷新，已有10分钟定时刷新
   });
 }
 
@@ -550,13 +486,13 @@ export function useEngineerDashboard(projectId?: string) {
         analyticsApi.getDashboardStats(),
         analyticsApi.getTaskTrend({ days: 30 }),
         analyticsApi.getAllProjectsProgress(),
-        analyticsApi.getDashboardTrends(7).catch(() => ({})),
+        analyticsApi.getDashboardTrends(7).catch(handleTrendError('engineer')),
         analyticsApi.getEngineerDashboardDetail().catch(() => null),
       ]);
       return transformEngineerData(stats, trends, projects, trendsSummary, detail);
     },
     staleTime: DASHBOARD_STALE_TIME,
     refetchInterval: DASHBOARD_REFETCH_INTERVAL,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false, // 性能优化：关闭窗口焦点刷新，已有10分钟定时刷新
   });
 }
