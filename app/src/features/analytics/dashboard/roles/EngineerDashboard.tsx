@@ -10,6 +10,9 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Clock, RefreshCw } from 'lucide-react';
 
+// 共享常量
+import { DEFAULT_CHART_COLORS } from '../../shared/constants';
+
 // 共享组件
 import { StatsCard, TrendChart, PieChart } from '../../shared/components';
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner';
@@ -48,11 +51,10 @@ export interface EngineerDashboardProps {
  *
  * 布局结构:
  * 1. 我的紧急任务区（置顶）- 3个卡片
- * 2. 我的待办任务列表
- * 3. 需要更新的任务（超过7天未更新进展）
- * 4. 我的核心指标卡片（4个）
- * 5. 我的任务趋势图
- * 6. 任务分布 & 参与项目进度
+ * 2. 需要更新的任务（超过7天未更新进展）
+ * 3. 我的核心指标卡片（4个）
+ * 4. 我的任务趋势图
+ * 5. 任务分布 & 参与项目进度
  */
 export function EngineerDashboard({
   projectId,
@@ -94,13 +96,6 @@ export function EngineerDashboard({
         )}
       </DashboardSection>
 
-      {/* 我的待办任务列表 */}
-      {data.todoTasks && data.todoTasks.length > 0 && (
-        <DashboardSection title="我的待办任务" data-testid="todo-section">
-          <TodoTaskList tasks={data.todoTasks} />
-        </DashboardSection>
-      )}
-
       {/* 需要更新的任务 */}
       {data.needUpdateTasks && data.needUpdateTasks.length > 0 && (
         <DashboardSection
@@ -132,9 +127,9 @@ export function EngineerDashboard({
               data={data.trends}
               height={280}
               series={[
-                { dataKey: 'created', name: '新建', color: '#0EA5E9' },
-                { dataKey: 'completed', name: '完成', color: '#10B981' },
-                { dataKey: 'delayed', name: '延期', color: '#EF4444' },
+                { dataKey: 'created', name: '新建', color: DEFAULT_CHART_COLORS[0] },
+                { dataKey: 'completed', name: '完成', color: DEFAULT_CHART_COLORS[1] },
+                { dataKey: 'delayed', name: '延期', color: DEFAULT_CHART_COLORS[3] },
               ]}
             />
           </div>
