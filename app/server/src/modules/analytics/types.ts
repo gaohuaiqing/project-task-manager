@@ -31,6 +31,8 @@ export interface DashboardStats {
 
   // 任务统计（按状态细分）
   total_tasks: number;
+  pending_approval_tasks: number;  // pending_approval
+  rejected_tasks: number;          // rejected
   pending_tasks: number;        // not_started
   in_progress_tasks: number;    // in_progress
   completed_tasks: number;      // early_completed + on_time_completed + overdue_completed
@@ -39,7 +41,8 @@ export interface DashboardStats {
 
   // 其他统计
   total_members: number;
-  avg_progress: number;
+  avg_progress: number;         // 项目平均进度百分比
+  activity_rate: number;        // 活跃度：7日内有更新的任务占比（百分比）
 }
 
 export interface TrendDataPoint {
@@ -88,6 +91,28 @@ export interface ProjectProgressReport {
   milestones: MilestoneProgress[];
 }
 
+/** 项目进度汇总报表（多项目对比视图） */
+export interface ProjectProgressSummary {
+  // 整体统计卡片
+  total_projects: number;
+  active_projects: number;
+  completed_projects: number;
+  avg_progress: number;
+  delayed_projects: number;
+
+  // 各项目进度列表
+  projects: ProjectProgressItem[];
+
+  // 整体任务状态分布
+  status_distribution: StatusDistributionItem[];
+
+  // 近期里程碑时间线
+  upcoming_milestones: MilestoneProgress[];
+
+  // 进度趋势（近30天）
+  progress_trend?: TimeSeriesPoint[];
+}
+
 export interface StatusDistributionItem {
   status: string;
   count: number;
@@ -110,17 +135,22 @@ export interface TaskStatisticsReport {
   assignee_distribution: AssigneeTaskCount[];
   task_type_distribution: TaskTypeDistributionItem[];  // v1.2 新增：任务类型分布
   task_list: TaskStatisticsItem[];  // 任务明细列表（需求文档要求）
+  task_trend?: TrendDataPoint[];    // v1.3 新增：任务趋势数据（最近30天）
 }
 
 export interface TaskStatisticsItem {
   id: string;
   description: string;
+  wbs_code: string | null;           // WBS编码
   project_name: string;
   assignee_name: string;
   status: string;
   progress: number;
   priority: string;
   planned_end_date: string | null;
+  task_type: string;                 // 任务类型
+  delay_days: number;                // 延期天数
+  activity_rate: number;             // 活跃度 (0-100)
 }
 
 export interface AssigneeTaskCount {
@@ -165,9 +195,11 @@ export interface DelayAnalysisReport {
 export interface DelayedTaskItem {
   id: string;
   description: string;
+  wbs_code: string | null;
   project_name: string;
   assignee_name: string;
   delay_type: string;
+  planned_end_date: string | null;
   delay_days: number;
   reason: string;
   status: string;
@@ -194,12 +226,14 @@ export interface MemberTask {
   id: string;
   description: string;
   project_name: string;
+  assignee_name: string;  // 责任人姓名
   status: string;
   progress: number;
   full_time_ratio: number;
   planned_duration?: number;  // 计划工期（v1.2 新增）
   actual_duration?: number;   // 实际工期（v1.2 新增）
   estimation_accuracy?: number;  // 预估准确性（v1.2 新增）
+  updated_at?: string | null;  // 最后更新时间
 }
 
 // ============ 预估准确性相关（v1.2 新增） ============
@@ -333,6 +367,7 @@ export interface MemberSummaryItem {
   member_name: string;
   department: string | null;
   current_tasks: number;
+  completed_tasks: number;  // 已完成任务数
   total_full_time_ratio: number;
   avg_completion_rate: number;
   estimation_accuracy: number;
@@ -537,7 +572,6 @@ export interface TodoTaskItem {
 }
 
 export interface EngineerDashboardDetailResponse {
-  todo_tasks: TodoTaskItem[];
   need_update_tasks: TodoTaskItem[];
   task_status_distribution: StatusDistributionItem[];
 }
