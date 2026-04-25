@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 import type { Plugin } from "vite"
 
+/// <reference types="vitest" />
+
 function formatLocalTime(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -97,6 +99,18 @@ export default defineConfig({
           // 数据服务
           if (id.includes('services/') || id.includes('contexts/')) {
             return 'data-vendor';
+          }
+          // 性能优化：大型图表库独立分片（recharts ~200KB）
+          if (id.includes('node_modules/recharts')) {
+            return 'charts-vendor';
+          }
+          // 性能优化：Excel处理库独立分片（xlsx ~150KB）
+          if (id.includes('node_modules/xlsx')) {
+            return 'xlsx-vendor';
+          }
+          // 性能优化：Excel生成库独立分片（exceljs ~180KB）
+          if (id.includes('node_modules/exceljs')) {
+            return 'exceljs-vendor';
           }
         },
         // 优化文件名
@@ -236,5 +250,21 @@ export default defineConfig({
     port: 4173,
     host: '0.0.0.0',
     strictPort: true
-  }
+  },
+  // ==================== 测试配置 (Vitest) ====================
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    include: ['../Test/frontend/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+    exclude: ['node_modules', 'dist', '../Test/e2e/**'],
+    setupFiles: ['./src/test/setup.ts'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      exclude: [
+        'node_modules/**',
+        'src/test/**',
+      ],
+    },
+  },
 });
