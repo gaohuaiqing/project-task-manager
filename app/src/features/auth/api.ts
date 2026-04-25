@@ -19,6 +19,19 @@ interface MeResponse {
 }
 
 /**
+ * 会话信息类型
+ */
+export interface SessionInfo {
+  id: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: number;
+  lastAccessed: number;
+  expiresAt: number;
+  isCurrent: boolean;
+}
+
+/**
  * 认证 API
  */
 export const authApi = {
@@ -61,5 +74,28 @@ export const authApi = {
     newPassword: string;
   }): Promise<void> => {
     return apiClient.put('/auth/password', data);
+  },
+
+  /**
+   * 获取当前用户的所有会话
+   */
+  getSessions: async (): Promise<SessionInfo[]> => {
+    const response = await apiClient.get<ApiResponse<SessionInfo[]>>('/auth/sessions');
+    return response.data;
+  },
+
+  /**
+   * 终止指定会话
+   */
+  terminateSession: async (sessionId: string): Promise<void> => {
+    return apiClient.delete(`/auth/sessions/${sessionId}`);
+  },
+
+  /**
+   * 终止其他所有会话
+   */
+  terminateOtherSessions: async (): Promise<{ terminatedCount: number }> => {
+    const response = await apiClient.post<ApiResponse<{ terminatedCount: number }>>('/auth/sessions/terminate-others');
+    return response.data;
   },
 };
