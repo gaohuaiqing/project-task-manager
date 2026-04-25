@@ -211,7 +211,7 @@ router.post('/sessions/terminate-others', requireAuth, async (req: Request, res:
 
     res.json({
       success: true,
-      message: `已终止 ${otherSessionIds.length} 个其他会话`
+      data: { terminatedCount: otherSessionIds.length }
     });
   } catch (error) {
     next(error);
