@@ -2,8 +2,13 @@
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthRepository } from './repository';
+import { WorkflowRepository } from '../workflow/repository';
 import { AuthError, ForbiddenError, ValidationError } from '../../core/errors';
+import { sanitizeString } from '../../core/utils/sanitize';
+import { formatIPAddress } from '../../core/utils/ipFormat';
 import { audit } from '../../core/audit';
+import { sendToUser } from '../../core/realtime';
+import { logger } from '../../core/logger';
 import type { User, Permission, Session } from '../../core/types';
 import type { LoginRequest, LoginResponse, AuthContext, CreateUserRequest, UpdateUserRequest, UserListOptions, UserListResponse } from './types';
 
@@ -14,6 +19,7 @@ const SESSION_DURATION_DAYS = 7;
 
 export class AuthService {
   private repo = new AuthRepository();
+  private workflowRepo = new WorkflowRepository();
 
   async login(data: LoginRequest, ip: string, userAgent: string): Promise<LoginResponse> {
     const user = await this.repo.findByUsername(data.username);
@@ -45,12 +51,19 @@ export class AuthService {
     const newDeviceLogin = this.isNewDeviceLogin(activeSessions, ip, userAgent);
 
     if (activeSessions.length >= MAX_SESSIONS_PER_USER) {
-      // 终止最旧的会话
+      // 终止最旧的会话并发送通知
       const sessionsToTerminate = activeSessions
-        .slice(0, activeSessions.length - MAX_SESSIONS_PER_USER + 1)
-        .map(s => s.session_id);
-      await this.repo.terminateSessions(sessionsToTerminate, 'max_sessions_exceeded');
-      console.log(`[Auth] User ${user.id} exceeded max sessions, terminated ${sessionsToTerminate.length} old sessions`);
+        .slice(0, activeSessions.length - MAX_SESSIONS_PER_USER + 1);
+
+      for (const session of sessionsToTerminate) {
+        await this.notifySessionTerminated(user, session, 'max_sessions_exceeded', ip);
+      }
+
+      await this.repo.terminateSessions(
+        sessionsToTerminate.map(s => s.session_id),
+        'max_sessions_exceeded'
+      );
+      logger.info(`[Auth] User ${user.id} exceeded max sessions, terminated ${sessionsToTerminate.length} old sessions`);
     }
 
     // 创建会话
@@ -69,8 +82,8 @@ export class AuthService {
       await this.notifyNewDeviceLogin(user, activeSessions, ip, userAgent);
     }
 
-    // 记录登录审计日志
-    audit.log({
+    // 记录登录审计日志（同步写入，确保安全操作被记录）
+    await audit.logSync({
       userId: user.id,
       username: user.real_name,
       userRole: user.role,
@@ -78,7 +91,7 @@ export class AuthService {
       action: 'LOGIN',
       tableName: 'sessions',
       recordId: sessionId,
-      details: `用户登录成功，IP: ${ip}`,
+      details: '登录成功',
       ipAddress: ip,
       userAgent: userAgent,
     });
@@ -138,7 +151,12 @@ export class AuthService {
       const newExpiresAt = new Date(Date.now() + SESSION_DURATION_DAYS * 24 * 60 * 60 * 1000);
       await this.repo.renewSession(sessionId, newExpiresAt);
       renewed = true;
-      console.log(`[Auth] Session ${sessionId.substring(0, 8)}... auto-renewed for user ${user.id}`);
+      logger.info(`[Auth] Session ${sessionId.substring(0, 8)}... auto-renewed for user ${user.id}`);
+    }
+
+    // 检测 IP 变更（同一会话，IP 发生变化）
+    if (currentIp && session.ip_address && currentIp !== session.ip_address) {
+      await this.notifyIPChange(user, session.ip_address, currentIp);
     }
 
     const permissions = await this.repo.getPermissionsByRole(user.role);
@@ -165,7 +183,7 @@ export class AuthService {
     if (session) {
       const user = await this.repo.findById(session.user_id);
       if (user) {
-        audit.log({
+        await audit.logSync({
           userId: user.id,
           username: user.real_name,
           userRole: user.role,
@@ -173,7 +191,7 @@ export class AuthService {
           action: 'LOGOUT',
           tableName: 'sessions',
           recordId: sessionId,
-          details: `用户登出，IP: ${session.ip_address || 'unknown'}`,
+          details: '登出成功',
           ipAddress: session.ip_address || undefined,
           userAgent: session.user_agent || undefined,
         });
@@ -236,6 +254,9 @@ export class AuthService {
     const initialPassword = data.password || this.generateRandomPassword();
     const hashedPassword = await bcrypt.hash(initialPassword, 10);
 
+    // XSS 防护：消毒文本字段
+    data.real_name = sanitizeString(data.real_name);
+
     const id = await this.repo.createUser({
       ...data,
       password: hashedPassword,
@@ -249,6 +270,9 @@ export class AuthService {
     if (!user) {
       throw new ValidationError('用户不存在');
     }
+
+    // XSS 防护：消毒文本字段
+    if (data.real_name !== undefined) data.real_name = sanitizeString(data.real_name);
 
     return this.repo.updateUser(userId, data);
   }
@@ -309,8 +333,8 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await this.repo.updatePassword(userId, hashedPassword);
 
-    // 记录审计日志
-    audit.log({
+    // 记录审计日志（同步写入，确保安全操作被记录）
+    await audit.logSync({
       userId: user.id,
       username: user.real_name,
       userRole: user.role,
@@ -367,6 +391,7 @@ export class AuthService {
 
   /**
    * 发送新设备登录通知
+   * 创建系统通知并通过 WebSocket 实时推送给用户的其他在线设备
    */
   private async notifyNewDeviceLogin(
     user: User,
@@ -374,19 +399,153 @@ export class AuthService {
     newIP: string,
     newUserAgent: string
   ): Promise<void> {
-    // 这里可以集成邮件或推送通知服务
-    // 目前仅记录日志
-    console.log(`[Auth] New device login for user ${user.id} (${user.username})`);
-    console.log(`  - IP: ${newIP}`);
-    console.log(`  - User-Agent: ${newUserAgent}`);
-    console.log(`  - Existing sessions: ${existingSessions.length}`);
+    logger.info(`[Auth] 新设备登录通知 - 用户 ${user.id} (${user.username})`);
+    logger.info(`  - IP: ${newIP}`);
+    logger.info(`  - User-Agent: ${newUserAgent}`);
 
-    // TODO: 集成邮件通知
-    // await emailService.send({
-    //   to: user.email,
-    //   subject: '新设备登录通知',
-    //   body: `检测到您的账户在新设备上登录。IP: ${newIP}`
-    // });
+    try {
+      // 解析设备信息
+      const deviceInfo = this.parseUserAgent(newUserAgent);
+
+      // 创建系统通知
+      const notificationId = uuidv4();
+      const title = '新设备登录通知';
+      const content = `检测到您的账户在新设备上登录\n设备: ${deviceInfo}\nIP地址: ${newIP}\n时间: ${new Date().toLocaleString('zh-CN')}`;
+
+      await this.workflowRepo.createNotification({
+        id: notificationId,
+        user_id: user.id,
+        type: 'new_device',
+        title,
+        content,
+        link: '/settings/sessions',
+      });
+
+      // WebSocket 实时推送给用户的其他在线设备
+      sendToUser(user.id, 'notification', {
+        id: notificationId,
+        type: 'new_device',
+        title,
+        content,
+        link: '/settings/sessions',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      });
+
+      logger.info(`[Auth] 已发送新设备登录通知给用户 ${user.id}`);
+    } catch (error) {
+      logger.error('[Auth] 发送新设备登录通知失败: %s', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
+   * 解析 User-Agent 字符串，提取设备和浏览器信息
+   */
+  private parseUserAgent(userAgent: string): string {
+    if (!userAgent) return '未知设备';
+
+    // 简单的 User-Agent 解析
+    const browser = userAgent.match(/(Chrome|Firefox|Safari|Edge|Opera|MSIE|Trident)[\/\s](\d+)/i);
+    const os = userAgent.match(/(Windows NT|Mac OS X|Linux|Android|iOS)[\/\s]?([\d._]*)/i);
+
+    const browserInfo = browser ? `${browser[1]} ${browser[2]}` : '未知浏览器';
+    const osInfo = os ? `${os[1]} ${os[2] || ''}`.replace(/_/g, '.') : '未知系统';
+
+    // 检测设备类型
+    let deviceType = '电脑';
+    if (/mobile/i.test(userAgent)) {
+      deviceType = '手机';
+    } else if (/tablet/i.test(userAgent)) {
+      deviceType = '平板';
+    }
+
+    return `${deviceType} - ${osInfo} - ${browserInfo}`;
+  }
+
+  /**
+   * 发送会话终止通知
+   * 当用户的其他设备会话被终止时发送通知
+   */
+  private async notifySessionTerminated(
+    user: User,
+    session: Session,
+    reason: string,
+    newLoginIP?: string
+  ): Promise<void> {
+    try {
+      // 仅在超过最大会话数场景发送通知
+      if (reason !== 'max_sessions_exceeded') {
+        return;
+      }
+
+      const notificationId = uuidv4();
+      const title = '会话已终止';
+      const content = `您在另一台设备登录（IP: ${newLoginIP || '未知'}），本设备的登录已失效`;
+
+      await this.workflowRepo.createNotification({
+        id: notificationId,
+        user_id: user.id,
+        type: 'session_terminated',
+        title,
+        content,
+        link: '/settings/profile',
+      });
+
+      // WebSocket 推送
+      sendToUser(user.id, 'notification', {
+        id: notificationId,
+        type: 'session_terminated',
+        title,
+        content,
+        link: '/settings/profile',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      });
+
+      logger.info(`[Auth] 已发送会话终止通知给用户 ${user.id}`);
+    } catch (error) {
+      logger.error('[Auth] 发送会话终止通知失败: %s', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
+   * 发送 IP 变更通知
+   * 当检测到同一会话的 IP 地址发生变化时发送通知
+   */
+  private async notifyIPChange(
+    user: User,
+    oldIP: string,
+    newIP: string
+  ): Promise<void> {
+    try {
+      const notificationId = uuidv4();
+      const title = 'IP 地址变更通知';
+      const content = `检测到您的登录 IP 地址发生变化:\n原 IP: ${oldIP}\n新 IP: ${newIP}\n时间: ${new Date().toLocaleString('zh-CN')}\n\n如非本人操作，请立即修改密码。`;
+
+      await this.workflowRepo.createNotification({
+        id: notificationId,
+        user_id: user.id,
+        type: 'ip_change',
+        title,
+        content,
+        link: '/settings/security',
+      });
+
+      // WebSocket 推送
+      sendToUser(user.id, 'notification', {
+        id: notificationId,
+        type: 'ip_change',
+        title,
+        content,
+        link: '/settings/security',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      });
+
+      logger.info(`[Auth] 已发送 IP 变更通知给用户 ${user.id} (${oldIP} -> ${newIP})`);
+    } catch (error) {
+      logger.error('[Auth] 发送 IP 变更通知失败: %s', error instanceof Error ? error.message : String(error));
+    }
   }
 
   private generateRandomPassword(): string {
