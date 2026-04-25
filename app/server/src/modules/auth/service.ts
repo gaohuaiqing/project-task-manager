@@ -5,7 +5,6 @@ import { AuthRepository } from './repository';
 import { WorkflowRepository } from '../workflow/repository';
 import { AuthError, ForbiddenError, ValidationError } from '../../core/errors';
 import { sanitizeString } from '../../core/utils/sanitize';
-import { formatIPAddress } from '../../core/utils/ipFormat';
 import { audit } from '../../core/audit';
 import { sendToUser } from '../../core/realtime';
 import { logger } from '../../core/logger';
