@@ -1,7 +1,7 @@
 /**
  * 个人资料设置页面
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,14 +9,55 @@ import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { authApi } from '@/features/auth/api';
+import { authApi, type SessionInfo } from '@/features/auth/api';
 import { getAvatarUrl } from '@/utils/avatar';
+import { SessionDeviceList, SessionDeviceListSkeleton } from '../components/SessionDeviceList';
+
+const genderLabel = (gender?: 'male' | 'female' | 'other' | null) => {
+  switch (gender) {
+    case 'male': return '男';
+    case 'female': return '女';
+    case 'other': return '其他';
+    default: return '未设置';
+  }
+};
+
+const roleLabel = (role?: string) => {
+  switch (role) {
+    case 'admin': return '管理员';
+    case 'tech_manager': return '技术经理';
+    case 'dept_manager': return '部门经理';
+    default: return '工程师';
+  }
+};
 
 export function ProfileSettings() {
   const { user } = useAuth();
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+
+  // 加载会话列表
+  const loadSessions = async () => {
+    try {
+      const data = await authApi.getSessions();
+      setSessions(data);
+      const current = data.find(s => s.isCurrent);
+      setCurrentSessionId(current?.id || null);
+    } catch (error) {
+      console.error('加载会话列表失败:', error);
+    } finally {
+      setSessionsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSessions();
+  }, []);
 
   return (
     <div className="space-y-6">
+      {/* 个人资料 Card */}
       <Card>
         <CardHeader>
           <CardTitle>个人资料</CardTitle>
@@ -44,7 +85,9 @@ export function ProfileSettings() {
           {/* 基本信息 */}
           <div className="grid gap-4">
             <div className="space-y-2">
-              <Label htmlFor="username">用户名</Label>
+              <Label htmlFor="username">
+                用户名 <span className="text-xs text-muted-foreground font-normal">（系统唯一标识）</span>
+              </Label>
               <Input
                 id="username"
                 value={user?.username}
@@ -52,11 +95,12 @@ export function ProfileSettings() {
                 className="bg-muted"
                 data-testid="profile-input-username"
               />
-              <p className="text-xs text-muted-foreground">用户名不可修改</p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="displayName">显示名称</Label>
+              <Label htmlFor="displayName">
+                显示名称 <span className="text-xs text-muted-foreground font-normal">（对外展示的真实姓名）</span>
+              </Label>
               <Input
                 id="displayName"
                 value={user?.realName || ''}
@@ -64,11 +108,24 @@ export function ProfileSettings() {
                 className="bg-muted"
                 data-testid="profile-input-display-name"
               />
-              <p className="text-xs text-muted-foreground">需要管理员或部门经理修改</p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">邮箱地址</Label>
+              <Label htmlFor="gender">
+                性别 <span className="text-xs text-muted-foreground font-normal">（匹配对应头像风格）</span>
+              </Label>
+              <Input
+                id="gender"
+                value={genderLabel(user?.gender)}
+                disabled
+                className="bg-muted"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="email">
+                邮箱地址 <span className="text-xs text-muted-foreground font-normal">（接收系统通知）</span>
+              </Label>
               <Input
                 id="email"
                 type="email"
@@ -77,15 +134,14 @@ export function ProfileSettings() {
                 className="bg-muted"
                 data-testid="profile-input-email"
               />
-              <p className="text-xs text-muted-foreground">需要管理员或部门经理修改</p>
             </div>
 
             <div className="space-y-2">
-              <Label>角色</Label>
+              <Label>
+                角色 <span className="text-xs text-muted-foreground font-normal">（当前系统权限身份）</span>
+              </Label>
               <Input
-                value={user?.role === 'admin' ? '管理员' :
-                     user?.role === 'tech_manager' ? '技术经理' :
-                     user?.role === 'dept_manager' ? '部门经理' : '工程师'}
+                value={roleLabel(user?.role)}
                 disabled
                 className="bg-muted"
               />
@@ -94,14 +150,34 @@ export function ProfileSettings() {
         </CardContent>
       </Card>
 
-      {/* 修改密码 */}
+      {/* 安全设置 Card */}
       <Card>
         <CardHeader>
-          <CardTitle>修改密码</CardTitle>
-          <CardDescription>定期更换密码可以提高账户安全性</CardDescription>
+          <CardTitle>安全设置</CardTitle>
+          <CardDescription>管理您的账户安全</CardDescription>
         </CardHeader>
-        <CardContent>
-          <ChangePasswordForm />
+        <CardContent className="space-y-6">
+          {/* 修改密码 */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-medium">修改密码</h4>
+            <ChangePasswordForm />
+          </div>
+
+          <Separator />
+
+          {/* 登录设备 */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-medium">登录设备</h4>
+            {sessionsLoading ? (
+              <SessionDeviceListSkeleton />
+            ) : (
+              <SessionDeviceList
+                sessions={sessions}
+                currentSessionId={currentSessionId}
+                onRefresh={loadSessions}
+              />
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -146,8 +222,9 @@ function ChangePasswordForm() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-    } catch (err: any) {
-      setError(err.message || '密码修改失败');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '密码修改失败';
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -167,40 +244,42 @@ function ChangePasswordForm() {
         </div>
       )}
 
-      <div className="space-y-2">
-        <Label htmlFor="currentPassword">当前密码</Label>
-        <Input
-          id="currentPassword"
-          type="password"
-          value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
-          placeholder="请输入当前密码"
-        />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="space-y-2">
+          <Label htmlFor="currentPassword">当前密码</Label>
+          <Input
+            id="currentPassword"
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            placeholder="请输入当前密码"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="newPassword">新密码</Label>
+          <Input
+            id="newPassword"
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="请输入新密码"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="confirmPassword">确认新密码</Label>
+          <Input
+            id="confirmPassword"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="请再次输入新密码"
+          />
+        </div>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="newPassword">新密码</Label>
-        <Input
-          id="newPassword"
-          type="password"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          placeholder="请输入新密码"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="confirmPassword">确认新密码</Label>
-        <Input
-          id="confirmPassword"
-          type="password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          placeholder="请再次输入新密码"
-        />
-      </div>
-
-      <Button onClick={handleSubmit} disabled={loading} data-testid="profile-btn-save">
+      <Button variant="outline" onClick={handleSubmit} disabled={loading} data-testid="profile-btn-save">
         {loading ? '修改中...' : '修改密码'}
       </Button>
     </div>
