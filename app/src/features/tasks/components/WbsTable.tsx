@@ -33,6 +33,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useToast } from '@/hooks/use-toast';
 import {
   Popover,
   PopoverContent,
@@ -56,8 +57,8 @@ import { computeTaskPermissions, type TaskPermissions } from '../hooks/usePermis
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import type { WBSTaskListItem } from '../types';
 import { ExportDropdown } from './ExportDropdown';
-import { ImportPreviewDialog } from './ImportPreviewDialog';
-import { downloadImportTemplate } from '../utils/taskExporter';
+import { ImportPreviewDialog, type ImportResult } from './ImportPreviewDialog';
+import { downloadImportTemplateWithToast } from '../utils/taskExporter';
 
 /** 带UI状态的任务行 */
 interface TaskRowWithUI extends WBSTaskListItem {
@@ -80,10 +81,10 @@ interface WbsTableProps {
   onViewProgress?: (task: TaskRowWithUI) => void;
   onViewDelayHistory?: (task: TaskRowWithUI) => void;
   onViewPlanChanges?: (task: TaskRowWithUI) => void;
-  onImportTasks?: (tasks: any[]) => Promise<void>;
+  onImportTasks?: (tasks: any[]) => Promise<ImportResult>;
 }
 
-export function WbsTable({
+export const WbsTable = React.memo(function WbsTable({
   tasks,
   members,
   projects,
@@ -100,6 +101,7 @@ export function WbsTable({
 }: WbsTableProps) {
   // 获取当前用户（用于权限计算）
   const { user } = useAuth();
+  const { toast } = useToast();
 
   // 列可见性状态
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() =>
@@ -151,8 +153,14 @@ export function WbsTable({
   // 文件输入引用
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 表格引用
-  const tableRef = useRef<HTMLDivElement>(null);
+  // 虚拟滚动容器引用
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const containerHeightRef = useRef(600);
+  const [scrollTop, setScrollTop] = useState(0);
+
+  // 分页状态
+  const PAGE_SIZE = 50;
+  const [currentPage, setCurrentPage] = useState(1);
 
   // 可见列（过滤后）
   const visibleColumns = useMemo(() => {
@@ -189,6 +197,56 @@ export function WbsTable({
 
     return result;
   }, [tasks, expandedRows]);
+
+  // 分页计算
+  const totalPages = Math.max(1, Math.ceil(flatTasks.length / PAGE_SIZE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  // 分页切换时重置滚动位置
+  const handlePageChange = useCallback((page: number) => {
+    setCurrentPage(page);
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+      setScrollTop(0);
+    }
+  }, []);
+
+  // 数据变化时页码重置
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [tasks]);
+
+  // 当前页的数据切片
+  const pagedFlatTasks = useMemo(() => {
+    if (flatTasks.length <= PAGE_SIZE) return flatTasks;
+    const start = (safeCurrentPage - 1) * PAGE_SIZE;
+    return flatTasks.slice(start, start + PAGE_SIZE);
+  }, [flatTasks, safeCurrentPage]);
+
+  const isPaged = flatTasks.length > PAGE_SIZE;
+
+  // 虚拟滚动：计算可见行范围（仅非分页模式下生效）
+  const ROW_HEIGHT = 40;
+  const OVERSCAN = 5;
+  const virtualizedRange = useMemo(() => {
+    const containerHeight = containerHeightRef.current;
+    const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+    const end = Math.min(
+      flatTasks.length,
+      Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN
+    );
+    return { start, end };
+  }, [scrollTop, flatTasks.length]);
+
+  const visibleFlatTasks = useMemo(
+    () => flatTasks.slice(virtualizedRange.start, virtualizedRange.end),
+    [flatTasks, virtualizedRange]
+  );
+  const topSpacerHeight = virtualizedRange.start * ROW_HEIGHT;
+  const bottomSpacerHeight = Math.max(0, (flatTasks.length - virtualizedRange.end) * ROW_HEIGHT);
+
+  // 最终渲染的行数据：分页模式用 pagedFlatTasks，否则用虚拟滚动的 visibleFlatTasks
+  const renderedTasks = isPaged ? pagedFlatTasks : visibleFlatTasks;
 
   // 任务ID -> 任务 Map（O(1)查找优化）
   const taskMap = useMemo(() => {
@@ -236,17 +294,50 @@ export function WbsTable({
       const { parseExcelFile } = await import('../utils/taskImporter');
       const parsedData = await parseExcelFile(file);
 
-      // 简单验证
-      const errors: any[] = [];
+      // 完整验证（与后端保持一致）
+      const errors: Array<{ rowNumber: number; field: string; message: string }> = [];
       const validData: any[] = [];
+      const wbsCodePattern = /^\d+(\.\d+)*$/;
+      const wbsCodeSet = new Set<string>();
 
+      // 第一轮：验证必填字段和格式
       parsedData.forEach((item: any) => {
+        const rowErrors: Array<{ rowNumber: number; field: string; message: string }> = [];
+
+        // 检查 WBS 编码
+        if (!item.wbsCode?.trim()) {
+          rowErrors.push({
+            rowNumber: item.rowNumber,
+            field: 'WBS编码',
+            message: 'WBS编码不能为空'
+          });
+        } else if (!wbsCodePattern.test(item.wbsCode)) {
+          rowErrors.push({
+            rowNumber: item.rowNumber,
+            field: 'WBS编码',
+            message: `WBS编码格式无效："${item.wbsCode}"，应为数字点分格式（如 1, 1.1, 1.2.3）`
+          });
+        } else if (wbsCodeSet.has(item.wbsCode)) {
+          rowErrors.push({
+            rowNumber: item.rowNumber,
+            field: 'WBS编码',
+            message: `WBS编码重复："${item.wbsCode}"`
+          });
+        } else {
+          wbsCodeSet.add(item.wbsCode);
+        }
+
+        // 检查任务描述
         if (!item.description?.trim()) {
-          errors.push({
+          rowErrors.push({
             rowNumber: item.rowNumber,
             field: '任务描述',
             message: '任务描述不能为空'
           });
+        }
+
+        if (rowErrors.length > 0) {
+          errors.push(...rowErrors);
         } else {
           validData.push(item);
         }
@@ -262,7 +353,11 @@ export function WbsTable({
       setImportPreviewOpen(true);
     } catch (error) {
       console.error('解析文件失败:', error);
-      alert(`解析文件失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      toast({
+        title: '解析文件失败',
+        description: error instanceof Error ? error.message : '未知错误',
+        variant: 'destructive',
+      });
     }
 
     // 清空文件输入
@@ -271,27 +366,61 @@ export function WbsTable({
     }
   }, []);
 
-  // 处理导入确认
+  // 处理导入确认 - 返回导入结果给对话框显示
   const handleImportConfirm = useCallback(async () => {
     if (!onImportTasks || importedData.length === 0) return;
 
     setIsImporting(true);
     try {
-      await onImportTasks(importedData);
-      setImportPreviewOpen(false);
-      setImportedData([]);
-      setImportErrors([]);
+      const result = await onImportTasks(importedData);
+      // 返回结果给对话框显示
+      return result;
     } catch (error) {
       console.error('导入失败:', error);
-      alert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      toast({
+        title: '导入失败',
+        description: error instanceof Error ? error.message : '未知错误',
+        variant: 'destructive',
+      });
+      return {
+        success: 0,
+        failed: importedData.length,
+        results: importedData.map(d => ({
+          success: false,
+          wbsCode: d.wbsCode || d['WBS编码'] || '未知',
+          rowNumber: d.rowNumber,
+          error: error instanceof Error ? error.message : '导入异常',
+        })),
+      };
     } finally {
       setIsImporting(false);
     }
-  }, [onImportTasks, importedData]);
+  }, [onImportTasks, importedData, toast]);
 
   // 下载模板
-  const handleDownloadTemplate = useCallback(() => {
-    downloadImportTemplate();
+  const handleDownloadTemplate = useCallback(async () => {
+    try {
+      await downloadImportTemplateWithToast(toast);
+    } catch (error) {
+      console.error('下载模板失败:', error);
+      toast({
+        title: '下载失败',
+        description: error instanceof Error ? error.message : '模板下载失败，请重试',
+        variant: 'destructive',
+      });
+    }
+  }, [toast]);
+
+  // 虚拟滚动：滚动事件处理（requestAnimationFrame 节流）
+  const rafIdRef = useRef(0);
+  const handleVirtualScroll = useCallback(() => {
+    cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = requestAnimationFrame(() => {
+      if (scrollContainerRef.current) {
+        containerHeightRef.current = scrollContainerRef.current.clientHeight;
+        setScrollTop(scrollContainerRef.current.scrollTop);
+      }
+    });
   }, []);
 
   // 渲染状态Badge
@@ -469,6 +598,11 @@ export function WbsTable({
           <span className="font-mono text-sm">{value}</span>
         ) : null;
 
+      case 'projectCode':
+        return value ? (
+          <span className="font-mono text-sm">{value}</span>
+        ) : null;
+
       default:
         return value ?? '';
     }
@@ -504,7 +638,7 @@ export function WbsTable({
           </TooltipProvider>
         )}
 
-        {/* 编辑按钮 - 根据权限显示 */}
+        {/* 编辑按钮 - 无权限时浅灰显示并提示 */}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -512,20 +646,19 @@ export function WbsTable({
                 data-testid="task-btn-edit-task"
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7"
-                onClick={() => onEditTask?.(task)}
-                disabled={!permissions.canEdit}
+                className={`h-7 w-7 ${!permissions.canEdit ? 'opacity-30 cursor-not-allowed' : ''}`}
+                onClick={permissions.canEdit ? () => onEditTask?.(task) : undefined}
               >
                 <Edit2 className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {permissions.canEdit ? '编辑任务' : '只能编辑自己负责的任务'}
+              {permissions.canEdit ? '编辑任务' : '非责任人无法操作'}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
-        {/* 维护进展按钮 - 所有用户都可以查看 */}
+        {/* 维护进展按钮 - 无权限时浅灰显示并提示 */}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -533,13 +666,15 @@ export function WbsTable({
                 data-testid="task-btn-view-progress"
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7"
-                onClick={() => onViewProgress?.(task)}
+                className={`h-7 w-7 ${!permissions.canEdit ? 'opacity-30 cursor-not-allowed' : ''}`}
+                onClick={permissions.canEdit ? () => onViewProgress?.(task) : undefined}
               >
                 <FileText className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>维护进展</TooltipContent>
+            <TooltipContent>
+              {permissions.canEdit ? '维护进展' : '非责任人无法操作'}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -638,7 +773,7 @@ export function WbsTable({
           <div className="text-sm text-muted-foreground">
             共 {flatTasks.length} 条任务
           </div>
-          <Button data-testid="task-btn-create-task" size="sm" onClick={() => onCreateTask()}>
+          <Button data-testid="task-btn-create-task" variant="outline" size="sm" onClick={() => onCreateTask()}>
             <Plus className="h-4 w-4 mr-2" />
             新建任务
           </Button>
@@ -757,7 +892,7 @@ export function WbsTable({
       </div>
 
       {/* 表格容器 - 使用 flex-1 填充剩余空间，内部滚动 */}
-      <div ref={tableRef} className="flex-1 min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg overflow-auto bg-background dark:bg-gray-900">
+      <div ref={scrollContainerRef} onScroll={handleVirtualScroll} className="flex-1 min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg overflow-auto bg-background dark:bg-gray-900">
         <table className="w-full border-collapse" data-testid="task-table">
           {/* 表头 */}
           <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-20 border-b border-gray-200 dark:border-gray-700" data-testid="task-table-header">
@@ -822,7 +957,12 @@ export function WbsTable({
                 </td>
               </tr>
             ) : (
-              flatTasks.map(({ task, level }) => {
+              <>
+                {/* 虚拟滚动：顶部占位（仅非分页模式） */}
+                {!isPaged && topSpacerHeight > 0 && (
+                  <tr aria-hidden="true" style={{ height: topSpacerHeight }} />
+                )}
+                {renderedTasks.map(({ task, level }) => {
                 const isSelected = selectedRowId === task.id;
 
                 return (
@@ -831,7 +971,7 @@ export function WbsTable({
                     data-testid="task-table-row"
                     className={`
                       group border-b border-gray-200 dark:border-gray-700 hover:bg-muted/50 transition-colors
-                      ${isSelected ? 'bg-blue-50 dark:bg-blue-950/60' : ''}
+                      ${isSelected ? 'bg-blue-100 dark:bg-blue-950/60' : ''}
                     `}
                     onClick={() => setSelectedRowId(task.id)}
                   >
@@ -894,7 +1034,12 @@ export function WbsTable({
                     })}
                   </tr>
                 );
-              })
+              })}
+                {/* 虚拟滚动：底部占位（仅非分页模式） */}
+                {!isPaged && bottomSpacerHeight > 0 && (
+                  <tr aria-hidden="true" style={{ height: bottomSpacerHeight }} />
+                )}
+              </>
             )}
           </tbody>
         </table>
@@ -910,6 +1055,61 @@ export function WbsTable({
         <span><kbd className="px-1 bg-muted rounded">←/→</kbd> 折叠/展开</span>
       </div>
 
+      {/* 分页控件 */}
+      {isPaged && (
+        <div className="shrink-0 pt-3 flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            共 {flatTasks.length} 条任务，第 {safeCurrentPage}/{totalPages} 页
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safeCurrentPage <= 1}
+              onClick={() => handlePageChange(safeCurrentPage - 1)}
+            >
+              上一页
+            </Button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter(p => {
+                // 显示首页、末页、当前页前后各1页
+                return p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1;
+              })
+              .reduce<(number | string)[]>((acc, p, idx, arr) => {
+                if (idx > 0 && p - (arr[idx - 1] as number) > 1) {
+                  acc.push('...');
+                }
+                acc.push(p);
+                return acc;
+              }, [])
+              .map((item, idx) =>
+                typeof item === 'string' ? (
+                  <span key={`ellipsis-${idx}`} className="px-1">...</span>
+                ) : (
+                  <Button
+                    key={item}
+                    variant={item === safeCurrentPage ? 'default' : 'outline'}
+                    size="sm"
+                    className="min-w-[32px]"
+                    onClick={() => handlePageChange(item)}
+                  >
+                    {item}
+                  </Button>
+                )
+              )
+            }
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safeCurrentPage >= totalPages}
+              onClick={() => handlePageChange(safeCurrentPage + 1)}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* 导入预览对话框 */}
       <ImportPreviewDialog
         open={importPreviewOpen}
@@ -919,9 +1119,10 @@ export function WbsTable({
         errors={importErrors}
         newCount={importStats.newCount}
         updateCount={importStats.updateCount}
+        projectId={projectId || ''}
         onConfirm={handleImportConfirm}
         isLoading={isImporting}
       />
     </div>
   );
-}
+});
