@@ -2,7 +2,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { AnalyticsService } from './service';
 import { ValidationError } from '../../core/errors';
-import { requirePermission } from '../../core/middleware/permission-middleware';
+import { requirePermission, requireRole } from '../../core/middleware/permission-middleware';
 import type { User } from '../../core/types';
 import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig, ResourceEfficiencyQueryOptions, MemberAnalysisQueryOptions } from './types';
 import { auditService } from '../../core/audit';
@@ -66,11 +66,14 @@ router.get('/reports/project-progress', requirePermission('REPORT_VIEW'), async 
   try {
     const currentUser = getCurrentUser(req)!;
     const { project_id } = req.query;
-    if (!project_id) {
-      throw new ValidationError('项目ID不能为空');
+    // project_id 可选：无参数时返回汇总，有参数时返回单项目详情
+    if (project_id) {
+      const report = await analyticsService.getProjectProgressReport(project_id as string, currentUser);
+      res.json({ success: true, data: report });
+    } else {
+      const report = await analyticsService.getProjectProgressSummary(currentUser);
+      res.json({ success: true, data: report });
     }
-    const report = await analyticsService.getProjectProgressReport(project_id as string, currentUser);
-    res.json({ success: true, data: report });
   } catch (error) {
     next(error);
   }
@@ -157,33 +160,53 @@ router.get('/dashboard/trends-summary', async (req: Request, res: Response, next
   }
 });
 
+// 优先级完成率趋势
+router.get('/reports/priority-completion-trend', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req)!;
+    const { start_date, end_date, project_id } = req.query;
+    const trends = await analyticsService.getPriorityCompletionTrend(
+      start_date as string,
+      end_date as string,
+      currentUser,
+      project_id as string
+    );
+    res.json({ success: true, data: trends });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ========== 仪表板详情（按角色聚合） ==========
 
-router.get('/dashboard/admin/detail', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/dashboard/admin/detail', requireRole(['admin']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
-    const result = await analyticsService.getDashboardAdminDetail(currentUser);
+    const projectId = req.query.project_id as string | undefined;
+    const result = await analyticsService.getDashboardAdminDetail(currentUser, projectId);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }
 });
 
-router.get('/dashboard/dept-manager/detail', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/dashboard/dept-manager/detail', requireRole(['dept_manager']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
-    const result = await analyticsService.getDashboardDeptManagerDetail(currentUser);
+    const projectId = req.query.project_id as string | undefined;
+    const result = await analyticsService.getDashboardDeptManagerDetail(currentUser, projectId);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }
 });
 
-router.get('/dashboard/tech-manager/detail', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/dashboard/tech-manager/detail', requireRole(['tech_manager']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
     const groupId = req.query.group_id ? parseInt(req.query.group_id as string) : undefined;
-    const result = await analyticsService.getDashboardTechManagerDetail(currentUser, groupId);
+    const projectId = req.query.project_id as string | undefined;
+    const result = await analyticsService.getDashboardTechManagerDetail(currentUser, groupId, projectId);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -193,7 +216,8 @@ router.get('/dashboard/tech-manager/detail', async (req: Request, res: Response,
 router.get('/dashboard/engineer/detail', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
-    const result = await analyticsService.getDashboardEngineerDetail(currentUser);
+    const projectId = req.query.project_id as string | undefined;
+    const result = await analyticsService.getDashboardEngineerDetail(currentUser, projectId);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);

@@ -2,8 +2,8 @@
 
 // ============ 项目相关 ============
 
-export type ProjectStatus = 'planning' | 'active' | 'completed';
-export type ProjectType = 'product_dev' | 'func_mgmt' | 'material_sub' | 'quality_handle';
+export type ProjectStatus = 'planning' | 'in_progress' | 'completed' | 'delayed' | 'cancelled';
+export type ProjectType = 'product_dev' | 'func_mgmt' | 'material_sub' | 'quality_handle' | 'tech_research';
 
 export interface Project {
   id: string;

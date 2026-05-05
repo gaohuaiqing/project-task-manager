@@ -20,6 +20,7 @@ import {
 } from './hooks/useProjectMutations';
 import { useProject, useProjectMilestones } from './hooks/useProjects';
 import { useToast } from '@/hooks/use-toast';
+import { batchDeleteProjects } from '@/lib/api/project.api';
 import type { Project, CreateProjectRequest, UpdateProjectRequest } from './types';
 
 /**
@@ -32,7 +33,10 @@ function ProjectListPage() {
   // 对话框状态
   const [formOpen, setFormOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchDeleteLoading, setBatchDeleteLoading] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [batchDeleteTargets, setBatchDeleteTargets] = useState<Project[]>([]);
 
   // Mutations
   const createMutation = useCreateProject();
@@ -58,6 +62,42 @@ function ProjectListPage() {
   const handleDeleteProject = (project: Project) => {
     setSelectedProject(project);
     setDeleteOpen(true);
+  };
+
+  // 处理批量删除项目
+  const handleBatchDelete = (projects: Project[]) => {
+    setBatchDeleteTargets(projects);
+    setBatchDeleteOpen(true);
+  };
+
+  // 确认批量删除
+  const handleConfirmBatchDelete = async () => {
+    setBatchDeleteLoading(true);
+    try {
+      const ids = batchDeleteTargets.map(p => p.id);
+      const result = await batchDeleteProjects(ids);
+      setBatchDeleteOpen(false);
+      setBatchDeleteTargets([]);
+      if (result.failed > 0) {
+        toast({
+          title: '部分删除成功',
+          description: `成功删除 ${result.success} 个项目，${result.failed} 个失败`,
+          variant: 'destructive',
+        });
+      } else {
+        toast({ title: '成功', description: `已删除 ${result.success} 个项目` });
+      }
+      // 刷新列表
+      window.location.reload();
+    } catch (error: any) {
+      toast({
+        title: '批量删除失败',
+        description: error.message || '操作失败，请稍后重试',
+        variant: 'destructive',
+      });
+    } finally {
+      setBatchDeleteLoading(false);
+    }
   };
 
 
@@ -117,6 +157,7 @@ function ProjectListPage() {
         onCreateProject={handleCreateProject}
         onEditProject={handleEditProject}
         onDeleteProject={handleDeleteProject}
+        onBatchDelete={handleBatchDelete}
       />
 
       {/* 项目表单对话框 */}
@@ -144,6 +185,24 @@ function ProjectListPage() {
         confirmText="删除"
         onConfirm={handleConfirmDelete}
         loading={deleteMutation.isPending}
+        variant="destructive"
+      />
+
+      {/* 批量删除确认对话框 */}
+      <ConfirmDialog
+        open={batchDeleteOpen}
+        onOpenChange={(open) => {
+          setBatchDeleteOpen(open);
+          if (!open) setBatchDeleteTargets([]);
+        }}
+        title="批量删除项目"
+        description={
+          `确定要删除选中的 ${batchDeleteTargets.length} 个项目吗？此操作将永久删除项目及其关联数据（里程碑、时间轴、成员关系），此操作不可撤销。\n\n` +
+          `包含任务的项目将自动跳过。`
+        }
+        confirmText={`删除 ${batchDeleteTargets.length} 个项目`}
+        onConfirm={handleConfirmBatchDelete}
+        loading={batchDeleteLoading}
         variant="destructive"
       />
     </div>

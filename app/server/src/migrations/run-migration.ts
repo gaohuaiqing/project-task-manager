@@ -8,6 +8,7 @@ import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 // 导入独立的迁移函数
 import { runMigration025 } from './025-add-users-is-active';
+import { up as runMigration026 } from './026-add-last-plan-refresh';
 import { runMigration029 } from './029-add-pending-changes';
 import { runMigration030 } from './030-insert-default-capability-models';
 import { runMigration031 } from './031-insert-default-users';
@@ -24,6 +25,24 @@ import { up as runMigration041 } from './041-fix-milestone-status-enum';
 import { up as addDependencyTypeField } from './030-add-dependency-type';
 import { runMigration042 } from './042-add-trend-query-indexes';
 import { runMigration043 } from './043-add-wbs-order-column';
+import { runMigration044 } from './044-add-report-query-indexes';
+import { runMigration045 } from './045-create-department-managers-table';
+import { runMigration046 } from './046-create-backup-tables';
+import { runMigration047 } from './047-add-missing-query-indexes';
+import { up as runMigration048 } from './048-fix-plan-changes-id-type';
+import { runMigration049 } from './049-enhance-notifications';
+import { runMigration050 } from './050-create-task-types-table';
+import { runMigration051 } from './051-fix-audit-logs-target-fields';
+import { up as runMigration052 } from './052-fix-delay-records-id-type';
+import { up as runMigration053 } from './053-remove-rejected-task-status';
+import { runMigration054 } from './054-add-submission-id-to-plan-changes';
+import { up as runMigration055 } from './055-fix-holidays-table';
+import { up as runMigration056 } from './056-add-warning-days-column';
+import { up as runMigration058 } from './058-fix-project-types';
+import { up as runMigration059 } from './059-fix-project-type-enum';
+import { runMigration060 } from './060-add-wbs-sort-index';
+import { runMigration061 } from './061-wbs-code-optimization';
+import { runMigration062 } from './062-fix-null-sort-order';
 
 /**
  * 检查迁移是否已执行
@@ -420,38 +439,172 @@ async function runMigration041Wrapper(): Promise<boolean> {
 }
 
 /**
+ * 安全执行单个迁移，失败不阻断后续迁移
+ */
+async function safeRunMigration(name: string, fn: () => Promise<boolean | void>): Promise<void> {
+  try {
+    await fn();
+  } catch (error) {
+    console.error(`⚠️ 迁移 ${name} 失败（继续执行后续迁移）:`, error);
+  }
+}
+
+/**
  * 执行所有待运行的迁移
  */
 export async function runPendingMigrations(): Promise<void> {
   console.log('🔍 检查待执行的数据库迁移...');
 
-  // 按顺序执行迁移
-  await runMigration002();
-  await runMigration025();
-  await runMigration023();
-  await runMigration024();
-  await runMigration027();
-  await runMigration028();
-  await runMigration029();
-  await runMigration030();
-  await runMigration030b();  // 添加 dependency_type 字段
+  // 按顺序执行迁移（每个迁移独立 try-catch，避免单个失败阻断后续）
+  await safeRunMigration('002', runMigration002);
+  await safeRunMigration('025', runMigration025);
+  await safeRunMigration('026', async () => {
+    const version = '026';
+    const name = 'add_last_plan_refresh_at';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 026 已执行，跳过');
+      return true;
+    }
+    await runMigration026();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 026 完成！');
+    return true;
+  });
+  await safeRunMigration('023', runMigration023);
+  await safeRunMigration('024', runMigration024);
+  await safeRunMigration('027', runMigration027);
+  await safeRunMigration('028', runMigration028);
+  await safeRunMigration('029', runMigration029);
+  await safeRunMigration('030', runMigration030);
+  await safeRunMigration('030b', runMigration030b);  // 添加 dependency_type 字段
 
   // 种子数据迁移 (031-033)
-  await runMigration031();  // 默认用户和成员
-  await runMigration032();  // 中国节假日
-  await runMigration033();  // 任务类型与能力模型映射
+  await safeRunMigration('031', runMigration031);  // 默认用户和成员
+  await safeRunMigration('032', runMigration032);  // 中国节假日
+  await safeRunMigration('033', runMigration033);  // 任务类型与能力模型映射
 
   // 结构迁移 (034+)
-  await runMigration034();  // 任务延期审批表
-  await runMigration035();  // 用户表新增字段 (gender, is_builtin, deleted_at, deleted_by)
-  await runMigration036();  // audit_logs 添加 category 字段
-  await runMigration037();  // 时间线相关表 (timelines, timeline_tasks)
-  await runMigration038();  // audit_logs 添加性能索引
-  await runMigration039();  // 业务表性能索引
-  await runMigration040();  // 时间线添加进度和状态字段
-  await runMigration041Wrapper();  // 修复里程碑 status 枚举值
-  await runMigration042();  // 趋势查询优化索引
-  await runMigration043();  // WBS 排序优化列
+  await safeRunMigration('034', runMigration034);  // 任务延期审批表
+  await safeRunMigration('035', runMigration035);  // 用户表新增字段 (gender, is_builtin, deleted_at, deleted_by)
+  await safeRunMigration('036', runMigration036);  // audit_logs 添加 category 字段
+  await safeRunMigration('037', runMigration037);  // 时间线相关表 (timelines, timeline_tasks)
+  await safeRunMigration('038', runMigration038);  // audit_logs 添加性能索引
+  await safeRunMigration('039', runMigration039);  // 业务表性能索引
+  await safeRunMigration('040', runMigration040);  // 时间线添加进度和状态字段
+  await safeRunMigration('041', runMigration041Wrapper);  // 修复里程碑 status 枚举值
+  await safeRunMigration('042', runMigration042);  // 趋势查询优化索引
+  await safeRunMigration('043', runMigration043);  // WBS 排序优化列
+  await safeRunMigration('044', runMigration044);  // 报表查询优化索引
+  await safeRunMigration('045', runMigration045);  // 部门经理关联表
+  await safeRunMigration('046', runMigration046);  // 数据备份表
+  await safeRunMigration('047', runMigration047);  // 缺失的查询优化索引（notifications, audit_logs）
+  await safeRunMigration('048', runMigration048);  // 修复 plan_changes 表 id 字段类型（INT → VARCHAR(36)）
+  await safeRunMigration('049', runMigration049);  // 增强 notifications 表（添加 project_id, task_id）
+  await safeRunMigration('050', runMigration050);  // 创建任务类型配置表
+  await safeRunMigration('051', runMigration051);  // 修复 audit_logs 目标字段
+  await safeRunMigration('052', runMigration052);  // 修复 delay_records 表 id/task_id 字段类型（INT → VARCHAR(36)）
+  await safeRunMigration('053', runMigration053);  // 移除任务状态中的 rejected 枚举值
+  await safeRunMigration('054', async () => {
+    const version = '054';
+    const name = 'add_submission_id_to_plan_changes';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 054 已执行，跳过');
+      return true;
+    }
+    await runMigration054();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 054 完成！');
+    return true;
+  });  // 添加 submission_id 字段到 plan_changes 表
+  await safeRunMigration('055', async () => {
+    const version = '055';
+    const name = 'fix_holidays_table_structure';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 055 已执行，跳过');
+      return true;
+    }
+    await runMigration055();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 055 完成！');
+    return true;
+  });  // 修复 holidays 表结构（添加 holiday_name 等列）
+  await safeRunMigration('056', async () => {
+    const version = '056';
+    const name = 'add_warning_days_column';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 056 已执行，跳过');
+      return true;
+    }
+    await runMigration056();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 056 完成！');
+    return true;
+  });  // 添加 warning_days 列到 wbs_tasks 表
+
+  await safeRunMigration('058', async () => {
+    const version = '058';
+    const name = 'fix_project_types';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 058 已执行，跳过');
+      return true;
+    }
+    await runMigration058();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 058 完成！');
+    return true;
+  });  // 修复项目类型数据并添加技术预研
+
+  await safeRunMigration('059', async () => {
+    const version = '059';
+    const name = 'fix_project_type_enum';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 059 已执行，跳过');
+      return true;
+    }
+    await runMigration059();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 059 完成！');
+    return true;
+  });  // 修复 project_type ENUM 添加 tech_research
+
+  await safeRunMigration('060', async () => {
+    const version = '060';
+    const name = 'add_wbs_sort_index';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 060 已执行，跳过');
+      return true;
+    }
+    await runMigration060();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 060 完成！');
+    return true;
+  });  // 添加 WBS 排序优化索引
+
+  await safeRunMigration('061', async () => {
+    const version = '061';
+    const name = 'wbs_code_optimization';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 061 已执行，跳过');
+      return true;
+    }
+    await runMigration061();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 061 完成！');
+    return true;
+  });  // WBS 编码优化：删除 wbs_code/wbs_order，新增 sort_order
+
+  await safeRunMigration('062', async () => {
+    const version = '062';
+    const name = 'fix_null_sort_order';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 062 已执行，跳过');
+      return true;
+    }
+    await runMigration062();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 062 完成！');
+    return true;
+  });  // 修复 sort_order 为 NULL 的任务数据
 
   console.log('✅ 数据库迁移检查完成');
 }

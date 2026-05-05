@@ -258,6 +258,53 @@ export const textStyles = {
 } as const;
 
 /**
+ * 仪表板指标样式（Dashboard Metrics）
+ * 用于 KPI 数值、标签、趋势、图表轴等仪表板专用排版
+ */
+export const dashboardMetrics = {
+  /** KPI 主数值 — 大号等宽数字 */
+  kpiValue: {
+    fontSize: '28px',
+    lineHeight: '36px',
+    fontWeight: 700,
+    fontFamily: fontFamilies.mono,
+    fontVariantNumeric: 'tabular-nums',
+  } as const,
+  /** KPI 标签 — 小号大写 */
+  kpiLabel: {
+    fontSize: '12px',
+    lineHeight: '16px',
+    fontWeight: 500,
+    fontFamily: fontFamilies.system,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  } as const,
+  /** KPI 趋势指示（↑↓%） */
+  kpiTrend: {
+    fontSize: '12px',
+    lineHeight: '16px',
+    fontWeight: 600,
+    fontFamily: fontFamilies.mono,
+    fontVariantNumeric: 'tabular-nums',
+  } as const,
+  /** 图表坐标轴标签 */
+  chartAxis: {
+    fontSize: '10px',
+    lineHeight: '14px',
+    fontWeight: 400,
+    fontFamily: fontFamilies.system,
+  } as const,
+  /** 图表提示框数值 */
+  chartTooltipValue: {
+    fontSize: '12px',
+    lineHeight: '16px',
+    fontWeight: 700,
+    fontFamily: fontFamilies.mono,
+    fontVariantNumeric: 'tabular-nums',
+  } as const,
+} as const;
+
+/**
  * 响应式排版（Responsive Typography）
  * 针对不同屏幕尺寸的字体大小调整
  */
@@ -333,6 +380,7 @@ export const typographyTokens = {
   lineHeights,
   letterSpacings,
   textStyles,
+  dashboardMetrics,
   responsive: responsiveTypography,
   utils: typographyUtils,
 } as const;

@@ -4,6 +4,7 @@ import * as bcrypt from 'bcryptjs';
 import { OrgRepository } from './repository';
 import { AuthRepository } from '../auth/repository';
 import { ValidationError, ForbiddenError } from '../../core/errors';
+import { sanitizeString } from '../../core/utils/sanitize';
 import { audit } from '../../core/audit';
 import type { User } from '../../core/types';
 import type {
@@ -16,6 +17,9 @@ import type {
   DimensionScore,
   TaskTypeMapping,
   CreateTaskTypeMappingRequest,
+  TaskTypeConfig,
+  CreateTaskTypeRequest,
+  UpdateTaskTypeRequest,
 } from './types';
 
 export class OrgService {
@@ -109,17 +113,25 @@ export class OrgService {
     return this.buildDepartmentTree(departments, null);
   }
 
-  private buildDepartmentTree(
+  private async buildDepartmentTree(
     departments: Department[],
     parentId: number | null
-  ): DepartmentTreeNode[] {
-    return departments
-      .filter(d => d.parent_id === parentId)
-      .map(d => ({
-        ...d,
-        children: this.buildDepartmentTree(departments, d.id),
-        member_count: 0, // 将在后续计算
-      }));
+  ): Promise<DepartmentTreeNode[]> {
+    const nodes = await Promise.all(
+      departments
+        .filter(d => d.parent_id === parentId)
+        .map(async (d) => {
+          const coManager = await this.repo.getCoManager(d.id);
+          return {
+            ...d,
+            children: await this.buildDepartmentTree(departments, d.id),
+            member_count: 0,
+            co_manager_id: coManager?.user_id ?? null,
+            co_manager_name: coManager?.user_name ?? undefined,
+          };
+        })
+    );
+    return nodes;
   }
 
   async getDepartmentById(id: number): Promise<Department | null> {
@@ -151,11 +163,26 @@ export class OrgService {
       throw new ForbiddenError('部门经理只能在本部门下创建子部门');
     }
 
-    return this.repo.createDepartment({
+    // XSS 防护：消毒部门名称
+    data.name = sanitizeString(data.name);
+
+    const id = await this.repo.createDepartment({
       name: data.name,
       parent_id: data.parent_id ?? undefined,
       manager_id: data.manager_id ?? undefined,
     });
+
+    // 同步写入 primary 经理到关联表
+    if (data.manager_id) {
+      await this.repo.addDepartmentManager(id, data.manager_id, 'primary');
+    }
+
+    // 写入副经理到关联表
+    if (data.co_manager_id) {
+      await this.repo.addDepartmentManager(id, data.co_manager_id, 'co_manager');
+    }
+
+    return id;
   }
 
   async updateDepartment(id: number, data: UpdateDepartmentRequest, currentUser: User): Promise<boolean> {
@@ -186,7 +213,24 @@ export class OrgService {
       // TODO: 检查是否形成循环
     }
 
-    return this.repo.updateDepartment(id, data);
+    // XSS 防护：消毒部门名称
+    if (data.name !== undefined) {
+      data.name = sanitizeString(data.name);
+    }
+
+    const updated = await this.repo.updateDepartment(id, data);
+
+    // 如果更新了主经理，同步关联表
+    if (data.manager_id !== undefined) {
+      await this.repo.syncPrimaryManager(id, data.manager_id ?? null);
+    }
+
+    // 如果更新了副经理，替换关联表记录
+    if (data.co_manager_id !== undefined) {
+      await this.repo.replaceCoManager(id, data.co_manager_id ?? null);
+    }
+
+    return updated;
   }
 
   async deleteDepartment(id: number, currentUser: User): Promise<{ deletedDepartments: number; deletedMembers: number }> {
@@ -315,6 +359,11 @@ export class OrgService {
     const initialPassword = this.generateRandomPassword();
     const hashedPassword = await bcrypt.hash(initialPassword, 10);
 
+    // XSS 防护：消毒文本字段
+    data.real_name = sanitizeString(data.real_name);
+    if (data.email) data.email = sanitizeString(data.email, 100);
+    if (data.phone) data.phone = sanitizeString(data.phone, 20);
+
     const id = await this.repo.createMember({
       username: data.username,
       password: hashedPassword,
@@ -356,6 +405,11 @@ export class OrgService {
       throw new ValidationError('内置用户不可调整部门');
     }
 
+    // XSS 防护：消毒文本字段
+    if (data.real_name !== undefined) data.real_name = sanitizeString(data.real_name);
+    if (data.email !== undefined) data.email = sanitizeString(data.email, 100);
+    if (data.phone !== undefined) data.phone = sanitizeString(data.phone, 20);
+
     // 检查是否修改了角色
     const roleChanged = data.role && data.role !== member.role;
 
@@ -371,8 +425,8 @@ export class OrgService {
         await this.authRepo.terminateSessions(sessionIds, 'role_changed');
         console.log(`[Org] User ${id} role changed from ${member.role} to ${data.role}, terminated ${sessionIds.length} sessions`);
 
-        // 记录审计日志
-        audit.log({
+        // 记录审计日志（同步写入，确保关键操作被记录）
+        await audit.logSync({
           userId: currentUser.id,
           username: currentUser.real_name,
           userRole: currentUser.role,
@@ -596,6 +650,10 @@ export class OrgService {
       throw new ValidationError('维度数量必须在1-10之间');
     }
 
+    // XSS 防护：消毒文本字段
+    data.name = sanitizeString(data.name);
+    if (data.description) data.description = sanitizeString(data.description, 1000);
+
     const id = uuidv4();
     await this.repo.createCapabilityModel({
       id,
@@ -630,6 +688,10 @@ export class OrgService {
         throw new ValidationError('维度数量必须在1-10之间');
       }
     }
+
+    // XSS 防护：消毒文本字段
+    if (data.name !== undefined) data.name = sanitizeString(data.name);
+    if (data.description !== undefined) data.description = sanitizeString(data.description, 1000);
 
     return this.repo.updateCapabilityModel(id, data);
   }
@@ -668,6 +730,10 @@ export class OrgService {
 
     // 计算综合分数
     const overallScore = this.calculateOverallScore(model, data.dimension_scores);
+
+    // XSS 防护：消毒文本字段
+    if (data.association_label) data.association_label = sanitizeString(data.association_label, 100);
+    if (data.notes) data.notes = sanitizeString(data.notes, 1000);
 
     const id = uuidv4();
     await this.repo.createMemberCapability({
@@ -708,6 +774,10 @@ export class OrgService {
       this.validateDimensionScores(model, data.dimension_scores);
       overallScore = this.calculateOverallScore(model, data.dimension_scores);
     }
+
+    // XSS 防护：消毒文本字段
+    if (data.association_label !== undefined) data.association_label = sanitizeString(data.association_label, 100);
+    if (data.notes !== undefined) data.notes = sanitizeString(data.notes, 1000);
 
     return this.repo.updateMemberCapability(userId, capabilityId, {
       ...data,
@@ -765,7 +835,6 @@ export class OrgService {
   // ========== 能力矩阵 ==========
 
   async getCapabilityMatrix(params: { departmentId?: number; dimensions?: string[] }): Promise<any[]> {
-    // 获取所有成员的能力数据
     const members = await this.repo.getMembers({
       department_id: params.departmentId,
       is_active: true,
@@ -773,10 +842,13 @@ export class OrgService {
       pageSize: 1000,
     });
 
-    // 获取每个成员的能力
+    // 批量获取所有成员的能力数据（单次查询）
+    const memberIds = members.items.map(m => m.id);
+    const capabilitiesMap = await this.repo.getCapabilitiesByUserIds(memberIds);
+
     const result = [];
     for (const member of members.items) {
-      const capabilities = await this.repo.getMemberCapabilities(member.id);
+      const capabilities = capabilitiesMap.get(member.id) || [];
       if (capabilities.length > 0) {
         result.push({
           memberId: member.id,
@@ -816,13 +888,15 @@ export class OrgService {
   // ========== 智能分配 ==========
 
   async getAssignmentSuggestions(taskId: string, dimensions?: string[], minScore?: number): Promise<any> {
-    // 获取任务详情以确定所需能力
-    // 这里简化实现：返回所有有能力的成员
     const members = await this.repo.getMembers({ is_active: true, page: 1, pageSize: 100 });
-    const suggestions = [];
 
+    // 批量获取所有成员的能力数据（单次查询）
+    const memberIds = members.items.map(m => m.id);
+    const capabilitiesMap = await this.repo.getCapabilitiesByUserIds(memberIds);
+
+    const suggestions = [];
     for (const member of members.items) {
-      const capabilities = await this.repo.getMemberCapabilities(member.id);
+      const capabilities = capabilitiesMap.get(member.id) || [];
       if (capabilities.length > 0) {
         const avgScore = capabilities.reduce((sum, c) => sum + c.overall_score, 0) / capabilities.length;
         if (!minScore || avgScore >= minScore) {
@@ -990,5 +1064,145 @@ export class OrgService {
 
     // 4. 返回系统管理员
     return this.repo.getAdmin();
+  }
+
+  // ========== 任务类型配置管理 ==========
+
+  async getTaskTypes(): Promise<TaskTypeConfig[]> {
+    return this.repo.getTaskTypes();
+  }
+
+  async getTaskTypeById(id: number): Promise<TaskTypeConfig | null> {
+    return this.repo.getTaskTypeById(id);
+  }
+
+  async createTaskType(data: CreateTaskTypeRequest, currentUser: User): Promise<number> {
+    // 验证权限
+    if (currentUser.role !== 'admin') {
+      throw new ForbiddenError('只有管理员可以创建任务类型');
+    }
+
+    // 验证编码唯一性
+    const existing = await this.repo.getTaskTypeByCode(data.code);
+    if (existing) {
+      throw new ValidationError('任务类型编码已存在');
+    }
+
+    // 验证必填字段
+    if (!data.code || !data.name) {
+      throw new ValidationError('编码和名称不能为空');
+    }
+
+    // 验证编码格式（只允许字母、数字、下划线）
+    if (!/^[a-z][a-z0-9_]*$/.test(data.code)) {
+      throw new ValidationError('编码只能包含小写字母、数字和下划线，且必须以字母开头');
+    }
+
+    // XSS 防护
+    data.code = sanitizeString(data.code);
+    data.name = sanitizeString(data.name);
+    if (data.description) {
+      data.description = sanitizeString(data.description);
+    }
+
+    const id = await this.repo.createTaskType(data);
+
+    // 记录审计日志
+    await audit.log({
+      userId: currentUser.id,
+      username: currentUser.username || '',
+      userRole: currentUser.role,
+      category: 'config',
+      action: 'CREATE',
+      tableName: 'task_types',
+      recordId: id.toString(),
+      details: JSON.stringify({ code: data.code, name: data.name }),
+    });
+
+    return id;
+  }
+
+  async updateTaskType(id: number, data: UpdateTaskTypeRequest, currentUser: User): Promise<boolean> {
+    // 验证权限
+    if (currentUser.role !== 'admin') {
+      throw new ForbiddenError('只有管理员可以更新任务类型');
+    }
+
+    // 验证任务类型存在
+    const existing = await this.repo.getTaskTypeById(id);
+    if (!existing) {
+      throw new ValidationError('任务类型不存在');
+    }
+
+    // XSS 防护
+    if (data.name) {
+      data.name = sanitizeString(data.name);
+    }
+    if (data.description) {
+      data.description = sanitizeString(data.description);
+    }
+
+    const updated = await this.repo.updateTaskType(id, data);
+
+    if (updated) {
+      // 记录审计日志
+      await audit.log({
+        userId: currentUser.id,
+        username: currentUser.username || '',
+        userRole: currentUser.role,
+        category: 'config',
+        action: 'UPDATE',
+        tableName: 'task_types',
+        recordId: id.toString(),
+        details: JSON.stringify({ changes: data }),
+      });
+    }
+
+    return updated;
+  }
+
+  async deleteTaskType(id: number, currentUser: User): Promise<{ deleted: boolean; affectedTasks: number }> {
+    // 验证权限
+    if (currentUser.role !== 'admin') {
+      throw new ForbiddenError('只有管理员可以删除任务类型');
+    }
+
+    // 验证任务类型存在
+    const existing = await this.repo.getTaskTypeById(id);
+    if (!existing) {
+      throw new ValidationError('任务类型不存在');
+    }
+
+    // 不允许删除 'other' 类型
+    if (existing.code === 'other') {
+      throw new ValidationError('不能删除"其它"类型');
+    }
+
+    // 检查有多少任务使用该类型
+    const affectedTasks = await this.repo.getTaskCountByType(existing.code);
+
+    // 将使用该类型的任务改为 'other'
+    if (affectedTasks > 0) {
+      await this.repo.updateTasksTypeToOther(existing.code);
+    }
+
+    // 删除任务类型
+    const deleted = await this.repo.deleteTaskType(id);
+
+    if (deleted) {
+      // 记录审计日志
+      await audit.log({
+        userId: currentUser.id,
+        username: currentUser.username || '',
+        userRole: currentUser.role,
+        category: 'config',
+        action: 'DELETE',
+        tableName: 'task_types',
+        recordId: id.toString(),
+        details: JSON.stringify({ code: existing.code, name: existing.name, affectedTasks }),
+      });
+    }
+
+    return { deleted, affectedTasks };
   }
 }

@@ -1,7 +1,7 @@
 // app/server/src/modules/workflow/repository.ts
 import { getPool } from '../../core/db';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
-import type { PlanChange, ApprovalStatus, DelayRecord, Notification, CreatePlanChangeRequest, ApprovalDecisionRequest, CreateDelayRecordRequest, CreateNotificationRequest } from './types';
+import type { PlanChange, ApprovalStatus, DelayRecord, Notification, CreatePlanChangeRequest, ApprovalDecisionRequest, CreateDelayRecordRequest, CreateNotificationRequest, ApprovalItem, ApprovalChange, ApprovalItemsQueryOptions } from './types';
 
 interface PlanChangeRow extends RowDataPacket, PlanChange {}
 interface DelayRecordRow extends RowDataPacket, DelayRecord {}
@@ -59,10 +59,12 @@ export class WorkflowRepository {
     const [rows] = await pool.query<PlanChangeRow[]>(
       `SELECT pc.*,
               t.description as task_description,
+              p.name as project_name,
               u.real_name as user_name,
               a.real_name as approver_name
        FROM plan_changes pc
        LEFT JOIN wbs_tasks t ON pc.task_id = t.id
+       LEFT JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON pc.user_id = u.id
        LEFT JOIN users a ON pc.approver_id = a.id
        ${whereClause}
@@ -79,10 +81,12 @@ export class WorkflowRepository {
     const [rows] = await pool.execute<PlanChangeRow[]>(
       `SELECT pc.*,
               t.description as task_description,
+              p.name as project_name,
               u.real_name as user_name,
               a.real_name as approver_name
        FROM plan_changes pc
        LEFT JOIN wbs_tasks t ON pc.task_id = t.id
+       LEFT JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON pc.user_id = u.id
        LEFT JOIN users a ON pc.approver_id = a.id
        WHERE pc.id = ?`,
@@ -93,10 +97,25 @@ export class WorkflowRepository {
 
   async createPlanChange(data: CreatePlanChangeRequest & { id: string; user_id: number }): Promise<string> {
     const pool = getPool();
+
+    // 去重检查：同一任务、同一字段、同一新值、pending 状态的记录已存在则跳过
+    const [existing] = await pool.execute<RowDataPacket[]>(
+      `SELECT id FROM plan_changes
+       WHERE task_id = ? AND change_type = ? AND new_value = ? AND status = 'pending'
+       LIMIT 1`,
+      [data.task_id, data.change_type, data.new_value]
+    );
+    if (existing.length > 0) {
+      return existing[0].id;
+    }
+
+    // 使用传入的 submission_id，如果没有则使用 id 作为默认值（向后兼容）
+    const submissionId = data.submission_id || data.id;
+
     await pool.execute(
-      `INSERT INTO plan_changes (id, task_id, user_id, change_type, old_value, new_value, reason, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
-      [data.id, data.task_id, data.user_id, data.change_type, data.old_value || null, data.new_value || null, data.reason]
+      `INSERT INTO plan_changes (id, submission_id, task_id, user_id, change_type, old_value, new_value, reason, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [data.id, submissionId, data.task_id, data.user_id, data.change_type, data.old_value || null, data.new_value, data.reason]
     );
     return data.id;
   }
@@ -111,29 +130,493 @@ export class WorkflowRepository {
     return result.affectedRows > 0;
   }
 
+  // ========== 审批项分组查询 ==========
+
+  /**
+   * 获取审批项列表（按 submission_id 分组）
+   */
+  async getApprovalItems(options?: ApprovalItemsQueryOptions): Promise<{ items: ApprovalItem[]; total: number }> {
+    const pool = getPool();
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (options?.status) {
+      conditions.push('pc.status = ?');
+      params.push(options.status);
+    }
+    if (options?.projectId) {
+      conditions.push('t.project_id = ?');
+      params.push(options.projectId);
+    }
+    if (options?.userId) {
+      conditions.push('pc.user_id = ?');
+      params.push(options.userId);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // 1. 获取 submission_id 总数用于分页
+    const [countRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(DISTINCT pc.submission_id) as total
+       FROM plan_changes pc
+       LEFT JOIN wbs_tasks t ON pc.task_id = t.id
+       ${whereClause}`,
+      params
+    );
+    const total = countRows[0].total;
+
+    // 2. 获取分页后的 submission_ids
+    const page = options?.page || 1;
+    const pageSize = options?.pageSize || 20;
+    const offset = (page - 1) * pageSize;
+
+    const [submissionRows] = await pool.query<RowDataPacket[]>(
+      `SELECT DISTINCT pc.submission_id,
+              (SELECT MIN(created_at) FROM plan_changes WHERE submission_id = pc.submission_id) as earliest_created_at
+       FROM plan_changes pc
+       LEFT JOIN wbs_tasks t ON pc.task_id = t.id
+       ${whereClause}
+       ORDER BY earliest_created_at DESC
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params
+    );
+
+    if (submissionRows.length === 0) {
+      return { items: [], total };
+    }
+
+    const submissionIds = submissionRows.map(r => r.submission_id);
+
+    // 3. 获取这些提交的所有记录
+    const placeholders = submissionIds.map(() => '?').join(',');
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT pc.*,
+              t.description as task_description,
+              p.name as project_name,
+              u.real_name as user_name,
+              a.real_name as approver_name
+       FROM plan_changes pc
+       LEFT JOIN wbs_tasks t ON pc.task_id = t.id
+       LEFT JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON pc.user_id = u.id
+       LEFT JOIN users a ON pc.approver_id = a.id
+       WHERE pc.submission_id IN (${placeholders})
+       ORDER BY pc.created_at ASC`,
+      submissionIds
+    );
+
+    // 4. 按 submission_id 分组
+    const grouped = new Map<string, ApprovalItem>();
+    for (const row of rows) {
+      const submissionId = row.submission_id;
+
+      if (!grouped.has(submissionId)) {
+        grouped.set(submissionId, {
+          submissionId,
+          taskId: row.task_id,
+          taskDescription: row.task_description || '',
+          projectName: row.project_name || '',
+          userId: row.user_id,
+          userName: row.user_name || '',
+          reason: row.reason,
+          status: row.status,
+          approverId: row.approver_id,
+          approverName: row.approver_name,
+          approvedAt: row.approved_at,
+          rejectionReason: row.rejection_reason,
+          createdAt: row.created_at,
+          changes: [],
+        });
+      }
+
+      const item = grouped.get(submissionId)!;
+      item.changes.push({
+        id: row.id,
+        change_type: row.change_type,
+        old_value: row.old_value,
+        new_value: row.new_value,
+      });
+
+      // 更新状态为最严重的（pending > timeout > rejected > approved）
+      const statusPriority: Record<string, number> = {
+        pending: 4, timeout: 3, rejected: 2, approved: 1,
+      };
+      if (statusPriority[row.status] > statusPriority[item.status]) {
+        item.status = row.status;
+      }
+    }
+
+    // 5. 按原始顺序返回
+    const items = submissionIds
+      .filter(id => grouped.has(id))
+      .map(id => grouped.get(id)!);
+
+    return { items, total };
+  }
+
+  /**
+   * 批量审批提交（更新 submission_id 下的所有变更）
+   */
+  async approveSubmission(
+    submissionId: string,
+    approverId: number,
+    approved: boolean,
+    rejectionReason?: string
+  ): Promise<{ taskId: string; changes: Array<{ changeType: string; newValue: string | null }> }> {
+    const pool = getPool();
+
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT * FROM plan_changes WHERE submission_id = ?`,
+      [submissionId]
+    );
+
+    if (rows.length === 0) {
+      throw new Error('submission not found');
+    }
+
+    const status: ApprovalStatus = approved ? 'approved' : 'rejected';
+
+    await pool.execute(
+      `UPDATE plan_changes
+       SET status = ?, approver_id = ?, approved_at = NOW(), rejection_reason = ?
+       WHERE submission_id = ?`,
+      [status, approverId, rejectionReason || null, submissionId]
+    );
+
+    return {
+      taskId: rows[0].task_id,
+      changes: rows.map(r => ({
+        changeType: r.change_type,
+        newValue: r.new_value,
+      })),
+    };
+  }
+
+  /**
+   * 根据 submission_id 获取审批项详情
+   */
+  async getApprovalItemBySubmissionId(submissionId: string): Promise<ApprovalItem | null> {
+    const pool = getPool();
+
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT pc.*,
+              t.description as task_description,
+              p.name as project_name,
+              u.real_name as user_name,
+              a.real_name as approver_name
+       FROM plan_changes pc
+       LEFT JOIN wbs_tasks t ON pc.task_id = t.id
+       LEFT JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON pc.user_id = u.id
+       LEFT JOIN users a ON pc.approver_id = a.id
+       WHERE pc.submission_id = ?
+       ORDER BY pc.created_at ASC`,
+      [submissionId]
+    );
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    const firstRow = rows[0];
+    return {
+      submissionId: firstRow.submission_id,
+      taskId: firstRow.task_id,
+      taskDescription: firstRow.task_description || '',
+      projectName: firstRow.project_name || '',
+      userId: firstRow.user_id,
+      userName: firstRow.user_name || '',
+      reason: firstRow.reason,
+      status: firstRow.status,
+      approverId: firstRow.approver_id,
+      approverName: firstRow.approver_name,
+      approvedAt: firstRow.approved_at,
+      rejectionReason: firstRow.rejection_reason,
+      createdAt: firstRow.created_at,
+      changes: rows.map((r: RowDataPacket) => ({
+        id: r.id,
+        change_type: r.change_type,
+        old_value: r.old_value,
+        new_value: r.new_value,
+      })),
+    };
+  }
+
+  /**
+   * 获取用户待审批的计划变更列表（基于审批链）
+   *
+   * 审批链规则：
+   * 1. 管理员(admin)：仅作为最终兜底，查看无直接主管、技术经理、部门经理的待审批
+   * 2. 技术经理(tech_manager)：仅查看本技术组下成员的待审批
+   * 3. 部门经理(dept_manager)：仅在技术组无技术经理时查看待审批（兜底）
+   */
   async getPendingApprovalsForUser(userId: number): Promise<PlanChange[]> {
     const pool = getPool();
-    // 获取用户作为审批人的待审批项（基于组织架构）
     const [rows] = await pool.execute<PlanChangeRow[]>(
       `SELECT pc.*,
               t.description as task_description,
+              p.name as project_name,
               u.real_name as user_name
        FROM plan_changes pc
        LEFT JOIN wbs_tasks t ON pc.task_id = t.id
+       LEFT JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON pc.user_id = u.id
        WHERE pc.status = 'pending'
        AND (
-         EXISTS (SELECT 1 FROM users approver WHERE approver.id = ? AND approver.role IN ('admin', 'tech_manager'))
-         OR EXISTS (
-           SELECT 1 FROM users applicant
-           JOIN departments d ON applicant.department_id = d.id
-           WHERE applicant.id = pc.user_id AND d.manager_id = ?
+         -- 规则1: 管理员仅作为最终兜底查看待审批（申请人无直接主管、技术经理、部门经理时）
+         (
+           EXISTS (SELECT 1 FROM users approver WHERE approver.id = ? AND approver.role = 'admin')
+           AND NOT EXISTS (
+             -- 排除：申请人有直接主管
+             SELECT 1 FROM users applicant_user
+             JOIN departments applicant_dept ON applicant_user.department_id = applicant_dept.id
+             JOIN users supervisor ON supervisor.id = applicant_dept.manager_id AND supervisor.is_active = 1
+             WHERE applicant_user.id = pc.user_id
+             AND supervisor.id != applicant_user.id
+           )
+           AND NOT EXISTS (
+             -- 排除：申请人有技术经理
+             SELECT 1 FROM users applicant_user
+             JOIN departments user_dept ON applicant_user.department_id = user_dept.id
+             JOIN departments tech_group ON user_dept.parent_id = tech_group.id
+             JOIN users tech_mgr ON tech_mgr.id = tech_group.manager_id AND tech_mgr.is_active = 1 AND tech_mgr.role = 'tech_manager'
+             WHERE applicant_user.id = pc.user_id
+           )
+           AND NOT EXISTS (
+             -- 排除：申请人有部门经理
+             SELECT 1 FROM departments root_dept
+             JOIN users dept_mgr ON dept_mgr.id = root_dept.manager_id AND dept_mgr.is_active = 1 AND dept_mgr.role = 'dept_manager'
+             WHERE root_dept.parent_id IS NULL
+             AND EXISTS (
+               SELECT 1 FROM users applicant_user
+               JOIN departments user_dept ON applicant_user.department_id = user_dept.id
+               WHERE applicant_user.id = pc.user_id
+               AND (
+                 user_dept.id = root_dept.id
+                 OR user_dept.parent_id = root_dept.id
+                 OR EXISTS (
+                   SELECT 1 FROM departments sub_dept
+                   WHERE sub_dept.parent_id = root_dept.id
+                   AND user_dept.parent_id = sub_dept.id
+                 )
+               )
+             )
+           )
+         )
+         OR
+         -- 规则2: 技术经理仅查看本技术组下成员的待审批
+         (
+           EXISTS (SELECT 1 FROM users approver WHERE approver.id = ? AND approver.role = 'tech_manager')
+           AND EXISTS (
+             SELECT 1 FROM users applicant
+             JOIN departments applicant_dept ON applicant.department_id = applicant_dept.id
+             WHERE applicant.id = pc.user_id
+             AND (
+	               -- 2a: 技术经理所在部门是申请人部门的父部门（跨层级）
+	               applicant_dept.parent_id = (SELECT department_id FROM users WHERE id = ?)
+	               OR
+	               -- 2b: 技术经理是申请人所在部门的直接管理者（同一部门）
+	               (applicant_dept.id = (SELECT department_id FROM users WHERE id = ?)
+	                AND ? = applicant_dept.manager_id)
+	             )
+           )
+         )
+         OR
+         -- 规则3: 部门经理仅在技术组无技术经理时查看待审批（兜底）
+         (
+           EXISTS (SELECT 1 FROM users approver WHERE approver.id = ? AND approver.role = 'dept_manager')
+           AND EXISTS (
+             SELECT 1 FROM users applicant
+             JOIN departments applicant_dept ON applicant.department_id = applicant_dept.id
+             LEFT JOIN departments tech_group ON applicant_dept.parent_id = tech_group.id
+             LEFT JOIN users tech_mgr ON tech_mgr.department_id = tech_group.id AND tech_mgr.role = 'tech_manager' AND tech_mgr.is_active = 1
+             WHERE applicant.id = pc.user_id
+             AND tech_mgr.id IS NULL
+             AND EXISTS (
+               SELECT 1 FROM departments root
+               WHERE root.parent_id IS NULL
+               AND root.manager_id = ?
+               AND (
+                 applicant_dept.parent_id = root.id
+                 OR applicant_dept.id = root.id
+                 OR tech_group.parent_id = root.id
+                 OR tech_group.id = root.id
+               )
+             )
+           )
          )
        )
        ORDER BY pc.created_at ASC`,
-      [userId, userId]
+      [userId, userId, userId, userId, userId, userId]
     );
     return rows;
+  }
+
+  /**
+   * 获取用户待审批数量（基于审批链，用于仪表板统计）
+   * 简化实现：分步查询避免复杂嵌套SQL导致的 ER_MALFORMED_PACKET 错误
+   */
+  async getPendingApprovalsCountForUser(userId: number): Promise<number> {
+    const pool = getPool();
+
+    // 1. 获取当前用户信息
+    const [userRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, role, department_id FROM users WHERE id = ?`,
+      [userId]
+    );
+    if (userRows.length === 0) return 0;
+    const user = userRows[0] as { id: number; role: string; department_id: number | null };
+
+    // 2. 获取所有待审批的变更申请
+    const [pendingChanges] = await pool.execute<RowDataPacket[]>(
+      `SELECT pc.id, pc.user_id, u.role as applicant_role, u.department_id as applicant_dept_id
+       FROM plan_changes pc
+       JOIN users u ON pc.user_id = u.id
+       WHERE pc.status = 'pending'`,
+      []
+    );
+
+    if (pendingChanges.length === 0) return 0;
+
+    // 3. 根据用户角色筛选需要审批的申请
+    let count = 0;
+
+    for (const change of pendingChanges) {
+      const typedChange = change as { user_id: number; applicant_role: string; applicant_dept_id: number | null };
+      const needsApproval = await this.checkIfUserNeedsToApprove(pool, user, typedChange);
+      if (needsApproval) count++;
+    }
+
+    return count;
+  }
+
+  /**
+   * 检查用户是否需要审批该变更申请
+   */
+  private async checkIfUserNeedsToApprove(
+    pool: ReturnType<typeof getPool>,
+    approver: { id: number; role: string; department_id: number | null },
+    applicant: { user_id: number; applicant_role: string; applicant_dept_id: number | null }
+  ): Promise<boolean> {
+    // 管理员：仅作为最终兜底，当没有其他审批人时才需要审批
+    if (approver.role === 'admin') {
+      // 检查申请人是否有直属上级（部门经理）
+      const [deptMgrRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT d.manager_id
+         FROM users u
+         JOIN departments d ON u.department_id = d.id
+         WHERE u.id = ? AND d.manager_id IS NOT NULL AND d.manager_id != u.id`,
+        [applicant.user_id]
+      );
+      if (deptMgrRows.length > 0) return false; // 有部门经理，管理员不需要审批
+
+      // 检查申请人所在部门是否有技术经理
+      const [techMgrRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT tm.id
+         FROM users u
+         JOIN departments user_dept ON u.department_id = user_dept.id
+         JOIN departments tech_group ON user_dept.parent_id = tech_group.id
+         JOIN users tm ON tm.department_id = tech_group.id AND tm.role = 'tech_manager' AND tm.is_active = 1
+         WHERE u.id = ?`,
+        [applicant.user_id]
+      );
+      if (techMgrRows.length > 0) return false; // 有技术经理，管理员不需要审批
+
+      // 检查是否有根部门经理
+      const [rootMgrRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT dm.id
+         FROM departments root
+         JOIN users dm ON dm.id = root.manager_id AND dm.role = 'dept_manager' AND dm.is_active = 1
+         WHERE root.parent_id IS NULL`,
+        []
+      );
+      if (rootMgrRows.length > 0) return false; // 有根部门经理，管理员不需要审批
+
+      return true; // 没有其他审批人，管理员需要审批
+    }
+
+    // 技术经理：审批本技术组成员的申请
+    if (approver.role === 'tech_manager') {
+      // 获取技术经理管理的技术组
+      const [techGroupRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT d.id FROM departments d WHERE d.manager_id = ? AND d.parent_id IS NOT NULL`,
+        [approver.id]
+      );
+      if (techGroupRows.length === 0) return false;
+
+      const techGroupId = techGroupRows[0].id;
+
+      // 检查申请人是否在本技术组
+      const [applicantInGroup] = await pool.execute<RowDataPacket[]>(
+        `SELECT 1 FROM users u
+         JOIN departments d ON u.department_id = d.id
+         WHERE u.id = ? AND (d.id = ? OR d.parent_id = ?)`,
+        [applicant.user_id, techGroupId, techGroupId]
+      );
+      return applicantInGroup.length > 0;
+    }
+
+    // 部门经理：审批本部门成员的申请（仅当没有技术经理时）
+    if (approver.role === 'dept_manager') {
+      // 获取部门经理管理的根部门
+      const [rootDeptRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT d.id FROM departments d WHERE d.manager_id = ? AND d.parent_id IS NULL`,
+        [approver.id]
+      );
+      if (rootDeptRows.length === 0) return false;
+
+      const rootDeptId = rootDeptRows[0].id;
+
+      // 检查申请人是否在本部门或下属部门
+      const [applicantInDept] = await pool.execute<RowDataPacket[]>(
+        `SELECT u.department_id, d.parent_id
+         FROM users u
+         JOIN departments d ON u.department_id = d.id
+         WHERE u.id = ?`,
+        [applicant.user_id]
+      );
+      if (applicantInDept.length === 0) return false;
+
+      const applicantDept = applicantInDept[0];
+
+      // 检查是否在根部门或下属部门
+      const isUnderRootDept = applicantDept.department_id === rootDeptId ||
+        applicantDept.parent_id === rootDeptId ||
+        (applicantDept.parent_id !== null && await this.isDepartmentUnderRoot(pool, applicantDept.parent_id, rootDeptId));
+
+      if (!isUnderRootDept) return false;
+
+      // 检查是否有技术经理
+      const [techMgrForApplicant] = await pool.execute<RowDataPacket[]>(
+        `SELECT tm.id
+         FROM users u
+         JOIN departments user_dept ON u.department_id = user_dept.id
+         LEFT JOIN departments tech_group ON user_dept.parent_id = tech_group.id
+         LEFT JOIN users tm ON tm.department_id = tech_group.id AND tm.role = 'tech_manager' AND tm.is_active = 1
+         WHERE u.id = ?`,
+        [applicant.user_id]
+      );
+
+      // 如果有技术经理，部门经理不需要审批
+      return techMgrForApplicant.length === 0 || techMgrForApplicant[0].id === null;
+    }
+
+    return false;
+  }
+
+  /**
+   * 检查部门是否在根部门下
+   */
+  private async isDepartmentUnderRoot(
+    pool: ReturnType<typeof getPool>,
+    deptId: number,
+    rootDeptId: number
+  ): Promise<boolean> {
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT 1 FROM departments WHERE id = ? AND parent_id = ?`,
+      [deptId, rootDeptId]
+    );
+    return rows.length > 0;
   }
 
   // ========== 延期记录 ==========
@@ -198,9 +681,19 @@ export class WorkflowRepository {
 
   async createNotification(data: CreateNotificationRequest & { id: string }): Promise<string> {
     const pool = getPool();
+
+    // 验证用户是否存在
+    const [userRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT id FROM users WHERE id = ?',
+      [data.user_id]
+    );
+    if (userRows.length === 0) {
+      throw new Error(`通知目标用户不存在: user_id=${data.user_id}`);
+    }
+
     await pool.execute(
-      'INSERT INTO notifications (id, user_id, type, title, content, link) VALUES (?, ?, ?, ?, ?, ?)',
-      [data.id, data.user_id, data.type, data.title, data.content, data.link || null]
+      'INSERT INTO notifications (id, user_id, project_id, task_id, type, title, content, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [data.id, data.user_id, data.project_id || null, data.task_id || null, data.type, data.title, data.content, data.link || null]
     );
     return data.id;
   }
@@ -208,7 +701,7 @@ export class WorkflowRepository {
   async markNotificationAsRead(id: string): Promise<boolean> {
     const pool = getPool();
     const [result] = await pool.execute<ResultSetHeader>(
-      'UPDATE notifications SET is_read = true WHERE id = ?',
+      'UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = ?',
       [id]
     );
     return result.affectedRows > 0;
@@ -217,7 +710,7 @@ export class WorkflowRepository {
   async markAllNotificationsAsRead(userId: number): Promise<number> {
     const pool = getPool();
     const [result] = await pool.execute<ResultSetHeader>(
-      'UPDATE notifications SET is_read = true WHERE user_id = ? AND is_read = false',
+      'UPDATE notifications SET is_read = true, read_at = NOW() WHERE user_id = ? AND is_read = false',
       [userId]
     );
     return result.affectedRows;
@@ -232,14 +725,87 @@ export class WorkflowRepository {
     return result.affectedRows > 0;
   }
 
+  /**
+   * 批量删除通知
+   */
+  async deleteNotifications(ids: string[], userId: number): Promise<number> {
+    if (ids.length === 0) return 0;
+    const pool = getPool();
+    const placeholders = ids.map(() => '?').join(', ');
+    const [result] = await pool.execute<ResultSetHeader>(
+      `DELETE FROM notifications WHERE id IN (${placeholders}) AND user_id = ?`,
+      [...ids, userId]
+    );
+    return result.affectedRows;
+  }
+
+  /**
+   * 删除所有已读通知
+   */
+  async deleteAllReadNotifications(userId: number): Promise<number> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      'DELETE FROM notifications WHERE user_id = ? AND is_read = true',
+      [userId]
+    );
+    return result.affectedRows;
+  }
+
   // ========== 批量通知 ==========
 
   async createNotificationsForUsers(userIds: number[], data: Omit<CreateNotificationRequest, 'user_id'>): Promise<void> {
+    if (userIds.length === 0) return;
     const pool = getPool();
+
+    // 批量插入：单条 SQL 替代循环 N 次 INSERT
+    const placeholders = userIds.map(() => '(UUID(), ?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const params: (number | string | null)[] = [];
     for (const userId of userIds) {
-      const id = crypto.randomUUID();
-      await this.createNotification({ id, user_id: userId, ...data });
+      params.push(userId, data.project_id || null, data.task_id || null, data.type, data.title, data.content, data.link || null);
     }
+
+    await pool.execute(
+      `INSERT INTO notifications (id, user_id, project_id, task_id, type, title, content, link) VALUES ${placeholders}`,
+      params
+    );
+  }
+
+  // ========== 通知清理方法 ==========
+
+  /**
+   * 删除指定任务和用户的通知
+   */
+  async deleteNotificationsByTaskAndUser(taskId: string, userId: number): Promise<number> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      `DELETE FROM notifications WHERE task_id = ? AND user_id = ?`,
+      [taskId, userId]
+    );
+    return result.affectedRows;
+  }
+
+  /**
+   * 删除指定项目和用户的通知
+   */
+  async deleteNotificationsByProjectAndUser(projectId: string, userId: number): Promise<number> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      `DELETE FROM notifications WHERE project_id = ? AND user_id = ?`,
+      [projectId, userId]
+    );
+    return result.affectedRows;
+  }
+
+  /**
+   * 删除超过指定天数的已读通知
+   */
+  async deleteOldReadNotifications(daysOld: number): Promise<number> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      `DELETE FROM notifications WHERE is_read = true AND created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
+      [daysOld]
+    );
+    return result.affectedRows;
   }
 
   // ========== 定时任务辅助方法 ==========
@@ -275,10 +841,10 @@ export class WorkflowRepository {
    * 根据需求文档：无实际完成日期且当前距离计划完成日期≤预警天数
    * 注意：不需要有实际开始日期，未开始的任务也可能触发预警
    */
-  async getTasksNeedingWarning(): Promise<Array<{ id: string; description: string; assignee_id: number | null }>> {
+  async getTasksNeedingWarning(): Promise<Array<{ id: string; description: string; assignee_id: number | null; project_id: string }>> {
     const pool = getPool();
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, t.assignee_id
+      `SELECT t.id, t.description, t.assignee_id, t.project_id
        FROM wbs_tasks t
        WHERE t.status IN ('not_started', 'in_progress', 'delay_warning')
        AND t.end_date IS NOT NULL
@@ -291,7 +857,7 @@ export class WorkflowRepository {
          AND DATE(n.created_at) = CURDATE()
        )`
     );
-    return rows as Array<{ id: string; description: string; assignee_id: number | null }>;
+    return rows as Array<{ id: string; description: string; assignee_id: number | null; project_id: string }>;
   }
 
   /**
@@ -362,7 +928,7 @@ export class WorkflowRepository {
        FROM users u
        JOIN projects p ON u.department_id = p.department_id
        WHERE p.id = ?
-       AND u.role IN ('admin', 'tech_manager', 'department_manager')`,
+       AND u.role IN ('admin', 'tech_manager', 'dept_manager')`,
       [projectId]
     );
     return rows as Array<{ id: number; real_name: string }>;
@@ -414,10 +980,12 @@ export class WorkflowRepository {
     const pool = getPool();
     let query = `SELECT pc.*,
                         t.description as task_description,
+                        p.name as project_name,
                         u.real_name as user_name,
                         a.real_name as approver_name
                  FROM plan_changes pc
                  LEFT JOIN wbs_tasks t ON pc.task_id = t.id
+                 LEFT JOIN projects p ON t.project_id = p.id
                  LEFT JOIN users u ON pc.user_id = u.id
                  LEFT JOIN users a ON pc.approver_id = a.id
                  WHERE pc.task_id = ?`;
@@ -437,13 +1005,13 @@ export class WorkflowRepository {
   /**
    * 获取任务基本信息
    */
-  async getTaskById(taskId: string): Promise<{ id: string; project_id: string; version: number; last_plan_refresh_at: Date | null; delay_count: number } | null> {
+  async getTaskById(taskId: string): Promise<{ id: string; project_id: string; version: number; last_plan_refresh_at: Date | null; delay_count: number; actual_start_date: Date | null } | null> {
     const pool = getPool();
     const [rows] = await pool.execute<RowDataPacket[]>(
-      'SELECT id, project_id, version, last_plan_refresh_at, delay_count FROM wbs_tasks WHERE id = ?',
+      'SELECT id, project_id, version, last_plan_refresh_at, delay_count, actual_start_date FROM wbs_tasks WHERE id = ?',
       [taskId]
     );
-    return rows.length > 0 ? (rows[0] as { id: string; project_id: string; version: number; last_plan_refresh_at: Date | null; delay_count: number }) : null;
+    return rows.length > 0 ? (rows[0] as { id: string; project_id: string; version: number; last_plan_refresh_at: Date | null; delay_count: number; actual_start_date: Date | null }) : null;
   }
 
   /**
@@ -497,6 +1065,74 @@ export class WorkflowRepository {
   }
 
   /**
+   * 获取任务的日期和计数器信息
+   */
+  async getTaskWithDates(taskId: string): Promise<{
+    id: string;
+    project_id: string;
+    description: string;
+    end_date: Date | null;
+    actual_start_date: Date | null;
+    actual_end_date: Date | null;
+    warning_days: number;
+    pending_changes: string | null;
+    pending_change_type: string | null;
+    last_plan_refresh_at: Date | null;
+    delay_count: number;
+    version: number;
+  } | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, project_id, description, end_date, actual_start_date, actual_end_date, warning_days, pending_changes, pending_change_type, last_plan_refresh_at, delay_count, version
+       FROM wbs_tasks
+       WHERE id = ?`,
+      [taskId]
+    );
+    if (!rows[0]) {
+      return null;
+    }
+    const row = rows[0];
+    return {
+      id: row.id,
+      project_id: row.project_id,
+      description: row.description || '',
+      end_date: row.end_date || null,
+      actual_start_date: row.actual_start_date || null,
+      actual_end_date: row.actual_end_date || null,
+      warning_days: row.warning_days || 3,
+      pending_changes: row.pending_changes || null,
+      pending_change_type: row.pending_change_type || null,
+      last_plan_refresh_at: row.last_plan_refresh_at || null,
+      delay_count: row.delay_count || 0,
+      version: row.version || 1,
+    };
+  }
+
+  /**
+   * 获取用户基本信息
+   */
+  async getUserById(userId: number): Promise<{ id: number; real_name: string } | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT id, real_name FROM users WHERE id = ?',
+      [userId]
+    );
+    return rows.length > 0 ? (rows[0] as { id: number; real_name: string }) : null;
+  }
+
+  /**
+   * 获取项目名称
+   */
+  async getProjectName(projectId: string): Promise<string | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT name FROM projects WHERE id = ?',
+      [projectId]
+    );
+    return rows.length > 0 ? rows[0].name : null;
+  }
+
+  /**
    * 增加任务计数器
    */
   async incrementTaskCounter(taskId: string, counter: 'delay_count' | 'plan_change_count' | 'progress_record_count'): Promise<void> {
@@ -508,13 +1144,54 @@ export class WorkflowRepository {
   }
 
   /**
-   * 清除任务的待审批数据
+   * 清除任务的待审批数据（完全清空）
    */
   async clearPendingChanges(taskId: string): Promise<boolean> {
     const pool = getPool();
     const [result] = await pool.execute<ResultSetHeader>(
       `UPDATE wbs_tasks SET pending_changes = NULL, pending_change_type = NULL, version = version + 1 WHERE id = ?`,
       [taskId]
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * P9: 按 submission_id 移除待审批变更
+   * 如果移除后数组为空，则完全清空
+   */
+  async removePendingChangeBySubmissionId(taskId: string, submissionId: string): Promise<boolean> {
+    const pool = getPool();
+
+    // 1. 读取当前 pending_changes
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT pending_changes FROM wbs_tasks WHERE id = ?',
+      [taskId]
+    );
+
+    if (!rows[0]?.pending_changes) {
+      return false;
+    }
+
+    let pendingChanges: unknown[];
+    try {
+      const raw = rows[0].pending_changes;
+      pendingChanges = Array.isArray(raw) ? raw : [raw];
+    } catch {
+      return false;
+    }
+
+    // 2. 过滤掉指定的 submission_id
+    const filtered = pendingChanges.filter((item: any) => item.submission_id !== submissionId);
+
+    if (filtered.length === 0) {
+      // 数组为空，完全清空
+      return this.clearPendingChanges(taskId);
+    }
+
+    // 3. 更新为过滤后的数组
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE wbs_tasks SET pending_changes = ?, version = version + 1 WHERE id = ?`,
+      [JSON.stringify(filtered), taskId]
     );
     return result.affectedRows > 0;
   }

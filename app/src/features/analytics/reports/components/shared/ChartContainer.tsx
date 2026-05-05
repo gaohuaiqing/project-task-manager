@@ -42,7 +42,7 @@ export function ChartContainer({
       </div>
 
       {/* 图表区域 */}
-      <div style={{ height }}>
+      <div style={{ minHeight: height }}>
         {children}
       </div>
     </div>

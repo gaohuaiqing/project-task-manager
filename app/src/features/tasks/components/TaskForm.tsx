@@ -44,7 +44,7 @@ import {
 } from '@/components/ui/dialog';
 import { PredecessorSelector } from './PredecessorSelector';
 import { DependencyTypeSelector } from './DependencyTypeSelector';
-import { useMembers } from '@/features/org/hooks/useOrg';
+import { useMembers, useTaskTypeOptions } from '@/features/org/hooks/useOrg';
 import { useAssigneeRecommendation, getMatchLevelStyle } from '@/features/assignment/hooks/useAssigneeRecommendation';
 import { useTaskPermissions, PLAN_FIELDS } from '../hooks/usePermissions';
 import { Sparkles, Star, Loader2, ChevronDown, ChevronUp, Users, AlertCircle, Lock } from 'lucide-react';
@@ -61,7 +61,7 @@ interface TaskFormData extends Omit<CreateTaskRequest, 'status'> {
 import {
   TASK_STATUS_OPTIONS,
   TASK_PRIORITY_OPTIONS,
-  TASK_TYPE_OPTIONS,
+  TASK_TYPE_OPTIONS as DEFAULT_TASK_TYPE_OPTIONS,
   type TaskPriority,
   type TaskType,
 } from '@/shared/constants';
@@ -79,7 +79,7 @@ interface TaskFormProps {
   /** 是否是子任务（子任务不能选择项目） */
   isSubtask?: boolean;
   /** 可选的项目列表，用于下拉选择 */
-  projects?: { id: string; name: string }[];
+  projects?: { id: string; name: string; code?: string }[];
   /** 可选的任务列表，用于前置任务选择 */
   tasks?: WBSTask[];
   onSubmit: (data: CreateTaskRequest | UpdateTaskRequest) => Promise<void>;
@@ -110,6 +110,9 @@ export function TaskForm({
   // 成员列表查询
   const { data: membersData } = useMembers({ pageSize: 500, status: 'active' });
   const allMembers = membersData?.items || [];
+
+  // 任务类型选项（优先从 API 获取，后备使用常量）
+  const { options: taskTypeOptions, hasApiData } = useTaskTypeOptions();
 
   const {
     register,
@@ -241,11 +244,20 @@ export function TaskForm({
     }
 
     // 编辑模式下，检测计划字段变更
+    // 工程师编辑计划字段需要审批，经理可以直接编辑
     if (isEdit && task && permissions.needsApprovalForPlanChanges) {
       const changes: ChangedField[] = [];
+      const DATE_FIELDS = ['startDate', 'endDate', 'actualStartDate', 'actualEndDate'];
+
       for (const field of PLAN_FIELDS) {
         const formValue = (data as Record<string, unknown>)[field];
-        const originalValue = (task as Record<string, unknown>)[field];
+        let originalValue = (task as Record<string, unknown>)[field];
+
+        // 日期字段需要统一格式进行比较
+        if (DATE_FIELDS.includes(field)) {
+          originalValue = formatDateForInput(originalValue as string | null | undefined);
+        }
+
         // 比较值是否变化（考虑 null/undefined/空字符串等价）
         const normalize = (v: unknown) => (v === null || v === undefined || v === '' ? null : v);
         if (normalize(formValue) !== normalize(originalValue)) {
@@ -332,7 +344,7 @@ export function TaskForm({
                   <SelectContent>
                     {projects.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {p.name}
+                        {p.code ? `[${p.code}] ` : ''}{p.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -353,8 +365,17 @@ export function TaskForm({
             <div className="space-y-2">
               <Label>所属项目</Label>
               <div className="text-sm p-2 border rounded bg-muted/30">
-                {task?.projectName || projects.find(p => p.id === task?.projectId)?.name || '未知项目'}
+                {task?.projectCode ? `[${task.projectCode}] ` : ''}{task?.projectName || projects.find(p => p.id === task?.projectId)?.name || '未知项目'}
               </div>
+            </div>
+          )}
+
+          {/* P17: 子任务继承规则提示 */}
+          {isSubtask && (
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                子任务将自动继承父任务的所属项目和工作制（五天/六天工作制），任务类型默认继承但可修改。
+              </p>
             </div>
           )}
 
@@ -386,7 +407,7 @@ export function TaskForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {TASK_TYPE_OPTIONS.map((opt) => (
+                  {(hasApiData ? taskTypeOptions : DEFAULT_TASK_TYPE_OPTIONS).map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>
                       {opt.label}
                     </SelectItem>
@@ -493,7 +514,7 @@ export function TaskForm({
               <div className="mt-2 p-3 border rounded-lg bg-muted/30">
                 <div className="flex items-center gap-2 mb-3 text-sm text-muted-foreground">
                   <Users className="h-4 w-4" />
-                  <span>基于任务类型 "{TASK_TYPE_OPTIONS.find(o => o.value === currentTaskType)?.label || '未知'}" 的智能推荐</span>
+                  <span>基于任务类型 "{(hasApiData ? taskTypeOptions : DEFAULT_TASK_TYPE_OPTIONS).find(o => o.value === currentTaskType)?.label || '未知'}" 的智能推荐</span>
                 </div>
 
                 {isLoadingRecommendations ? (
@@ -592,8 +613,8 @@ export function TaskForm({
                 id="startDate"
                 type="date"
                 {...register('startDate')}
-                disabled={!permissions.canEditPlanFields && isEdit}
-                className={!permissions.canEditPlanFields && isEdit ? 'opacity-60' : ''}
+                disabled={!permissions.canEditPlanFieldsWithApproval && isEdit}
+                className={!permissions.canEditPlanFieldsWithApproval && isEdit ? 'opacity-60' : ''}
               />
             </div>
             <div className="space-y-2">
@@ -612,8 +633,8 @@ export function TaskForm({
                 min="1"
                 {...register('duration', { valueAsNumber: true })}
                 placeholder="自动计算结束日期"
-                disabled={!permissions.canEditPlanFields && isEdit}
-                className={!permissions.canEditPlanFields && isEdit ? 'opacity-60' : ''}
+                disabled={!permissions.canEditPlanFieldsWithApproval && isEdit}
+                className={!permissions.canEditPlanFieldsWithApproval && isEdit ? 'opacity-60' : ''}
               />
             </div>
             <div className="space-y-2">
@@ -650,7 +671,7 @@ export function TaskForm({
               tasks={tasks}
               currentTaskId={task?.id}
               placeholder="输入WBS编码或选择前置任务"
-              disabled={!permissions.canEditPlanFields && isEdit}
+              disabled={!permissions.canEditPlanFieldsWithApproval && isEdit}
             />
           </div>
 
@@ -675,8 +696,8 @@ export function TaskForm({
                 type="number"
                 {...register('lagDays', { valueAsNumber: true })}
                 placeholder="负数为提前"
-                disabled={!permissions.canEditPlanFields && isEdit}
-                className={!permissions.canEditPlanFields && isEdit ? 'opacity-60' : ''}
+                disabled={!permissions.canEditPlanFieldsWithApproval && isEdit}
+                className={!permissions.canEditPlanFieldsWithApproval && isEdit ? 'opacity-60' : ''}
               />
             </div>
           </div>
@@ -749,7 +770,7 @@ export function TaskForm({
             >
               取消
             </Button>
-            <Button data-testid="task-btn-submit" type="submit" disabled={isLoading || isSubmitting}>
+            <Button variant="outline" data-testid="task-btn-submit" type="submit" disabled={isLoading || isSubmitting}>
               {isLoading || isSubmitting ? '保存中...' : isEdit ? '保存' : '创建'}
             </Button>
           </DialogFooter>

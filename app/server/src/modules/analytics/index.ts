@@ -10,3 +10,6 @@ export type { TimeGranularity } from './services';
 
 // 导出控制器
 export { DashboardController } from './controllers/dashboard.controller';
+
+// 导出缓存失效初始化
+export { initCacheInvalidation } from './cache-invalidation';

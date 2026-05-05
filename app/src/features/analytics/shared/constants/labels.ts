@@ -7,14 +7,15 @@
 
 // ============ 状态标签 ============
 
-/** 任务状态标签映射 */
+/** 任务状态标签映射 — 标签与 shared/constants/index.ts 保持一致 */
 export const STATUS_LABELS: Record<string, string> = {
+  pending_approval: '待审批',
   not_started: '未开始',
   in_progress: '进行中',
-  delay_warning: '延期预警',
-  delayed: '已延期',
   early_completed: '提前完成',
   on_time_completed: '按时完成',
+  delay_warning: '延期预警',
+  delayed: '已延期',
   overdue_completed: '超期完成',
 } as const;
 
@@ -116,7 +117,7 @@ export const TASK_TYPE_GROUPS = {
   general: { label: '综合职能', description: '协调、职能与其他任务' },
 } as const;
 
-/** 任务类型标签映射 */
+/** 任务类型标签映射 — key 必须与后端 TaskType 枚举一致 */
 export const TASK_TYPE_LABELS: Record<string, string> = {
   firmware: '固件',
   board: '板卡',
@@ -127,12 +128,12 @@ export const TASK_TYPE_LABELS: Record<string, string> = {
   material_sub: '物料改代',
   sys_design: '系统设计',
   core_risk: '核心风险',
-  coordinator: '接口人',
-  functional: '职能任务',
+  contact: '接口人',
+  func_task: '职能任务',
   other: '其它',
 } as const;
 
-/** 任务类型描述映射 */
+/** 任务类型描述映射 — key 必须与后端 TaskType 枚举一致 */
 export const TASK_TYPE_DESCRIPTIONS: Record<string, string> = {
   firmware: '嵌入式固件开发、调试与维护',
   board: 'PCB板卡设计、原理图、Layout',
@@ -143,8 +144,8 @@ export const TASK_TYPE_DESCRIPTIONS: Record<string, string> = {
   material_sub: '物料替代方案验证与切换',
   sys_design: '系统架构与方案设计',
   core_risk: '核心技术风险攻关',
-  coordinator: '跨组/跨部门接口协调',
-  functional: '职能部门常规任务',
+  contact: '跨组/跨部门接口协调',
+  func_task: '职能部门常规任务',
   other: '其他类型任务',
 } as const;
 
@@ -159,7 +160,7 @@ export const TASK_TYPE_GROUP_MAP: Record<string, keyof typeof TASK_TYPE_GROUPS> 
   material_sub: 'material',
   sys_design: 'design',
   core_risk: 'design',
-  coordinator: 'general',
-  functional: 'general',
+  contact: 'general',
+  func_task: 'general',
   other: 'general',
 } as const;

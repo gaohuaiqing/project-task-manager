@@ -5,10 +5,9 @@
 
 // ============ 枚举类型 ============
 
-/** 任务状态 - 9种完整状态 */
+/** 任务状态 - 8种完整状态 */
 export type TaskStatus =
   | 'pending_approval'   // 待审批
-  | 'rejected'           // 已驳回
   | 'not_started'        // 未开始
   | 'in_progress'        // 进行中
   | 'early_completed'    // 提前完成
@@ -38,17 +37,24 @@ export type TaskPriority = 'urgent' | 'high' | 'medium' | 'low';
 /** 依赖类型 */
 export type DependencyType = 'FS' | 'SS' | 'FF' | 'SF';
 
+// ============ P2: 双维度状态类型 ============
+
+/** 执行状态（执行进度维度） */
+export type ExecutionStatus = 'not_started' | 'in_progress' | 'completed' | 'pending_approval';
+
+/** 时间状态（时间表现维度） */
+export type TimeStatus = 'normal' | 'warning' | 'delayed' | 'not_applicable';
+
 // ============ 状态标签映射 ============
 
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending_approval: '待审批',
-  rejected: '已驳回',
   not_started: '未开始',
   in_progress: '进行中',
   early_completed: '提前完成',
   on_time_completed: '按时完成',
   delay_warning: '延期预警',
-  delayed: '已延迟',
+  delayed: '已延期',
   overdue_completed: '超期完成',
 };
 
@@ -90,8 +96,10 @@ export const DEPENDENCY_TYPE_DESCRIPTIONS: Record<DependencyType, string> = {
 
 // ============ 实体类型 ============
 
-/** 待审批变更数据结构 */
+/** 待审批变更数据结构（P9: 支持多实例） */
 export interface PendingChangeData {
+  /** 提交批次ID（UUID） */
+  submissionId: string;
   /** 变更字段 */
   changes: Array<{ field: string; oldValue: unknown; newValue: unknown }>;
   /** 变更原因 */
@@ -116,6 +124,7 @@ export interface WBSTask {
   assigneeId: number | null;
   assigneeName?: string;
   projectName?: string;
+  projectCode?: string;
 
   // 日期相关
   startDate: string | null;       // 计划开始日期
@@ -133,6 +142,7 @@ export interface WBSTask {
 
   // 依赖关系
   predecessorId: string | null;   // 前置任务ID
+  predecessorCode?: string;       // 前置任务WBS编码（用于显示）
   dependencyType: DependencyType;  // 依赖类型
   lagDays: number | null;         // 提前/落后天数（负数为提前）
 
@@ -142,13 +152,17 @@ export interface WBSTask {
   planChangeCount: number;        // 计划调整次数
   progressRecordCount: number;    // 进展记录数
 
-  // 待审批数据
-  pendingChanges: PendingChangeData | null;  // 待审批的变更数据
+  // 待审批数据（P9: 数组支持多实例）
+  pendingChanges: PendingChangeData[] | null;  // 待审批的变更数据列表
   pendingChangeType: string | null;          // 待审批变更类型
 
   // 其他
   redmineLink: string | null;     // Redmine链接
   tags: string | null;
+
+  // P2: 双维度计算状态
+  computedExecutionStatus?: ExecutionStatus;
+  computedTimeStatus?: TimeStatus;
 
   // 元数据
   version: number;
@@ -278,6 +292,8 @@ const FIELD_MAP_TO_FRONTEND: Record<string, string> = {
   assignee_id: 'assigneeId',
   assignee_name: 'assigneeName',
   project_name: 'projectName',
+  project_code: 'projectCode',
+  predecessor_code: 'predecessorCode',
   start_date: 'startDate',
   end_date: 'endDate',
   is_six_day_week: 'isSixDayWeek',
@@ -311,6 +327,8 @@ const FIELD_MAP_TO_BACKEND: Record<string, string> = {
   assigneeId: 'assignee_id',
   assigneeName: 'assignee_name',
   projectName: 'project_name',
+  projectCode: 'project_code',
+  predecessorCode: 'predecessor_code',
   startDate: 'start_date',
   endDate: 'end_date',
   isSixDayWeek: 'is_six_day_week',

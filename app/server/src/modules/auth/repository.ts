@@ -40,7 +40,7 @@ export class AuthRepository {
   async findById(userId: number): Promise<User | null> {
     const pool = getPool();
     const [rows] = await pool.execute<UserRow[]>(
-      'SELECT id, username, real_name, role, department_id, email, phone, is_active, created_at, updated_at FROM users WHERE id = ?',
+      'SELECT id, username, real_name, role, gender, department_id, email, phone, is_active, created_at, updated_at FROM users WHERE id = ?',
       [userId]
     );
     return rows[0] || null;
@@ -65,8 +65,9 @@ export class AuthRepository {
   async findSession(sessionId: string): Promise<Session | null> {
     const pool = getPool();
     // 使用 session_id 查找，检查状态和过期时间
+    // expires_at 是 DATETIME 类型，使用 NOW() 比较
     const [rows] = await pool.execute<SessionRow[]>(
-      "SELECT * FROM sessions WHERE session_id = ? AND status = 'active' AND expires_at > UNIX_TIMESTAMP()",
+      "SELECT * FROM sessions WHERE session_id = ? AND status = 'active' AND expires_at > NOW()",
       [sessionId]
     );
     return rows[0] || null;
@@ -142,7 +143,7 @@ export class AuthRepository {
     // 注意：LIMIT/OFFSET 使用模板字符串直接拼接，因为 pageSize 和 offset 是内部计算的数值，安全可控
     // mysql2 的 prepared statement 对 LIMIT 参数类型处理有问题
     const [rows] = await pool.execute<UserRow[]>(
-      `SELECT id, username, real_name, role, department_id, email, phone, is_active, created_at, updated_at
+      `SELECT id, username, real_name, role, gender, department_id, email, phone, is_active, created_at, updated_at
        FROM users ${whereClause}
        ORDER BY created_at DESC
        LIMIT ${pageSize} OFFSET ${offset}`,
@@ -308,7 +309,7 @@ export class AuthRepository {
     const [rows] = await pool.execute<
       (RowDataPacket & { session: Session; user: User })[]
     >(
-      `SELECT s.*, u.id as user_id, u.username, u.real_name, u.role, u.department_id, u.email, u.phone, u.is_active, u.created_at, u.updated_at
+      `SELECT s.*, u.id as user_id, u.username, u.real_name, u.role, u.gender, u.department_id, u.email, u.phone, u.is_active, u.is_builtin, u.deleted_at, u.deleted_by, u.created_at, u.updated_at
        FROM sessions s
        JOIN users u ON s.user_id = u.id
        WHERE s.session_id = ? AND s.status = 'active' AND s.expires_at > UNIX_TIMESTAMP()`,

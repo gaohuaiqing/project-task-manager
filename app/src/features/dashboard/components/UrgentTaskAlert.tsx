@@ -6,7 +6,7 @@
  * - 轻量边框，融入整体设计
  * - 紧凑间距
  */
-import { AlertTriangle, ArrowRight } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Clock } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -16,8 +16,10 @@ export interface UrgentTaskAlertProps {
   overdueCount: number;
   /** 延期预警数量 */
   warningCount?: number;
+  /** 待审批任务数量 */
+  pendingApprovalCount?: number;
   /** 点击跳转回调 */
-  onJump?: (type: 'overdue' | 'warning') => void;
+  onJump?: (type: 'overdue' | 'warning' | 'pending_approval') => void;
   /** 自定义类名 */
   className?: string;
 }
@@ -25,11 +27,12 @@ export interface UrgentTaskAlertProps {
 export function UrgentTaskAlert({
   overdueCount,
   warningCount = 0,
+  pendingApprovalCount = 0,
   onJump,
   className,
 }: UrgentTaskAlertProps) {
   // 如果没有紧急任务，不显示
-  if (overdueCount === 0 && warningCount === 0) {
+  if (overdueCount === 0 && warningCount === 0 && pendingApprovalCount === 0) {
     return null;
   }
 
@@ -54,6 +57,12 @@ export function UrgentTaskAlert({
             <span className="font-medium text-sm text-red-700 dark:text-red-400">紧急任务提醒</span>
 
             <div className="flex items-center gap-3 text-xs">
+              {pendingApprovalCount > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-purple-600 dark:text-purple-400 font-semibold font-mono tabular-nums">{pendingApprovalCount}</span>
+                  <span className="text-gray-500 dark:text-gray-400">待审批</span>
+                </div>
+              )}
               {overdueCount > 0 && (
                 <div className="flex items-center gap-1">
                   <span className="text-red-600 dark:text-red-400 font-semibold font-mono tabular-nums">{overdueCount}</span>
@@ -70,6 +79,17 @@ export function UrgentTaskAlert({
           </div>
 
           <div className="flex items-center gap-2">
+            {pendingApprovalCount > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs px-2.5 border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-900/30"
+                onClick={() => onJump?.('pending_approval')}
+              >
+                查看审批
+                <ArrowRight className="ml-1 h-3 w-3" />
+              </Button>
+            )}
             {overdueCount > 0 && (
               <Button
                 variant="destructive"

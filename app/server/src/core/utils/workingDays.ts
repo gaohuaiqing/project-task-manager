@@ -524,12 +524,8 @@ export async function detectCycleDependency(
     currentId = currentTask?.predecessor_id || null;
   }
 
-  // 从当前任务开始，沿着前置链向下检查
-  // 检查设置 predecessorId 后，predecessorId 的前置链是否包含 taskId
-  // 这部分已经在上面检查过了
-
-  // 另外需要检查：如果 taskId 的后续任务链中有 predecessorId
-  // 这需要构建反向映射（后续任务）
+  // 构建反向映射（后续任务）
+  // 用于检测间接循环：如果 predecessorId 的后续链中包含 taskId
   const successorMap = new Map<string, string[]>();
   allTasks.forEach(t => {
     if (t.predecessor_id) {
@@ -539,19 +535,19 @@ export async function detectCycleDependency(
     }
   });
 
-  // 从 taskId 开始，沿着后续任务链向下搜索
-  // 检查是否能到达 predecessorId
+  // 从 predecessorId 开始，沿着后续任务链向下搜索
+  // 检查是否能到达 taskId（如果 predecessorId 的后续链中包含 taskId，则形成循环）
   const visitedSuccessors: string[] = [];
-  const queue: string[] = [taskId];
+  const queue: string[] = [predecessorId];
 
   while (queue.length > 0) {
     const current = queue.shift()!;
 
-    if (current === predecessorId) {
+    if (current === taskId) {
       return {
         hasCycle: true,
-        cyclePath: [...visitedSuccessors, predecessorId],
-        message: `检测到循环依赖：设置此后置任务将导致 ${predecessorId} -> ... -> ${taskId} -> ${predecessorId} 形成闭环`,
+        cyclePath: [...visitedSuccessors, taskId],
+        message: `检测到循环依赖：设置此后置任务将导致 ${taskId} -> ${predecessorId} -> ... -> ${taskId} 形成闭环`,
       };
     }
 

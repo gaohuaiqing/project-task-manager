@@ -25,17 +25,16 @@ export type DelayType = 'delay_warning' | 'delayed' | 'overdue_completed';
 /** 风险等级 */
 export type RiskLevel = 'high' | 'medium' | 'low';
 
-/** 任务状态 */
+/** 任务状态 — 与后端 TaskStatus 枚举完全一致 */
 export type TaskStatus =
+  | 'pending_approval'
   | 'not_started'
   | 'in_progress'
-  | 'completed'
+  | 'early_completed'
+  | 'on_time_completed'
+  | 'delay_warning'
   | 'delayed'
-  | 'pending_review'
-  | 'review_rejected'
-  | 'waiting'
-  | 'suspended'
-  | 'cancelled';
+  | 'overdue_completed';
 
 // ==================== 筛选条件 ====================
 
@@ -71,6 +70,14 @@ export interface StatCard {
   label: string;
   value: number | string;
   unit?: string;
+  /** 指标说明（点击信息图标显示） */
+  description?: string;
+  /** 副标题/补充说明 */
+  subtitle?: string;
+  /** 数值颜色主题 */
+  valueColor?: 'default' | 'success' | 'warning' | 'danger';
+  /** 是否反转趋势颜色（延期率等指标下降是好事） */
+  invertTrendColors?: boolean;
   trend?: {
     value: number;
     direction: 'up' | 'down' | 'stable';
@@ -98,7 +105,7 @@ export interface BarChartData {
 export interface BarDataset {
   label: string;
   values: number[];
-  color?: string;
+  color?: string | string[];
 }
 
 /** 折线图数据 */
@@ -176,6 +183,30 @@ export interface ProjectProgressData {
   milestones: MilestoneItem[];
 }
 
+/** 项目进度汇总报表数据 */
+export interface ProjectProgressSummaryData {
+  stats: StatCard[];
+  projects: ProjectProgressCard[];
+  statusChart: PieChartData;
+  upcomingMilestones: MilestoneItem[];
+}
+
+/** 项目进度卡片数据 */
+export interface ProjectProgressCard {
+  projectId: string;
+  projectName: string;
+  status: string;
+  progress: number;
+  totalTasks: number;
+  completedTasks: number;
+  deadline?: string | null;
+  members?: Array<{
+    id: number;
+    name: string;
+    avatar: string | null;
+  }>;
+}
+
 export interface MilestoneItem {
   id: string;
   name: string;
@@ -189,6 +220,10 @@ export interface MilestoneItem {
 /** 任务统计报表数据 */
 export interface TaskStatisticsData {
   stats: StatCard[];
+  /** 根任务数（wbs_level=1） */
+  totalRootTasks?: number;
+  /** 全部任务数 */
+  totalTasks: number;
   priorityChart: BarChartData;
   /** 任务状态分布（替代原负责人任务分布） */
   statusChart: PieChartData;
@@ -277,6 +312,10 @@ export interface MemberAnalysisData {
 export interface MemberCapabilitySummary {
   memberId: string;
   memberName: string;
+  /** 负责的根任务数（wbs_level=1） */
+  rootTasks: number;
+  /** 参与的子任务数（wbs_level>1） */
+  subTasks: number;
   totalTasks: number;
   completedTasks: number;
   avgProgress: number;

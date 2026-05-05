@@ -62,6 +62,15 @@ const STATUS_CONFIG = {
 };
 
 /**
+ * 默认状态配置（兜底）
+ */
+const DEFAULT_STATUS_CONFIG = {
+  label: '未知',
+  icon: '⚪',
+  color: 'text-gray-500 dark:text-gray-400',
+};
+
+/**
  * 成员任务状态表格组件
  *
  * 设计规范:
@@ -87,14 +96,18 @@ export function MemberStatusTable({
           className
         )}
       >
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {title}
-            </CardTitle>
-            {timeRangeSelector}
-          </div>
-        </CardHeader>
+        {(title || timeRangeSelector) && (
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              {title && (
+                <CardTitle className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {title}
+                </CardTitle>
+              )}
+              {timeRangeSelector}
+            </div>
+          </CardHeader>
+        )}
         <CardContent>
           <div className="animate-pulse space-y-2">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -116,14 +129,18 @@ export function MemberStatusTable({
           className
         )}
       >
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {title}
-            </CardTitle>
-            {timeRangeSelector}
-          </div>
-        </CardHeader>
+        {(title || timeRangeSelector) && (
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              {title && (
+                <CardTitle className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {title}
+                </CardTitle>
+              )}
+              {timeRangeSelector}
+            </div>
+          </CardHeader>
+        )}
         <CardContent>
           <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
             暂无成员数据
@@ -142,14 +159,18 @@ export function MemberStatusTable({
         className
       )}
     >
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {title}
-          </CardTitle>
-          {timeRangeSelector}
-        </div>
-      </CardHeader>
+      {(title || timeRangeSelector) && (
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            {title && (
+              <CardTitle className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {title}
+              </CardTitle>
+            )}
+            {timeRangeSelector}
+          </div>
+        </CardHeader>
+      )}
       <CardContent className="p-0">
         <Table data-testid="dashboard-table-member-status">
           <TableHeader>
@@ -182,7 +203,8 @@ export function MemberStatusTable({
           </TableHeader>
           <TableBody>
             {members.map((member) => {
-              const statusConfig = STATUS_CONFIG[member.status];
+              const statusConfig = STATUS_CONFIG[member.status] || DEFAULT_STATUS_CONFIG;
+              const displayName = member.name || '未知用户';
 
               return (
                 <TableRow
@@ -199,11 +221,11 @@ export function MemberStatusTable({
                       <Avatar className="w-6 h-6">
                         <AvatarImage src={member.avatar} />
                         <AvatarFallback className="text-xs">
-                          {member.name.slice(0, 2)}
+                          {displayName.slice(0, 2)}
                         </AvatarFallback>
                       </Avatar>
                       <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {member.name}
+                        {displayName}
                       </span>
                     </div>
                   </TableCell>

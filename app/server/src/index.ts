@@ -13,6 +13,7 @@ import { RedisCache } from './core/cache';
 import { sessionCache } from './core/cache/session-cache';
 import { logger } from './core/logger';
 import { initWebSocketServer } from './core/realtime';
+import { performanceMonitorMiddleware } from './core/middleware/performance-monitor';
 
 // 业务模块路由
 import { authRoutes } from './modules/auth';
@@ -22,9 +23,10 @@ import { taskRoutes } from './modules/task';
 import { workflowRoutes } from './modules/workflow';
 import { collabRoutes } from './modules/collab';
 import { analyticsRoutes } from './modules/analytics';
+import { backupRoutes } from './modules/backup';
 
 // 业务服务
-import { WorkflowService } from './modules/workflow/service';
+import { BackupService } from './modules/backup/service';
 
 const app = express();
 const httpServer = createServer(app);
@@ -56,13 +58,16 @@ app.use((req, res, next) => {
   next();
 });
 
+// 性能监控中间件 - 记录慢请求（>500ms）
+app.use(performanceMonitorMiddleware);
+
 // ========== 认证中间件（带缓存优化）==========
 app.use(async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   // 从 cookie 获取 sessionId
   const sessionId = req.cookies?.sessionId;
   if (sessionId) {
     try {
-      // 1. 先尝试从缓存获取会话
+      // 1. 先尝试从缓存获取会话（含用户信息和权限）
       let context: Awaited<ReturnType<typeof sessionCache.getSession>> = await sessionCache.getSession(sessionId);
 
       if (context) {
@@ -82,13 +87,16 @@ app.use(async (req: express.Request, res: express.Response, next: express.NextFu
           (req as any).permissions = authContext.permissions;
 
           // 缓存会话信息（15分钟TTL）
+          // 注意：同时设置 camelCase 和 snake_case 属性名以兼容不同模块的命名约定
           await sessionCache.setSession(sessionId, {
             user: {
               id: authContext.user.id,
               username: authContext.user.username,
               realName: authContext.user.real_name || '',
+              real_name: authContext.user.real_name || '',  // snake_case 兼容
               role: authContext.user.role,
               departmentId: authContext.user.department_id ?? undefined,
+              department_id: authContext.user.department_id ?? undefined,  // snake_case 兼容
             },
             permissions: authContext.permissions,
           });
@@ -124,6 +132,9 @@ apiRouter.use('/collab', collabRoutes);
 
 // 分析报表模块
 apiRouter.use('/analytics', analyticsRoutes);
+
+// 数据备份模块
+apiRouter.use('/backup', backupRoutes);
 
 // P1修复：批量任务API - 符合需求文档 L786 规范
 apiRouter.post('/batch/wbs-tasks', async (req, res, next) => {
@@ -179,7 +190,7 @@ async function startServer() {
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'task_manager',
       waitForConnections: true,
-      connectionLimit: 10,
+      connectionLimit: parseInt(process.env.DB_POOL_SIZE || '30'),
       queueLimit: 0,
       charset: 'utf8mb4',
       enableKeepAlive: true,
@@ -209,6 +220,19 @@ async function startServer() {
     // 初始化会话缓存
     await sessionCache.connect();
 
+    // 初始化 WBS 编码全局注册表
+    const { wbsCodeRegistry } = await import('./core/wbs');
+    await wbsCodeRegistry.initialize();
+    const stats = wbsCodeRegistry.getStats();
+    logger.info(`WBS code registry initialized: ${stats.taskCount} tasks across ${stats.projectCount} projects`);
+
+    // 工作流服务已在 workflow/routes.ts 中以共享单例初始化，此处无需重复创建
+    logger.info('Workflow service initialized (via routes module)');
+
+    // 初始化分析模块缓存失效监听器
+    const { initCacheInvalidation } = await import('./modules/analytics');
+    initCacheInvalidation();
+
     // 初始化 WebSocket 服务
     initWebSocketServer(httpServer);
 
@@ -220,7 +244,10 @@ async function startServer() {
     });
 
     // 启动定时任务
-    setupCronJobs();
+    await setupCronJobs();
+
+    // 启动备份定时任务（异步）
+    setupBackupCronJob();
 
     // 优雅关闭
     process.on('SIGTERM', async () => {
@@ -243,8 +270,9 @@ startServer();
 /**
  * 设置定时任务
  */
-function setupCronJobs() {
-  const workflowService = new WorkflowService();
+async function setupCronJobs() {
+  // 使用动态 import 替代 require（ESM 兼容）
+  const { workflowService } = await import('./modules/workflow/routes');
 
   // 每小时检查审批超时（整点执行）
   cron.schedule('0 * * * *', async () => {
@@ -284,6 +312,48 @@ function setupCronJobs() {
   }
 
   logger.info('[Cron] Scheduled jobs initialized');
+}
+
+/**
+ * 设置备份定时任务（异步）
+ * 根据数据库配置动态创建 cron 任务
+ */
+async function setupBackupCronJob(): Promise<void> {
+  try {
+    const backupService = new BackupService();
+    const config = await backupService.getConfig();
+
+    if (!config || !config.enabled) {
+      logger.info('[Cron] Backup scheduled job disabled');
+      return;
+    }
+
+    // cron 表达式映射
+    const INTERVAL_TO_CRON: Record<string, string> = {
+      hourly: '0 * * * *',
+      '6hours': '0 */6 * * *',
+      daily: '0 2 * * *',
+      weekly: '0 2 * * 0',
+      biweekly: '0 2 1,15 * *',
+      monthly: '0 2 1 * *',
+    };
+
+    const cronExpression = INTERVAL_TO_CRON[config.backup_interval] || '0 2 * * *';
+
+    cron.schedule(cronExpression, async () => {
+      try {
+        logger.info('[Cron] Executing scheduled backup...');
+        await backupService.executeScheduledBackup();
+        logger.info('[Cron] Scheduled backup completed');
+      } catch (error) {
+        logger.error('[Cron] Error executing scheduled backup:', error);
+      }
+    });
+
+    logger.info(`[Cron] Backup scheduled job initialized (${config.backup_interval}: ${cronExpression})`);
+  } catch (error) {
+    logger.error('[Cron] Failed to setup backup cron job:', error);
+  }
 }
 
 export { app, httpServer };

@@ -10,6 +10,7 @@ import type {
   GroupEfficiency,
   MemberTaskStatus,
   AllocationSuggestion,
+  GroupActivityTrend,
 } from '../../types';
 import type { StatsCardMetric } from '../../../shared/types';
 import { generateTaskTrends, generateTaskTypeDistribution } from './common.mock';
@@ -22,6 +23,17 @@ function randomInt(min: number, max: number): number {
 
 function randomPercent(min: number = 0, max: number = 100): number {
   return randomInt(min, max);
+}
+
+function generatePastDates(days: number): string[] {
+  const dates: string[] = [];
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - i);
+    dates.push(date.toISOString().split('T')[0]);
+  }
+  return dates;
 }
 
 // ============ 预警数据 ============
@@ -208,6 +220,18 @@ export function generateMemberStatus(): MemberTaskStatus[] {
   });
 }
 
+// ============ 组活跃度趋势 ============
+
+export function generateGroupActivityTrends(): GroupActivityTrend[] {
+  const dates = generatePastDates(7);
+  return dates.map((date) => ({
+    date,
+    前端组: randomInt(85, 100),
+    后端组: randomInt(70, 95),
+    测试组: randomInt(75, 90),
+  }));
+}
+
 // ============ 调配建议 ============
 
 export function generateDeptManagerAllocationSuggestions(): AllocationSuggestion[] {
@@ -250,5 +274,6 @@ export function getDeptManagerDashboardData(): DeptManagerDashboardData {
     trends: generateTaskTrends(),
     taskTypeDistribution: generateTaskTypeDistribution(),
     allocationSuggestions: generateDeptManagerAllocationSuggestions(),
+    groupActivityTrends: generateGroupActivityTrends(),
   };
 }

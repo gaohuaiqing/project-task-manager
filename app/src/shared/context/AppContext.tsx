@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react';
 
 /**
  * 应用全局状态
@@ -51,18 +51,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSidebarCollapsed((prev) => !prev);
   }, []);
 
+  // 性能优化：对currentUser做字段级稳定化，避免引用变化但内容相同时触发重渲染
+  const memoizedCurrentUser = useMemo(() => currentUser, [
+    currentUser?.id,
+    currentUser?.username,
+    currentUser?.displayName,
+    currentUser?.email,
+    currentUser?.avatar,
+    currentUser?.role,
+  ]);
+
+  // memo 化 context value，避免无关渲染时触发所有消费者重渲染
+  const contextValue = useMemo(() => ({
+    sidebarCollapsed,
+    toggleSidebar,
+    setSidebarCollapsed,
+    theme,
+    setTheme,
+    currentUser: memoizedCurrentUser,
+    setCurrentUser,
+  }), [sidebarCollapsed, toggleSidebar, theme, setTheme, memoizedCurrentUser]);
+
   return (
-    <AppContext.Provider
-      value={{
-        sidebarCollapsed,
-        toggleSidebar,
-        setSidebarCollapsed,
-        theme,
-        setTheme,
-        currentUser,
-        setCurrentUser,
-      }}
-    >
+    <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   );

@@ -147,6 +147,40 @@ export async function deleteTask(id: string): Promise<void> {
 }
 
 /**
+ * 批量删除任务
+ */
+export interface BatchDeleteTaskResult {
+  success: number;
+  failed: number;
+  errors: Array<{ id: string; error: string }>;
+}
+
+export async function batchDeleteTasks(ids: string[]): Promise<BatchDeleteTaskResult> {
+  const response = await apiClient.post<ApiResponse<BatchDeleteTaskResult>>(`${BASE_PATH}/batch-delete`, { ids });
+  // 响应拦截器返回的是 response.data，即 { success: true, data: { success, failed, errors } }
+  // 我们需要取 response.data，即后端返回的 data 字段
+  return (response as any).data;
+}
+
+/**
+ * P5: 获取删除预览数据
+ */
+export async function getDeletePreview(id: string): Promise<ApiResponse<{
+  task: WBSTask;
+  descendantCount: number;
+  descendants: Array<{ id: string; wbs_code: string; description: string; assignee_id: number | null }>;
+  hasMore: boolean;
+}>> {
+  const response = await apiClient.get<ApiResponse<{
+    task: WBSTask;
+    descendantCount: number;
+    descendants: Array<{ id: string; wbs_code: string; description: string; assignee_id: number | null }>;
+    hasMore: boolean;
+  }>>(`${BASE_PATH}/${id}/delete-preview`);
+  return response;
+}
+
+/**
  * 获取进度记录
  */
 export async function getProgressRecords(taskId: string): Promise<ProgressRecord[]> {
@@ -212,17 +246,117 @@ export async function getWBSTree(projectId: string): Promise<WBSTaskListItem[]> 
   return buildWBSTree(result.items);
 }
 
+/**
+ * 尝试获取任务（用于通知跳转，优雅处理权限错误）
+ */
+export async function tryGetTask(id: string): Promise<{
+  success: boolean;
+  task?: WBSTask;
+  error?: { code: 'NOT_FOUND' | 'FORBIDDEN' | 'NETWORK_ERROR'; message: string };
+}> {
+  try {
+    const response = await apiClient.get<ApiResponse<WBSTask>>(`${BASE_PATH}/${id}`);
+    return { success: true, task: toFrontend(response.data) };
+  } catch (error: unknown) {
+    // apiClient 拦截器已将错误转换为 { code, message, statusCode } 格式
+    const apiError = error as { code?: string; message?: string; statusCode?: number };
+    if (apiError.statusCode === 404) {
+      return { success: false, error: { code: 'NOT_FOUND', message: '任务不存在或已删除' } };
+    }
+    if (apiError.statusCode === 403) {
+      return { success: false, error: { code: 'FORBIDDEN', message: apiError.message || '无权限访问此任务' } };
+    }
+    return { success: false, error: { code: 'NETWORK_ERROR', message: '网络错误，请稍后重试' } };
+  }
+}
+
+/** 导入任务结果 */
+export interface ImportResult {
+  total: number;
+  success: number;
+  failed: number;
+  results: Array<{
+    success: boolean;
+    wbsCode?: string;
+    rowNumber?: number;
+    error?: string;
+  }>;
+}
+
+/**
+ * 导入任务
+ * 项目ID由后端根据项目编码自动匹配
+ */
+export async function importTasks(
+  tasks: Array<Record<string, unknown>>
+): Promise<ImportResult> {
+  // 转换字段名：camelCase -> snake_case，并保留 rowNumber
+  const mappedTasks = tasks.map(task => ({
+    ...task,
+    wbs_code: task.wbsCode || task.wbs_code,
+    wbs_level: task.wbsLevel || task.wbs_level,
+    task_type: task.taskType || task.task_type,
+    assignee_name: task.assigneeName || task.assignee_name,
+    assignee_id: task.assigneeId || task.assignee_id,
+    predecessor_wbs: task.predecessorWbs || task.predecessor_wbs,
+    lag_days: task.lagDays || task.lag_days,
+    start_date: task.startDate || task.start_date,
+    is_six_day_week: task.isSixDayWeek ?? task.is_six_day_week,
+    warning_days: task.warningDays || task.warning_days,
+    actual_start_date: task.actualStartDate || task.actual_start_date,
+    actual_end_date: task.actualEndDate || task.actual_end_date,
+    full_time_ratio: task.fullTimeRatio || task.full_time_ratio,
+    redmine_link: task.redmineLink || task.redmine_link,
+    project_code: task.projectCode || task.project_code,
+  }));
+
+  const response = await apiClient.post<ApiResponse<ImportResult>>(
+    `${BASE_PATH}/import`,
+    { tasks: mappedTasks }
+  );
+  return response.data;
+}
+
+/**
+ * 修改任务等级
+ * @param taskId 任务 ID
+ * @param targetLevel 目标等级（1-5）
+ */
+export async function changeTaskLevel(taskId: string, targetLevel: number): Promise<WBSTask[]> {
+  const response = await apiClient.patch<ApiResponse<{ affectedTasks: WBSTask[] }>>(
+    `${BASE_PATH}/${taskId}/level`,
+    { targetLevel }
+  );
+  return (response.data.affectedTasks || []).map(t => toFrontend(t));
+}
+
+/**
+ * 拖拽排序：调整同级任务顺序
+ * @param taskId 要移动的任务 ID
+ * @param afterTaskId 放在哪个任务之后（null 表示排到最前）
+ */
+export async function reorderTask(taskId: string, afterTaskId: string | null): Promise<void> {
+  await apiClient.patch(`${BASE_PATH}/${taskId}/reorder`, {
+    afterTaskId,
+  });
+}
+
 export const taskApi = {
   getTasks,
   getTask,
+  tryGetTask,
   getTaskByWbsCode,
   getTaskStats,
   getTasksByIds,
   createTask,
   updateTask,
   deleteTask,
+  batchDeleteTasks,
   getProgressRecords,
   addProgressRecord,
   buildWBSTree,
   getWBSTree,
+  importTasks,
+  changeTaskLevel,
+  reorderTask,
 };

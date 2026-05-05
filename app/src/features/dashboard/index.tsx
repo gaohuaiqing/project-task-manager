@@ -59,9 +59,15 @@ export default function DashboardPage() {
     );
   }
 
-  // 任务状态分布数据 - 使用仪表板配色
+  // 任务状态分布数据 - 使用互斥状态集，确保各状态之和等于总任务数
   const statusDistribution = stats
     ? [
+        {
+          status: 'pending_approval',
+          label: '待审批',
+          count: stats.pendingApprovalTasks,
+          color: '#A855F7', // 紫色
+        },
         {
           status: 'not_started',
           label: '未开始',
@@ -81,6 +87,12 @@ export default function DashboardPage() {
           color: '#10B981', // 翠绿
         },
         {
+          status: 'delay_warning',
+          label: '延期预警',
+          count: stats.delayWarningTasks,
+          color: '#F59E0B', // 琥珀色
+        },
+        {
           status: 'delayed',
           label: '已延期',
           count: stats.overdueTasks,
@@ -90,9 +102,11 @@ export default function DashboardPage() {
     : [];
 
   // 处理紧急任务跳转
-  const handleUrgentJump = (type: 'overdue' | 'warning') => {
+  const handleUrgentJump = (type: 'overdue' | 'warning' | 'pending_approval') => {
     if (type === 'overdue') {
       navigate('/tasks?status=delayed');
+    } else if (type === 'pending_approval') {
+      navigate('/workflow/approvals');
     } else {
       navigate('/tasks?status=warning');
     }
@@ -108,10 +122,11 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* 紧急任务提醒 */}
-      {stats && (stats.overdueTasks > 0 || stats.delayWarningTasks > 0) && (
+      {stats && (stats.overdueTasks > 0 || stats.delayWarningTasks > 0 || stats.pendingApprovalTasks > 0) && (
         <UrgentTaskAlert
           overdueCount={stats.overdueTasks}
           warningCount={stats.delayWarningTasks}
+          pendingApprovalCount={stats.pendingApprovalTasks}
           onJump={handleUrgentJump}
         />
       )}

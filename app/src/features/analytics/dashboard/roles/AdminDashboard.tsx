@@ -10,6 +10,9 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { AlertTriangle } from 'lucide-react';
 
+// 共享常量
+import { DEFAULT_CHART_COLORS } from '../../shared/constants';
+
 // 共享组件
 import { StatsCard, TrendChart, TaskTypeChart } from '../../shared/components';
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner';
@@ -27,6 +30,7 @@ import {
 
 // 数据 Hook
 import { useAdminDashboard } from '../hooks';
+import { buildDynamicSeries } from '../hooks/useDashboardData';
 
 // 类型
 import type {
@@ -109,12 +113,10 @@ export function AdminDashboard({
       >
         <div className="space-y-4">
           {/* 预警卡片行 */}
-          {data.alerts && data.alerts.length > 0 && (
-            <AlertCardsRow
-              alerts={data.alerts}
-              onActionClick={onAlertActionClick}
-            />
-          )}
+          <AlertCardsRow
+            alerts={data.alerts || []}
+            onActionClick={onAlertActionClick}
+          />
 
           {/* 高风险项目卡片 */}
           {data.highRiskProjects && data.highRiskProjects.length > 0 && (
@@ -154,9 +156,9 @@ export function AdminDashboard({
                   data={data.trends || []}
                   height={280}
                   series={[
-                    { dataKey: 'created', name: '新建', color: '#0EA5E9' },
-                    { dataKey: 'completed', name: '完成', color: '#10B981' },
-                    { dataKey: 'delayed', name: '延期', color: '#EF4444' },
+                    { dataKey: 'created', name: '新建', color: DEFAULT_CHART_COLORS[0] },
+                    { dataKey: 'completed', name: '完成', color: DEFAULT_CHART_COLORS[1] },
+                    { dataKey: 'delayed', name: '延期', color: DEFAULT_CHART_COLORS[3] },
                   ]}
                 />
               ),
@@ -176,12 +178,7 @@ export function AdminDashboard({
                 <TrendChart
                   data={data.departmentDelayTrends || []}
                   height={280}
-                  series={[
-                    { dataKey: '研发一部', name: '研发一部', color: '#0EA5E9' },
-                    { dataKey: '研发二部', name: '研发二部', color: '#10B981' },
-                    { dataKey: '测试部', name: '测试部', color: '#F59E0B' },
-                    { dataKey: '产品部', name: '产品部', color: '#EF4444' },
-                  ]}
+                  series={buildDynamicSeries(data.departmentDelayTrends || [])}
                 />
               ),
             },
@@ -192,7 +189,7 @@ export function AdminDashboard({
                   data={data.utilizationTrends || []}
                   height={280}
                   series={[
-                    { dataKey: 'utilization', name: '利用率', color: '#0EA5E9' },
+                    { dataKey: 'utilization', name: '利用率', color: DEFAULT_CHART_COLORS[0] },
                   ]}
                 />
               ),

@@ -37,8 +37,10 @@
     "test:frontend:ui": "cd app && vitest --ui",
     "test:frontend:coverage": "cd app && vitest run --coverage",
     "test:backend": "cd app/server && npm run test:all",
-    "test:e2e": "cd app && playwright test",
-    "test:all": "npm run test && npm run test:e2e",
+    "test:e2e": "cd Test/e2e && npx tsx scenarios/api-e2e-test.ts",
+    "test:e2e:browser": "cd Test/e2e && npx tsx scenarios/main-test.ts",
+    "test:e2e:all": "npm run test:e2e && npm run test:e2e:browser",
+    "test:all": "npm run test:frontend && npm run test:backend && npm run test:e2e",
     "lint": "npm run lint:frontend && npm run lint:backend",
     "lint:frontend": "cd app && eslint . --ext .ts,.tsx",
     "lint:backend": "cd app/server && eslint . --ext .ts",
@@ -71,12 +73,15 @@
   "devDependencies": {
     "@commitlint/cli": "^18.4.3",
     "@commitlint/config-conventional": "^18.4.3",
+    "@playwright/test": "^1.59.1",
     "@types/cookie-parser": "^1.4.10",
     "concurrently": "^8.2.2",
     "depcheck": "^1.4.7",
     "husky": "^9.0.10",
     "lint-staged": "^15.2.2",
     "prettier": "^3.1.1",
+    "puppeteer": "^24.42.0",
+    "puppeteer-core": "^24.42.0",
     "rimraf": "^5.0.5"
   },
   "engines": {

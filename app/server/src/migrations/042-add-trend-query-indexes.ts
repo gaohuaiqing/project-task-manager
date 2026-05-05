@@ -7,7 +7,7 @@
  * 3. 为 wbs_tasks 表添加复合索引 - 优化状态+日期组合查询
  */
 
-import { databaseService } from '../services/DatabaseService.js';
+import { databaseService } from '../services/DatabaseService';
 
 const MIGRATION_VERSION = '042';
 const MIGRATION_NAME = 'add_trend_query_indexes';
@@ -162,16 +162,3 @@ export async function runPendingMigrations(): Promise<void> {
   await runMigration042();
 }
 
-// 直接执行
-if (require.main === module) {
-  (async () => {
-    try {
-      await databaseService.init();
-      await runMigration042();
-      process.exit(0);
-    } catch (error) {
-      console.error('❌ 迁移执行失败:', error);
-      process.exit(1);
-    }
-  })();
-}

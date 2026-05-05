@@ -91,7 +91,7 @@ export function ReportsPage({ initialTab }: ReportsPageProps) {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('导出失败:', err);
+      if (import.meta.env.DEV) console.error('导出失败:', err);
     }
   }, [currentTab, filters]);
 

@@ -7,7 +7,7 @@
  * 3. 添加 (target_type, target_id) 索引 - 优化按目标对象查询
  */
 
-import { databaseService } from '../services/DatabaseService.js';
+import { databaseService } from '../services/DatabaseService';
 
 const MIGRATION_VERSION = '038';
 const MIGRATION_NAME = 'add_audit_log_indexes';

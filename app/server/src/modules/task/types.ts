@@ -3,7 +3,7 @@
 // ============ WBS任务相关 ============
 
 export type TaskStatus =
-  | 'pending_approval' | 'rejected' | 'not_started' | 'in_progress'
+  | 'pending_approval' | 'not_started' | 'in_progress'
   | 'early_completed' | 'on_time_completed' | 'delay_warning'
   | 'delayed' | 'overdue_completed';
 
@@ -14,8 +14,10 @@ export type TaskType =
 
 export type TaskPriority = 'urgent' | 'high' | 'medium' | 'low';
 
-/** 待审批变更数据结构 */
+/** 待审批变更数据结构（P9: 支持多实例） */
 export interface PendingChangeData {
+  /** 提交批次ID（UUID） */
+  submission_id: string;
   /** 变更字段 */
   changes: Array<{ field: string; oldValue: unknown; newValue: unknown }>;
   /** 变更原因 */
@@ -30,8 +32,12 @@ export interface WBSTask {
   id: string;
   project_id: string;
   parent_id: string | null;
-  wbs_code: string;
+  /** WBS 层级深度 (1-5) */
   wbs_level: number;
+  /** 手动排序值（拖拽后存储） */
+  sort_order: number | null;
+  /** WBS 编码（实时计算，不存储） */
+  wbs_code?: string;
   description: string;
   status: TaskStatus;
   task_type: TaskType;
@@ -58,12 +64,16 @@ export interface WBSTask {
   progress_record_count: number;
   tags: string | null;
   last_plan_refresh_at: Date | null;
-  /** 待审批的变更数据（JSON格式） */
-  pending_changes: PendingChangeData | null;
+  /** 待审批的变更数据列表（P9: 数组支持多实例） */
+  pending_changes: PendingChangeData[] | null;
   /** 待审批变更类型 */
   pending_change_type: string | null;
   /** 实时计算的状态（用于显示，优先于数据库中的 status） */
   computed_status?: TaskStatus;
+  /** P2: 实时计算的执行状态（执行进度维度） */
+  computed_execution_status?: ExecutionStatus;
+  /** P2: 实时计算的时间状态（时间表现维度） */
+  computed_time_status?: TimeStatus;
   version: number;
   created_at: Date;
   updated_at: Date;
@@ -72,6 +82,8 @@ export interface WBSTask {
 export interface WBSTaskListItem extends WBSTask {
   assignee_name?: string;
   project_name?: string;
+  project_code?: string;
+  predecessor_code?: string;
   children?: WBSTaskListItem[];
 }
 
@@ -79,6 +91,8 @@ export interface CreateTaskRequest {
   project_id: string;
   parent_id?: string;
   wbs_level: number;
+  /** 排序号，用于WBS编码计算 */
+  sort_order?: number;
   description: string;
   task_type?: TaskType;
   priority?: TaskPriority;
@@ -103,6 +117,7 @@ export interface UpdateTaskRequest {
   priority?: TaskPriority;
   assignee_id?: number;
   start_date?: string;
+  end_date?: string;
   duration?: number;
   is_six_day_week?: boolean;
   warning_days?: number;
@@ -137,6 +152,8 @@ export interface TaskQueryOptions {
   pageSize?: number;
   /** 数据范围过滤：仅返回这些项目中的任务 */
   accessible_project_ids?: string[];
+  /** 数据范围过滤：用于过滤无项目归属的任务（仅返回分配给该用户的无项目任务） */
+  user_id?: number;
 }
 
 // ============ 进度记录相关 ============
@@ -158,6 +175,14 @@ export interface CreateProgressRecordRequest {
 
 export type DependencyType = 'FS' | 'SS' | 'FF' | 'SF';
 
+// ============ P2: 双维度状态类型 ============
+
+/** 执行状态（执行进度维度） */
+export type ExecutionStatus = 'not_started' | 'in_progress' | 'completed' | 'pending_approval';
+
+/** 时间状态（时间表现维度） */
+export type TimeStatus = 'normal' | 'warning' | 'delayed' | 'not_applicable';
+
 export interface TaskDependency {
   id: string;
   task_id: string;
@@ -165,4 +190,14 @@ export interface TaskDependency {
   dependency_type: DependencyType;
   lag_days: number;
   created_at: Date;
+}
+
+/** 修改任务等级请求 */
+export interface ChangeTaskLevelRequest {
+  targetLevel: number;
+}
+
+/** 拖拽排序请求 */
+export interface ReorderTaskRequest {
+  afterTaskId: string | null;
 }

@@ -6,14 +6,22 @@
 import { RedisCache } from './redis';
 import { MemoryCache } from './memory';
 
+// 统计计数器（用于计算命中率）
+let sessionHits = 0;
+let sessionMisses = 0;
+let permissionHits = 0;
+let permissionMisses = 0;
+
 // 会话上下文类型
 export interface SessionContext {
   user: {
     id: number;
     username: string;
     realName: string;
+    real_name?: string;  // snake_case 兼容
     role: string;
     departmentId?: number;
+    department_id?: number;  // snake_case 兼容
   };
   permissions: string[];
 }
@@ -61,7 +69,13 @@ class SessionCacheService {
    */
   async getSession(sessionId: string): Promise<SessionContext | null> {
     const key = `${SESSION_PREFIX}${sessionId}`;
-    return this.cache.get<SessionContext>(key);
+    const result = await this.cache.get<SessionContext>(key);
+    if (result !== null) {
+      sessionHits++;
+    } else {
+      sessionMisses++;
+    }
+    return result;
   }
 
   /**
@@ -85,7 +99,13 @@ class SessionCacheService {
    */
   async getPermissions(role: string): Promise<string[] | null> {
     const key = `${PERMISSION_PREFIX}${role}`;
-    return this.cache.get<string[]>(key);
+    const result = await this.cache.get<string[]>(key);
+    if (result !== null) {
+      permissionHits++;
+    } else {
+      permissionMisses++;
+    }
+    return result;
   }
 
   /**
@@ -112,6 +132,54 @@ class SessionCacheService {
     // 但可以删除权限缓存，下次会重新加载
     // 这是一个简化实现，生产环境可能需要更复杂的缓存管理
     console.log(`Cache invalidation requested for user ${userId}`);
+  }
+
+  /**
+   * 获取缓存命中率统计
+   */
+  getStats(): {
+    sessionHits: number;
+    sessionMisses: number;
+    sessionHitRate: number;
+    permissionHits: number;
+    permissionMisses: number;
+    permissionHitRate: number;
+    connected: boolean;
+  } {
+    const totalSession = sessionHits + sessionMisses;
+    const totalPermission = permissionHits + permissionMisses;
+
+    return {
+      sessionHits,
+      sessionMisses,
+      sessionHitRate: totalSession > 0 ? Math.round((sessionHits / totalSession) * 100 * 100) / 100 : 0,
+      permissionHits,
+      permissionMisses,
+      permissionHitRate: totalPermission > 0 ? Math.round((permissionHits / totalPermission) * 100 * 100) / 100 : 0,
+      connected: this.connected,
+    };
+  }
+
+  /**
+   * 重置统计计数器
+   */
+  resetStats(): void {
+    sessionHits = 0;
+    sessionMisses = 0;
+    permissionHits = 0;
+    permissionMisses = 0;
+  }
+
+  /**
+   * 打印缓存统计日志
+   */
+  logStats(): void {
+    const stats = this.getStats();
+    console.log('📊 Session Cache: SessionHitRate=%.2f%% (%d/%d), PermissionHitRate=%.2f%% (%d/%d), Connected=%s',
+      stats.sessionHitRate, stats.sessionHits, stats.sessionHits + stats.sessionMisses,
+      stats.permissionHitRate, stats.permissionHits, stats.permissionHits + stats.permissionMisses,
+      stats.connected ? 'Redis' : 'Memory'
+    );
   }
 }
 

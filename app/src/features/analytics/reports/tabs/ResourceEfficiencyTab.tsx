@@ -35,6 +35,19 @@ export function ResourceEfficiencyTab({ filters }: ResourceEfficiencyTabProps) {
     );
   }
 
+  // 无数据空状态：所有指标为0且成员列表为空
+  const hasNoData = data.stats.every(s => s.value === 0)
+    && (!data.memberEfficiency || data.memberEfficiency.length === 0);
+  if (hasNoData) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+        <Wrench className="h-10 w-10 mb-3 opacity-30" />
+        <p className="text-sm font-medium">暂无资源效能数据</p>
+        <p className="text-xs mt-1">当任务包含预估工时和实际工时记录后，将自动生成效能分析</p>
+      </div>
+    );
+  }
+
   const getSuggestionIcon = (type: EfficiencySuggestion['type']) => {
     switch (type) {
       case 'low_productivity':

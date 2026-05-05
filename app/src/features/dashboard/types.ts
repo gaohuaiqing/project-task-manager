@@ -1,26 +1,32 @@
 /**
  * 仪表板模块类型定义
- * 与后端 analytics/types.ts 保持一致
+ * 与后端 analytics/types.ts DashboardStats 保持一致
  */
 
 // 仪表板统计
 export interface DashboardStats {
   // 项目统计
   totalProjects: number;
-  activeProjects: number;
+  activeProjects: number;      // planning + in_progress
+  delayedProjects: number;     // delayed
   completedProjects: number;
 
-  // 任务统计（按状态细分）
+  // 任务统计（按状态细分，互斥状态集）
   totalTasks: number;
-  pendingTasks: number;        // not_started
-  inProgressTasks: number;     // in_progress
-  completedTasks: number;      // early_completed + on_time_completed + overdue_completed
-  delayWarningTasks: number;   // delay_warning
-  overdueTasks: number;        // delayed
+  pendingApprovalTasks: number;  // pending_approval - 待审批
+  pendingTasks: number;          // not_started - 未开始
+  inProgressTasks: number;       // in_progress - 进行中
+  completedTasks: number;        // completed - 已完成
+  delayWarningTasks: number;     // delay_warning - 延期预警
+  overdueTasks: number;          // delayed - 已延期
+  unassignedTasks: number;       // assignee_id IS NULL - 待分配
 
   // 其他统计
   totalMembers: number;
-  avgProgress: number;
+  avgProgress: number;           // 项目平均进度百分比
+  activityRate: number;          // 活跃度：7日内有更新的任务占比
+  utilizationRate: number;       // 资源利用率：成员平均工作负荷比率
+  weekDueTasks: number;          // 本周到期：未来7天到期的未完成任务数
 }
 
 // 趋势数据点

@@ -5,7 +5,7 @@
  * 基于 Apple Human Interface Guidelines 的设计系统实现
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* 字体已通过 index.html <link> 异步加载，此处不再 @import */
 
 @tailwind base;
 @tailwind components;
@@ -32,42 +32,42 @@
 
     /* 语义化颜色 - 亮色主题（默认） */
     /* 页面背景：浅灰色，与白色卡片形成对比 */
-    --background: 210 40% 96%;  /* #F1F5F9 专业工具风格 */
-    --foreground: 0 0% 13%;
+    --background: 220 20% 97%;  /* #F6F7FA 温暖灰白 */
+    --foreground: 222 47% 11%;
     /* 卡片背景：纯白色，与背景形成层次 */
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 13%;
+    --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 13%;
-    /* Primary 颜色：银色略深 - 优雅高级质感 */
-    --primary: 0 0% 35%;
+    --popover-foreground: 222 47% 11%;
+    /* Primary 颜色：深海军蓝 - 增加辨识度 */
+    --primary: 222 47% 20%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 97%;
-    --secondary-foreground: 0 0% 13%;
-    --muted: 0 0% 97%;
-    --muted-foreground: 0 0% 45%;
-    --accent: 0 0% 97%;
-    --accent-foreground: 0 0% 13%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 220 14% 96%;
+    --accent-foreground: 222 47% 11%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 75%;
-    --input: 0 0% 75%;
-    --ring: 0 0% 35%;
+    --border: 220 13% 85%;
+    --input: 220 13% 85%;
+    --ring: 222 47% 20%;
     --radius: 0.75rem; /* 苹果风格圆角 - 12px */
-    --sidebar-background: 0 0% 97%;
-    --sidebar-foreground: 0 0% 13%;
-    --sidebar-primary: 0 0% 35%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 222 47% 20%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 97%;
-    --sidebar-accent-foreground: 0 0% 13%;
-    --sidebar-border: 0 0% 88%;
-    --sidebar-ring: 0 0% 35%;
+    --sidebar-accent: 220 14% 96%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 220 13% 90%;
+    --sidebar-ring: 222 47% 20%;
 
     /* Apple 风格激活状态 */
-    --sidebar-active: 0 0% 90%;
-    --sidebar-active-foreground: 0 0% 13%;
-    --nav-active: 0 0% 90%;
-    --nav-active-foreground: 0 0% 13%;
+    --sidebar-active: 220 14% 93%;
+    --sidebar-active-foreground: 222 47% 11%;
+    --nav-active: 220 14% 93%;
+    --nav-active-foreground: 222 47% 11%;
 
     /* 苹果风格动画时长 */
     --duration-instant: 100ms;
@@ -86,21 +86,21 @@
     /* 仪表板专用变量 - 专业工具风格 */
     --dashboard-value: 222 84% 5%;           /* 主数值颜色: #0F172A */
     --dashboard-label: 215 16% 47%;          /* 标签颜色: #64748B */
-    --dashboard-accent: 199 89% 48%;         /* 强调色: #0EA5E9 青蓝 */
-    --dashboard-card-border: 215 16% 47%;    /* 卡片边框 */
-    --dashboard-success: 160 84% 39%;        /* 成功色: #22C55E */
-    --dashboard-warning: 38 92% 50%;         /* 警告色: #F59E0B */
-    --dashboard-danger: 346 77% 50%;         /* 危险色: #EF4444 */
+    --dashboard-accent: 217 91% 60%;         /* 强调色: #3B82F6 蓝色 */
+    --dashboard-card-border: 220 13% 85%;    /* 卡片边框 */
+    --dashboard-success: 160 60% 45%;        /* 成功色: #059669 */
+    --dashboard-warning: 32 95% 44%;         /* 警告色: #D97706 */
+    --dashboard-danger: 0 72% 51%;           /* 危险色: #DC2626 */
   }
 
   /* 深色主题 - 冷色调深蓝风格 */
   .dark {
     /* 背景色层次 - body < sidebar < card */
-    --background: 222 88% 5%;
+    --background: 222 47% 8%;
     --foreground: 210 40% 96%;
-    --card: 217 32% 12%;
+    --card: 217 25% 13%;
     --card-foreground: 210 40% 96%;
-    --popover: 217 32% 12%;
+    --popover: 217 25% 13%;
     --popover-foreground: 210 40% 96%;
     /* Primary 颜色：银色略深 - 深色主题 */
     --primary: 0 0% 55%;
@@ -108,13 +108,13 @@
     --secondary: 217 25% 18%;
     --secondary-foreground: 210 40% 96%;
     --muted: 217 25% 15%;
-    --muted-foreground: 215 20% 65%;
+    --muted-foreground: 215 20% 58%;
     --accent: 217 25% 18%;
     --accent-foreground: 210 40% 96%;
     --destructive: 0 70% 65%;
     --destructive-foreground: 0 0% 100%;
-    --border: 213 25% 20%;
-    --input: 213 25% 20%;
+    --border: 215 20% 18%;
+    --input: 215 20% 18%;
     --ring: 0 0% 55%;
     --sidebar-background: 222 47% 11%;
     --sidebar-foreground: 210 40% 96%;
@@ -134,11 +134,11 @@
     /* 仪表板专用变量 - 专业工具风格 - 深色主题 */
     --dashboard-value: 210 40% 98%;          /* 主数值颜色: #F1F5F9 */
     --dashboard-label: 215 20% 65%;          /* 标签颜色: #94A3B8 */
-    --dashboard-accent: 199 89% 60%;         /* 强调色: #38BDF8 青蓝 */
-    --dashboard-card-border: 217 25% 20%;    /* 卡片边框 */
-    --dashboard-success: 160 84% 45%;        /* 成功色: #4ADE80 */
-    --dashboard-warning: 38 92% 55%;         /* 警告色: #FBBF24 */
-    --dashboard-danger: 346 77% 55%;         /* 危险色: #F87171 */
+    --dashboard-accent: 217 91% 68%;         /* 强调色: #60A5FA 亮蓝 */
+    --dashboard-card-border: 215 20% 18%;    /* 卡片边框 */
+    --dashboard-success: 160 60% 50%;        /* 成功色: #34D399 */
+    --dashboard-warning: 32 95% 50%;         /* 警告色: #FBBF24 */
+    --dashboard-danger: 0 72% 55%;           /* 危险色: #F87171 */
   }
 }
 

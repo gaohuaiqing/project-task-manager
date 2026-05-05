@@ -84,6 +84,42 @@ export class CacheService {
   }
 
   /**
+   * 获取缓存命中率统计（更友好的格式）
+   */
+  static getHitRateStats(): {
+    totalKeys: number;
+    hits: number;
+    misses: number;
+    hitRate: number; // 百分比
+    ksize: number; // 键内存占用（字节）
+    vsize: number; // 值内存占用（字节）
+  } {
+    const stats = cache.getStats();
+    const totalRequests = stats.hits + stats.misses;
+    const hitRate = totalRequests > 0 ? (stats.hits / totalRequests) * 100 : 0;
+
+    return {
+      totalKeys: stats.keys,
+      hits: stats.hits,
+      misses: stats.misses,
+      hitRate: Math.round(hitRate * 100) / 100, // 保留两位小数
+      ksize: stats.ksize,
+      vsize: stats.vsize,
+    };
+  }
+
+  /**
+   * 打印缓存统计日志（用于监控）
+   */
+  static logStats(): void {
+    const stats = this.getHitRateStats();
+    console.log('📊 Cache Stats: Keys=%d, Hits=%d, Misses=%d, HitRate=%.2f%%, Memory=%dKB',
+      stats.totalKeys, stats.hits, stats.misses, stats.hitRate,
+      Math.round((stats.ksize + stats.vsize) / 1024)
+    );
+  }
+
+  /**
    * CTE 查询缓存键生成器
    */
   static cteKey(type: string, userId: number | string, params?: object): string {

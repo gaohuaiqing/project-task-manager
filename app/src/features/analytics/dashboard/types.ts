@@ -9,7 +9,7 @@ import type { StatsCardMetric, TrendDataPoint, PieChartDataItem } from '../share
 /**
  * 预警类型
  */
-export type AlertType = 'delay_warning' | 'overdue' | 'pending_approval' | 'high_risk' | 'today_due' | 'week_due';
+export type AlertType = 'delay_warning' | 'overdue' | 'pending_approval' | 'high_risk' | 'week_due';
 
 /**
  * 预警数据
@@ -166,6 +166,14 @@ export interface MemberActivityTrend {
 }
 
 /**
+ * 组活跃度趋势数据点
+ */
+export interface GroupActivityTrend {
+  date: string;
+  [groupName: string]: string | number; // 组名称作为 key，值为活跃度
+}
+
+/**
  * 高风险项目
  */
 export interface HighRiskProject {
@@ -189,6 +197,8 @@ export interface DeptManagerDashboardData extends DashboardStats {
   taskTypeDistribution: PieChartDataItem[];
   /** 人员调配建议 */
   allocationSuggestions: AllocationSuggestion[];
+  /** 组活跃度趋势数据 */
+  groupActivityTrends?: GroupActivityTrend[];
 }
 
 /**
@@ -215,6 +225,8 @@ export interface TechManagerDashboardData extends DashboardStats {
 export interface EngineerDashboardData {
   /** 紧急任务预警 */
   alerts: AlertData[];
+  /** 待办任务列表（按优先级排序） */
+  todoTasks: TodoTask[];
   /** 需要更新的任务 */
   needUpdateTasks: TodoTask[];
   /** 核心指标 */

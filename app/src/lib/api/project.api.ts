@@ -133,6 +133,20 @@ export async function deleteProject(id: string): Promise<void> {
   await apiClient.delete(`${BASE_PATH}/${id}`);
 }
 
+/**
+ * 批量删除项目
+ */
+export interface BatchDeleteResult {
+  success: number;
+  failed: number;
+  errors: Array<{ id: string; name: string; error: string }>;
+}
+
+export async function batchDeleteProjects(ids: string[]): Promise<BatchDeleteResult> {
+  const response = await apiClient.post<ApiResponse<BatchDeleteResult>>(`${BASE_PATH}/batch-delete`, { ids });
+  return (response as any).data;
+}
+
 // ========== 里程碑 ==========
 // 注：请求/响应拦截器会自动转换 snake_case <-> camelCase
 
@@ -283,6 +297,7 @@ export const projectApi = {
   createProject,
   updateProject,
   deleteProject,
+  batchDeleteProjects,
   getMilestones,
   createMilestone,
   updateMilestone,

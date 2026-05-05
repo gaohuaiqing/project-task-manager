@@ -115,48 +115,59 @@ module.exports = {
           warning: "hsl(var(--dashboard-warning))",
           danger: "hsl(var(--dashboard-danger))",
         },
-        // 苹果风格系统颜色
+        // 苹果风格系统颜色（对齐 -600 色阶，WCAG AA 对比度）
         system: {
           blue: {
-            light: "hsl(211, 98%, 56%)",
-            DEFAULT: "hsl(211, 98%, 52%)",
-            dark: "hsl(211, 100%, 50%)",
+            light: "#3B82F6",     // Blue-500
+            DEFAULT: "#2563EB",   // Blue-600
+            dark: "#1D4ED8",      // Blue-700
           },
           green: {
-            light: "hsl(142, 71%, 63%)",
-            DEFAULT: "hsl(142, 69%, 58%)",
-            dark: "hsl(142, 76%, 48%)",
+            light: "#10B981",     // Emerald-500
+            DEFAULT: "#059669",   // Emerald-600
+            dark: "#047857",      // Emerald-700
           },
           orange: {
-            light: "hsl(28, 92%, 68%)",
-            DEFAULT: "hsl(28, 93%, 62%)",
-            dark: "hsl(28, 93%, 53%)",
+            light: "#F59E0B",     // Amber-500
+            DEFAULT: "#D97706",   // Amber-600
+            dark: "#B45309",      // Amber-700
           },
           red: {
-            light: "hsl(0, 88%, 65%)",
-            DEFAULT: "hsl(0, 84%, 60%)",
-            dark: "hsl(0, 89%, 48%)",
+            light: "#EF4444",     // Red-500
+            DEFAULT: "#DC2626",   // Red-600
+            dark: "#B91C1C",      // Red-700
           },
           yellow: {
-            light: "hsl(48, 96%, 67%)",
-            DEFAULT: "hsl(48, 98%, 60%)",
-            dark: "hsl(48, 100%, 50%)",
+            light: "#FDE047",     // Yellow-300
+            DEFAULT: "#EAB308",   // Yellow-500
+            dark: "#CA8A04",      // Yellow-600
           },
           pink: {
-            light: "hsl(340, 82%, 72%)",
-            DEFAULT: "hsl(340, 82%, 66%)",
-            dark: "hsl(340, 83%, 56%)",
+            light: "#EC4899",     // Pink-500
+            DEFAULT: "#DB2777",   // Pink-600
+            dark: "#BE185D",      // Pink-700
           },
           purple: {
-            light: "hsl(266, 86%, 70%)",
-            DEFAULT: "hsl(266, 88%, 62%)",
-            dark: "hsl(266, 88%, 52%)",
+            light: "#8B5CF6",     // Violet-500
+            DEFAULT: "#7C3AED",   // Violet-600
+            dark: "#6D28D9",      // Violet-700
           },
           indigo: {
-            light: "hsl(239, 84%, 67%)",
-            DEFAULT: "hsl(239, 84%, 62%)",
-            dark: "hsl(239, 86%, 52%)",
+            light: "#6366F1",     // Indigo-500
+            DEFAULT: "#4F46E5",   // Indigo-600
+            dark: "#4338CA",      // Indigo-700
           },
+        },
+        // 图表专用颜色命名空间（供图表组件使用）
+        chart: {
+          blue: "#2563EB",
+          green: "#059669",
+          amber: "#D97706",
+          red: "#DC2626",
+          violet: "#7C3AED",
+          pink: "#DB2777",
+          cyan: "#0891B2",
+          lime: "#65A30D",
         },
       },
       borderRadius: {

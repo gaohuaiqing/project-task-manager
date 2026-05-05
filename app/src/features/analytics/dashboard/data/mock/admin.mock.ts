@@ -68,15 +68,6 @@ export function generateAdminAlerts(): AlertData[] {
       actionLabel: '查看详情',
       actionPath: '/tasks?status=pending_approval',
     },
-    {
-      type: 'high_risk',
-      count: 3,
-      label: '高风险项目',
-      trend: 0,
-      color: 'danger',
-      actionLabel: '查看详情',
-      actionPath: '/projects?risk=high',
-    },
   ];
 }
 
@@ -167,7 +158,7 @@ export function generateAdminMetrics(): StatsCardMetric[] {
       label: '里程碑达成',
       value: 72,
       displayValue: '72%',
-      description: '按计划完成的里程碑占比',
+      description: '项目平均进度（里程碑达成率）',
       trend: -5,
       trendText: '↓ 5% vs 上周',
     },
@@ -175,7 +166,7 @@ export function generateAdminMetrics(): StatsCardMetric[] {
       label: '本周到期',
       value: 45,
       displayValue: '45',
-      description: '本周内需要完成的任务数量',
+      description: '未来7天内需要完成的任务数量',
       trend: 8,
       trendText: '↑ 8 vs 上周',
     },

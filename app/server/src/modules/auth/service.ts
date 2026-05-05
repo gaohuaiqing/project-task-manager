@@ -49,9 +49,21 @@ export class AuthService {
     const activeSessions = await this.repo.getActiveSessionsByUser(user.id);
     const newDeviceLogin = this.isNewDeviceLogin(activeSessions, ip, userAgent);
 
+    // 查找同一设备的旧会话（相同 IP + User-Agent）
+    const sameDeviceSession = activeSessions.find(s =>
+      s.ip_address === ip && s.user_agent === userAgent
+    );
+
+    // 如果存在同一设备的旧会话，先终止（避免本地开发时会话累积）
+    if (sameDeviceSession) {
+      await this.repo.terminateSession(sameDeviceSession.session_id, 'replaced_by_new_login');
+      logger.info(`[Auth] User ${user.id} re-login from same device, terminated old session ${sameDeviceSession.session_id.substring(0, 8)}...`);
+    }
+
     if (activeSessions.length >= MAX_SESSIONS_PER_USER) {
       // 终止最旧的会话并发送通知
       const sessionsToTerminate = activeSessions
+        .filter(s => s.session_id !== sameDeviceSession?.session_id) // 排除已经终止的
         .slice(0, activeSessions.length - MAX_SESSIONS_PER_USER + 1);
 
       for (const session of sessionsToTerminate) {
@@ -76,8 +88,8 @@ export class AuthService {
       expires_at: expiresAt,
     });
 
-    // 如果是新设备登录，发送通知
-    if (newDeviceLogin && activeSessions.length > 0) {
+    // 如果是新设备登录，发送通知（排除同一设备重新登录的情况）
+    if (newDeviceLogin && activeSessions.length > 0 && !sameDeviceSession) {
       await this.notifyNewDeviceLogin(user, activeSessions, ip, userAgent);
     }
 
@@ -353,17 +365,47 @@ export class AuthService {
   private isNewDeviceLogin(sessions: Session[], ip: string, userAgent: string): boolean {
     if (sessions.length === 0) return false;
 
+    // 本地 IP 不触发新设备通知（::1 是 IPv6 localhost，127.0.0.1 是 IPv4 localhost）
+    if (this.isLocalIP(ip)) return false;
+
+    // 检查是否有相同 User-Agent 的会话（同一浏览器）
+    const sameBrowser = sessions.some(s =>
+      s.user_agent === userAgent
+    );
+
+    // 如果是同一浏览器，检查是否来自相同网络环境
+    if (sameBrowser) {
+      // 检查是否有相同 IP 或相同子网的会话
+      const sameNetwork = sessions.some(s =>
+        s.ip_address && (s.ip_address === ip || this.isSameIPSubnet(s.ip_address, ip))
+      );
+      if (sameNetwork) return false;
+    }
+
     // 检查是否有相同 IP 和 User-Agent 的会话
     const knownDevice = sessions.some(s =>
       s.ip_address === ip && s.user_agent === userAgent
     );
 
-    // 检查是否有相同 IP 子网的会话
-    const knownSubnet = sessions.some(s =>
-      s.ip_address && this.isSameIPSubnet(s.ip_address, ip)
-    );
+    return !knownDevice;
+  }
 
-    return !knownDevice && !knownSubnet;
+  /**
+   * 检查是否为本地 IP
+   */
+  private isLocalIP(ip: string): boolean {
+    if (!ip) return false;
+
+    // IPv4 本地地址
+    if (ip === '127.0.0.1' || ip.startsWith('127.')) return true;
+
+    // IPv6 本地地址
+    if (ip === '::1' || ip === '::1%0' || ip.startsWith('::ffff:127.')) return true;
+
+    // 内网地址（可选：10.x.x.x, 172.16-31.x.x, 192.168.x.x）
+    // 这些通常不触发新设备通知，但可以根据需求调整
+
+    return false;
   }
 
   /**
@@ -371,6 +413,9 @@ export class AuthService {
    */
   private isSameIPSubnet(ip1: string, ip2: string): boolean {
     if (!ip1 || !ip2) return false;
+
+    // 先检查是否都是本地 IP
+    if (this.isLocalIP(ip1) && this.isLocalIP(ip2)) return true;
 
     // IPv4 子网比较
     const parts1 = ip1.split('.');
@@ -406,10 +451,13 @@ export class AuthService {
       // 解析设备信息
       const deviceInfo = this.parseUserAgent(newUserAgent);
 
+      // 格式化 IP 显示
+      const ipDisplay = this.formatIPForDisplay(newIP);
+
       // 创建系统通知
       const notificationId = uuidv4();
       const title = '新设备登录通知';
-      const content = `检测到您的账户在新设备上登录\n设备: ${deviceInfo}\nIP地址: ${newIP}\n时间: ${new Date().toLocaleString('zh-CN')}`;
+      const content = `检测到您的账户在新设备上登录\n设备: ${deviceInfo}\nIP地址: ${ipDisplay}\n时间: ${new Date().toLocaleString('zh-CN')}\n\n如非本人操作，请立即修改密码。`;
 
       await this.workflowRepo.createNotification({
         id: notificationId,
@@ -417,7 +465,7 @@ export class AuthService {
         type: 'new_device',
         title,
         content,
-        link: '/settings/sessions',
+        link: '/settings/profile',
       });
 
       // WebSocket 实时推送给用户的其他在线设备
@@ -426,7 +474,7 @@ export class AuthService {
         type: 'new_device',
         title,
         content,
-        link: '/settings/sessions',
+        link: '/settings/profile',
         is_read: false,
         created_at: new Date().toISOString(),
       });
@@ -435,6 +483,32 @@ export class AuthService {
     } catch (error) {
       logger.error('[Auth] 发送新设备登录通知失败: %s', error instanceof Error ? error.message : String(error));
     }
+  }
+
+  /**
+   * 格式化 IP 地址用于显示
+   * 本地 IP 显示为"本机"，外部 IP 脱敏显示
+   */
+  private formatIPForDisplay(ip: string): string {
+    if (!ip) return '未知';
+
+    // 本地 IP
+    if (this.isLocalIP(ip)) {
+      return '本机';
+    }
+
+    // IPv4 脱敏：隐藏最后一段
+    const parts = ip.split('.');
+    if (parts.length === 4) {
+      return `${parts[0]}.${parts[1]}.${parts[2]}.***`;
+    }
+
+    // IPv6 或其他格式：显示前缀 + ***
+    if (ip.length > 8) {
+      return `${ip.substring(0, 8)}***`;
+    }
+
+    return ip;
   }
 
   /**
@@ -477,9 +551,16 @@ export class AuthService {
         return;
       }
 
+      // 本地 IP 登录不发送通知（同一设备）
+      if (newLoginIP && this.isLocalIP(newLoginIP)) {
+        logger.info(`[Auth] 本地登录不发送会话终止通知，用户 ${user.id}`);
+        return;
+      }
+
       const notificationId = uuidv4();
-      const title = '会话已终止';
-      const content = `您在另一台设备登录（IP: ${newLoginIP || '未知'}），本设备的登录已失效`;
+      const title = '登录设备已失效';
+      const ipDisplay = this.formatIPForDisplay(newLoginIP || '');
+      const content = `您的账户在另一台设备登录（${ipDisplay}），当前设备的登录已失效。\n\n如果不是您本人操作，请立即修改密码。`;
 
       await this.workflowRepo.createNotification({
         id: notificationId,
@@ -517,9 +598,17 @@ export class AuthService {
     newIP: string
   ): Promise<void> {
     try {
+      // 本地 IP 之间的切换不发送通知
+      if (this.isLocalIP(oldIP) && this.isLocalIP(newIP)) {
+        logger.info(`[Auth] 本地 IP 切换不发送通知，用户 ${user.id} (${oldIP} -> ${newIP})`);
+        return;
+      }
+
       const notificationId = uuidv4();
-      const title = 'IP 地址变更通知';
-      const content = `检测到您的登录 IP 地址发生变化:\n原 IP: ${oldIP}\n新 IP: ${newIP}\n时间: ${new Date().toLocaleString('zh-CN')}\n\n如非本人操作，请立即修改密码。`;
+      const title = '网络环境变更通知';
+      const oldIPDisplay = this.formatIPForDisplay(oldIP);
+      const newIPDisplay = this.formatIPForDisplay(newIP);
+      const content = `检测到您的网络环境发生变化:\n原网络: ${oldIPDisplay}\n新网络: ${newIPDisplay}\n时间: ${new Date().toLocaleString('zh-CN')}\n\n如非本人操作，请立即修改密码。`;
 
       await this.workflowRepo.createNotification({
         id: notificationId,
@@ -527,7 +616,7 @@ export class AuthService {
         type: 'ip_change',
         title,
         content,
-        link: '/settings/security',
+        link: '/settings/profile',
       });
 
       // WebSocket 推送
@@ -536,7 +625,7 @@ export class AuthService {
         type: 'ip_change',
         title,
         content,
-        link: '/settings/security',
+        link: '/settings/profile',
         is_read: false,
         created_at: new Date().toISOString(),
       });

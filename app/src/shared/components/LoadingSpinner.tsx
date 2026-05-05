@@ -36,4 +36,20 @@ export function FullPageLoader({ text = '加载中...' }: { text?: string }) {
   );
 }
 
+/**
+ * 内联页面加载指示器
+ * 用于 Suspense fallback，在主内容区域内显示，
+ * 避免全屏白屏造成的"卡死"感
+ */
+export function InlinePageLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-[400px] animate-fade-in">
+      <div className="flex flex-col items-center gap-3">
+        <LoadingSpinner size="lg" />
+        <span className="text-sm text-muted-foreground">加载中...</span>
+      </div>
+    </div>
+  );
+}
+
 export default LoadingSpinner;

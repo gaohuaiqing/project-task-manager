@@ -24,7 +24,7 @@ export interface IProjectService {
 // Task 模块对外接口
 export interface ITaskService {
   getTaskById(taskId: string): Promise<WBSTask | null>;
-  recalculateTaskStatus(taskId: string): Promise<void>;
+  recalculateTaskStatus(taskId: string, completedBy?: User): Promise<void>;
 }
 
 // 能力模型相关

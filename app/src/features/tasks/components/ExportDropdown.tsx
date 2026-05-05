@@ -20,6 +20,7 @@ import {
 } from '../utils/taskExporter';
 import type { WBSTaskListItem } from '../types';
 import type { Member } from '@/features/org/types';
+import { useToast } from '@/hooks/use-toast';
 
 export type ExportScope = 'filtered' | 'project' | 'all';
 
@@ -44,6 +45,7 @@ export function ExportDropdown({
 }: ExportDropdownProps) {
   const [exporting, setExporting] = useState(false);
   const [includeHistory, setIncludeHistory] = useState(false);
+  const { toast } = useToast();
 
   const handleExport = async (scope: ExportScope) => {
     if (exporting) return;
@@ -74,7 +76,11 @@ export function ExportDropdown({
       }
 
       if (tasksToExport.length === 0) {
-        alert('没有可导出的任务');
+        toast({
+          title: '导出失败',
+          description: '没有可导出的任务',
+          variant: 'destructive',
+        });
         return;
       }
 
@@ -86,7 +92,11 @@ export function ExportDropdown({
       await exportTasksToExcel(tasksToExport, members, options);
     } catch (error) {
       console.error('导出失败:', error);
-      alert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      toast({
+        title: '导出失败',
+        description: error instanceof Error ? error.message : '未知错误',
+        variant: 'destructive',
+      });
     } finally {
       setExporting(false);
     }

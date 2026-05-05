@@ -62,10 +62,8 @@ function getAccessibleViews(user: any, isAdmin: boolean): string[] {
   // 所有角色都可以访问个人信息设置
   views.push('settings', 'settings-profile');
 
-  // 项目管理：工程师完全隐藏，部门经理及以上可以访问
-  if (user.role !== 'engineer' && canAccessDataScope(user, 'department')) {
-    views.push('projects');
-  }
+  // 项目管理：所有角色可访问，后端根据成员关系过滤数据
+  views.push('projects');
 
   // 智能任务分配：需要任务创建权限（技术经理及以上）
   if (canPerformTaskOperation(user, 'create')) {

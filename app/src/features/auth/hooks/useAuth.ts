@@ -67,10 +67,10 @@ export function useAuth(): AuthState & {
       }
 
       setCurrentUser({
-        id: userData.id,
+        id: String(userData.id),
         username: userData.username,
-        displayName: userData.real_name || userData.name || userData.username,
-        email: userData.email,
+        displayName: userData.realName || userData.name || userData.username,
+        email: userData.email || null,
         avatar: userData.avatar,
         role: userData.role,
       });

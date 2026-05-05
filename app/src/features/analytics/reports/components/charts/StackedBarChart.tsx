@@ -5,6 +5,7 @@
 import {
   BarChart as RechartsBarChart,
   Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -35,13 +36,31 @@ export function StackedBarChart({
   height = 300,
   showLegend = true,
 }: StackedBarChartProps) {
-  const chartData = data.labels.map((label, index) => {
+  // 安全数据处理
+  const safeData = data || { labels: [], datasets: [] };
+  const labels = safeData.labels || [];
+  const datasets = safeData.datasets || [];
+
+  const chartData = labels.map((label, index) => {
     const item: Record<string, string | number> = { name: label };
-    data.datasets.forEach((dataset) => {
-      item[dataset.label] = dataset.values[index];
+    datasets.forEach((dataset) => {
+      item[dataset.label] = dataset.values?.[index] ?? 0;
     });
     return item;
   });
+
+  // 空数据处理
+  if (labels.length === 0 || datasets.length === 0) {
+    return (
+      <div className="flex items-center justify-center text-muted-foreground text-sm" style={{ height }}>
+        暂无数据
+      </div>
+    );
+  }
+
+  // 坐标轴样式
+  const AXIS_STROKE = 'hsl(var(--border))';
+  const TICK_STYLE = { fontSize: 10, fill: 'hsl(var(--muted-foreground))' };
 
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -49,23 +68,25 @@ export function StackedBarChart({
         data={chartData}
         margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
       >
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+        <CartesianGrid strokeDasharray="3 3" stroke={AXIS_STROKE} opacity={0.3} vertical={false} />
         <XAxis
           dataKey="name"
-          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-          stroke="hsl(var(--border))"
-          tickLine={false}
-          axisLine={false}
+          tick={TICK_STYLE}
+          stroke={AXIS_STROKE}
+          tickLine={{ stroke: AXIS_STROKE, strokeWidth: 1 }}
+          tickSize={4}
+          axisLine={{ stroke: AXIS_STROKE, strokeWidth: 1 }}
           interval={0}
           angle={-45}
           textAnchor="end"
           height={60}
         />
         <YAxis
-          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-          stroke="hsl(var(--border))"
-          tickLine={false}
-          axisLine={false}
+          tick={TICK_STYLE}
+          stroke={AXIS_STROKE}
+          tickLine={{ stroke: AXIS_STROKE, strokeWidth: 1 }}
+          tickSize={4}
+          axisLine={{ stroke: AXIS_STROKE, strokeWidth: 1 }}
         />
         <Tooltip
           contentStyle={{
@@ -77,14 +98,25 @@ export function StackedBarChart({
           }}
         />
         {showLegend && <Legend wrapperStyle={{ fontSize: '10px' }} iconType="circle" />}
-        {data.datasets.map((dataset, index) => (
-          <Bar
-            key={dataset.label}
-            dataKey={dataset.label}
-            stackId="stack"
-            fill={dataset.color || COLORS[index % COLORS.length]}
-          />
-        ))}
+        {datasets.map((dataset, index) => {
+          const baseFill = Array.isArray(dataset.color)
+            ? COLORS[index % COLORS.length]
+            : (dataset.color || COLORS[index % COLORS.length]);
+
+          return (
+            <Bar
+              key={dataset.label}
+              dataKey={dataset.label}
+              stackId="stack"
+              fill={baseFill}
+            >
+              {Array.isArray(dataset.color) &&
+                dataset.color.map((color, cellIndex) => (
+                  <Cell key={cellIndex} fill={color} />
+                ))}
+            </Bar>
+          );
+        })}
       </RechartsBarChart>
     </ResponsiveContainer>
   );

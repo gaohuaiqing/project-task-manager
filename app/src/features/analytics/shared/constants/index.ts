@@ -10,3 +10,6 @@ export * from './colors.js';
 
 // 标签常量
 export * from './labels.js';
+
+// 阈值常量
+export * from './thresholds.js';

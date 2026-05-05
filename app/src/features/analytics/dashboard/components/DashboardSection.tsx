@@ -46,14 +46,14 @@ export function DashboardSection({
   const content = (
     <div className={cn('space-y-4', className)} data-testid={testId}>
       {title && (
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 shrink-0">
             {icon && <span className="text-gray-500 dark:text-gray-400">{icon}</span>}
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {title}
             </h3>
           </div>
-          {action && <div>{action}</div>}
+          {action && <div className="shrink-0">{action}</div>}
         </div>
       )}
       {children}
@@ -65,12 +65,12 @@ export function DashboardSection({
       <Card className="rounded-xl border border-gray-100 dark:border-slate-700/50 bg-white dark:bg-slate-800/50 shadow-sm">
         {title && (
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center justify-between text-base">
-              <div className="flex items-center gap-2">
+            <CardTitle className="flex items-center justify-between gap-4 text-base">
+              <div className="flex items-center gap-2 shrink-0">
                 {icon && <span className="text-gray-500 dark:text-gray-400">{icon}</span>}
                 {title}
               </div>
-              {action}
+              <div className="shrink-0">{action}</div>
             </CardTitle>
           </CardHeader>
         )}

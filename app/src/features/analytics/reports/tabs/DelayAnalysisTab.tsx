@@ -33,8 +33,7 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
     );
   }
 
-  const handlePointClick = (point: ScatterPoint) => {
-    console.log('点击成员:', point.label);
+  const handlePointClick = (_point: ScatterPoint) => {
     // TODO: 跳转到该成员的延期任务列表
   };
 

@@ -1,20 +1,19 @@
 /**
  * WBS 表格列配置
- * 严格按照需求文档 REQ_04_task.md 定义的24列规格
+ * 严格按照需求文档 REQ_04_task.md 定义的24列规格 + 新增项目编码列
  *
- * 列号 0-24：
+ * 列号 0-25：
  * 0. 操作按钮
  * 1. WBS等级  2. WBS编码  3. 任务描述  4. 任务状态  5. Redmine链接
  * 6. 负责人   7. 任务类型  8. 优先级   9. 前置任务  10. 提前/落后
  * 11. 开始日期 12. 工期    13. 结束日期 14. 计划周期 15. 预警天数
  * 16. 实际开始 17. 实际结束 18. 实际工期 19. 全职比  20. 实际周期
- * 21. 项目     22. 延期次数 23. 计划调整 24. 进展记录
+ * 21. 项目编码 22. 项目名称 23. 延期次数 24. 计划调整 25. 进展记录
  */
 
-/** 任务状态类型 - 9种状态 */
+/** 任务状态类型 - 8种状态 */
 export type TaskStatus =
   | 'pending_approval'  // 待审批 - 紫色
-  | 'rejected'          // 已驳回 - 红色
   | 'not_started'       // 未开始 - 灰色
   | 'in_progress'       // 进行中 - 蓝色
   | 'early_completed'   // 提前完成 - 绿色
@@ -62,13 +61,12 @@ export type ColumnDataType =
 /** 状态颜色配置 */
 export const STATUS_COLORS: Record<TaskStatus, { bg: string; text: string; label: string }> = {
   pending_approval: { bg: 'bg-purple-100', text: 'text-purple-700', label: '待审批' },
-  rejected: { bg: 'bg-red-100', text: 'text-red-700', label: '已驳回' },
   not_started: { bg: 'bg-gray-100', text: 'text-gray-600', label: '未开始' },
   in_progress: { bg: 'bg-blue-100', text: 'text-blue-700', label: '进行中' },
   early_completed: { bg: 'bg-green-100', text: 'text-green-700', label: '提前完成' },
   on_time_completed: { bg: 'bg-cyan-100', text: 'text-cyan-700', label: '按时完成' },
   delay_warning: { bg: 'bg-orange-100', text: 'text-orange-700', label: '延期预警' },
-  delayed: { bg: 'bg-red-100', text: 'text-red-700', label: '已延迟' },
+  delayed: { bg: 'bg-red-100', text: 'text-red-700', label: '已延期' },
   overdue_completed: { bg: 'bg-orange-100', text: 'text-orange-700', label: '超期完成' },
 };
 
@@ -126,6 +124,10 @@ export interface ColumnConfig {
   tooltip?: string;
   /** 是否可隐藏 */
   canHide: boolean;
+  /** 是否固定在左侧（sticky column） */
+  sticky?: boolean;
+  /** 列对齐方式 */
+  align?: 'left' | 'center' | 'right';
 }
 
 /** 从 types.ts 导入任务类型，避免重复定义 */
@@ -151,13 +153,15 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'actions',
     index: 0,
     label: '操作',
-    width: 120,
-    minWidth: 100,
+    width: 96,
+    minWidth: 80,
     dataType: 'action',
     editType: 'readonly',
     defaultVisible: true,
     sortable: false,
     canHide: false,
+    sticky: true,
+    align: 'center',
     tooltip: '添加任务、编辑任务、删除任务、维护进展',
   },
 
@@ -165,15 +169,15 @@ export const WBS_COLUMNS: ColumnConfig[] = [
   {
     id: 'wbsLevel',
     index: 1,
-    label: 'WBS等级',
-    width: 80,
-    minWidth: 70,
+    label: '等级',
+    width: 44,
+    minWidth: 36,
     dataType: 'number',
     editType: 'editable',
     defaultVisible: true,
     sortable: true,
     canHide: true,
-    tooltip: '子任务自动+1级，范围1-10',
+    align: 'center',
   },
 
   // 列号 2: WBS编码
@@ -181,13 +185,14 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'wbsCode',
     index: 2,
     label: 'WBS编码',
-    width: 100,
-    minWidth: 80,
+    width: 72,
+    minWidth: 56,
     dataType: 'text',
     editType: 'readonly',
     defaultVisible: true,
     sortable: true,
     canHide: true,
+    align: 'left',
     tooltip: '系统自动生成，格式：父编号.当前序号',
   },
 
@@ -196,14 +201,16 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'description',
     index: 3,
     label: '任务描述',
-    width: 250,
-    minWidth: 150,
+    width: 180,
+    minWidth: 100,
     dataType: 'text',
     editType: 'editable',
     defaultVisible: true,
     sortable: true,
     required: true,
     canHide: true,
+    sticky: true,
+    align: 'left',
     tooltip: '必填项',
   },
 
@@ -212,28 +219,30 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'status',
     index: 4,
     label: '状态',
-    width: 90,
-    minWidth: 80,
+    width: 72,
+    minWidth: 64,
     dataType: 'status',
     editType: 'readonly',
     defaultVisible: true,
     sortable: true,
     canHide: true,
-    tooltip: '系统自动判断（9种状态）',
+    align: 'center',
+    tooltip: '系统自动判断（8种状态）',
   },
 
   // 列号 5: Redmine链接
   {
     id: 'redmineLink',
     index: 5,
-    label: 'Redmine链接',
-    width: 120,
-    minWidth: 100,
+    label: 'Redmine',
+    width: 56,
+    minWidth: 48,
     dataType: 'link',
-    editType: 'conditional', // 仅根任务可填
+    editType: 'conditional',
     defaultVisible: true,
     sortable: false,
     canHide: true,
+    align: 'center',
     tooltip: '仅根任务可填写',
   },
 
@@ -242,13 +251,14 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'assigneeName',
     index: 6,
     label: '负责人',
-    width: 100,
-    minWidth: 80,
+    width: 64,
+    minWidth: 48,
     dataType: 'select',
     editType: 'editable',
     defaultVisible: true,
     sortable: true,
     canHide: true,
+    align: 'center',
     tooltip: '关联组织架构成员',
   },
 
@@ -256,15 +266,16 @@ export const WBS_COLUMNS: ColumnConfig[] = [
   {
     id: 'taskType',
     index: 7,
-    label: '任务类型',
-    width: 100,
-    minWidth: 80,
+    label: '类型',
+    width: 72,
+    minWidth: 56,
     dataType: 'select',
-    editType: 'conditional', // 只有最上层任务可改，子任务继承
+    editType: 'conditional',
     defaultVisible: true,
     sortable: true,
     options: TASK_TYPE_OPTIONS,
     canHide: true,
+    align: 'center',
     tooltip: '子任务继承父任务类型',
   },
 
@@ -273,14 +284,15 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'priority',
     index: 8,
     label: '优先级',
-    width: 80,
-    minWidth: 70,
+    width: 56,
+    minWidth: 44,
     dataType: 'select',
     editType: 'editable',
     defaultVisible: true,
     sortable: true,
     options: PRIORITY_OPTIONS,
     canHide: true,
+    align: 'center',
     tooltip: '默认选中"中"',
   },
 
@@ -288,14 +300,15 @@ export const WBS_COLUMNS: ColumnConfig[] = [
   {
     id: 'predecessorCode',
     index: 9,
-    label: '前置任务',
-    width: 100,
-    minWidth: 80,
+    label: '前置',
+    width: 60,
+    minWidth: 48,
     dataType: 'text',
     editType: 'editable',
     defaultVisible: true,
     sortable: false,
     canHide: true,
+    align: 'center',
     tooltip: '输入WBS编码，设置依赖关系',
   },
 
@@ -304,14 +317,14 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'lagDays',
     index: 10,
     label: '提前/落后',
-    width: 80,
-    minWidth: 70,
+    width: 56,
+    minWidth: 44,
     dataType: 'number',
     editType: 'editable',
     defaultVisible: true,
     sortable: true,
     canHide: true,
-    tooltip: '正数延后，负数提前',
+    align: 'center',
   },
 
   // 列号 11: 开始日期
@@ -319,13 +332,14 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'startDate',
     index: 11,
     label: '开始日期',
-    width: 110,
-    minWidth: 100,
+    width: 84,
+    minWidth: 72,
     dataType: 'date',
-    editType: 'conditional', // 无前置任务时可编辑
+    editType: 'conditional',
     defaultVisible: true,
     sortable: true,
     canHide: true,
+    align: 'center',
     tooltip: '无前置任务时可编辑，有前置任务时自动计算',
   },
 
@@ -334,14 +348,14 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'duration',
     index: 12,
     label: '工期',
-    width: 120,
-    minWidth: 100,
+    width: 80,
+    minWidth: 64,
     dataType: 'number',
     editType: 'editable',
     defaultVisible: true,
     sortable: true,
     canHide: true,
-    tooltip: '天数 + 单休勾选框（勾选表示工作6天）',
+    align: 'center',
   },
 
   // 列号 13: 结束日期
@@ -349,13 +363,14 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'endDate',
     index: 13,
     label: '结束日期',
-    width: 110,
-    minWidth: 100,
+    width: 84,
+    minWidth: 72,
     dataType: 'date',
     editType: 'computed',
     defaultVisible: true,
     sortable: true,
     canHide: true,
+    align: 'center',
     tooltip: '根据工期自动计算（跳过周末节假日）',
   },
 
@@ -364,29 +379,29 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'plannedDuration',
     index: 14,
     label: '计划周期',
-    width: 80,
-    minWidth: 70,
+    width: 56,
+    minWidth: 44,
     dataType: 'number',
     editType: 'computed',
     defaultVisible: true,
     sortable: true,
     canHide: true,
-    tooltip: '结束日期 - 开始日期 + 1',
+    align: 'center',
   },
 
   // 列号 15: 预警天数
   {
     id: 'warningDays',
     index: 15,
-    label: '预警天数',
-    width: 80,
-    minWidth: 70,
+    label: '预警',
+    width: 44,
+    minWidth: 36,
     dataType: 'number',
     editType: 'editable',
     defaultVisible: true,
     sortable: true,
     canHide: true,
-    tooltip: '用于计算"延期预警"状态，默认3天',
+    align: 'center',
   },
 
   // 列号 16: 实际开始
@@ -394,13 +409,14 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'actualStartDate',
     index: 16,
     label: '实际开始',
-    width: 110,
-    minWidth: 100,
+    width: 84,
+    minWidth: 72,
     dataType: 'date',
     editType: 'editable',
     defaultVisible: true,
     sortable: true,
     canHide: true,
+    align: 'center',
     tooltip: '手动填写',
   },
 
@@ -409,13 +425,14 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'actualEndDate',
     index: 17,
     label: '实际结束',
-    width: 110,
-    minWidth: 100,
+    width: 84,
+    minWidth: 72,
     dataType: 'date',
     editType: 'editable',
     defaultVisible: true,
     sortable: true,
     canHide: true,
+    align: 'center',
     tooltip: '手动填写',
   },
 
@@ -424,14 +441,14 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'actualDuration',
     index: 18,
     label: '实际工期',
-    width: 80,
-    minWidth: 70,
+    width: 56,
+    minWidth: 44,
     dataType: 'number',
     editType: 'computed',
     defaultVisible: true,
     sortable: true,
     canHide: true,
-    tooltip: '工作日数（跳过周末节假日）',
+    align: 'center',
   },
 
   // 列号 19: 全职比
@@ -439,14 +456,14 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'fullTimeRatio',
     index: 19,
     label: '全职比',
-    width: 80,
-    minWidth: 70,
+    width: 48,
+    minWidth: 40,
     dataType: 'number',
     editType: 'editable',
     defaultVisible: true,
     sortable: true,
     canHide: true,
-    tooltip: '0-100%，默认100',
+    align: 'center',
   },
 
   // 列号 20: 实际周期
@@ -454,74 +471,93 @@ export const WBS_COLUMNS: ColumnConfig[] = [
     id: 'actualCycle',
     index: 20,
     label: '实际周期',
-    width: 80,
-    minWidth: 70,
+    width: 56,
+    minWidth: 44,
     dataType: 'number',
     editType: 'computed',
     defaultVisible: true,
     sortable: true,
     canHide: true,
-    tooltip: '日历天数（含周末节假日）',
+    align: 'center',
   },
 
-  // 列号 21: 项目
+  // 列号 21: 项目编码
+  {
+    id: 'projectCode',
+    index: 21,
+    label: '项目编码',
+    width: 68,
+    minWidth: 52,
+    dataType: 'text',
+    editType: 'readonly',
+    defaultVisible: true,
+    sortable: true,
+    canHide: true,
+    align: 'center',
+    tooltip: '项目卡片中的项目编码',
+  },
+
+  // 列号 22: 项目名称
   {
     id: 'projectName',
-    index: 21,
-    label: '项目',
-    width: 120,
-    minWidth: 100,
+    index: 22,
+    label: '项目名称',
+    width: 88,
+    minWidth: 64,
     dataType: 'select',
     editType: 'editable',
     defaultVisible: true,
     sortable: true,
     required: true,
     canHide: true,
+    align: 'center',
     tooltip: '必须选择项目',
   },
 
-  // 列号 22: 延期次数
+  // 列号 23: 延期次数
   {
     id: 'delayCount',
-    index: 22,
-    label: '延期次数',
-    width: 80,
-    minWidth: 70,
+    index: 23,
+    label: '延期',
+    width: 44,
+    minWidth: 36,
     dataType: 'number',
     editType: 'readonly',
     defaultVisible: true,
     sortable: true,
     canHide: true,
-    tooltip: '点击查看详情，延期后计划未刷新不累加',
+    align: 'center',
   },
 
-  // 列号 23: 计划调整
+  // 列号 24: 计划调整
   {
     id: 'planChangeCount',
-    index: 23,
-    label: '计划调整',
-    width: 80,
-    minWidth: 70,
+    index: 24,
+    label: '调整',
+    width: 44,
+    minWidth: 36,
     dataType: 'number',
     editType: 'readonly',
     defaultVisible: true,
     sortable: true,
     canHide: true,
+    align: 'center',
     tooltip: '点击查看详情',
   },
 
-  // 列号 24: 进展记录
+  // 列号 25: 进展记录
   {
     id: 'progressRecordCount',
-    index: 24,
-    label: '进展记录',
-    width: 80,
-    minWidth: 70,
+    index: 25,
+    label: '进展',
+    width: 44,
+    minWidth: 36,
     dataType: 'number',
     editType: 'readonly',
     defaultVisible: true,
     sortable: true,
     canHide: true,
+    align: 'center',
     tooltip: '点击查看详情',
   },
 ];
@@ -545,6 +581,17 @@ export const INLINE_EDITABLE_COLUMNS = ['actualStartDate', 'actualEndDate'];
 /** 获取列配置 */
 export function getColumnConfig(columnId: string): ColumnConfig | undefined {
   return WBS_COLUMNS.find(col => col.id === columnId);
+}
+
+/** 计算指定 sticky 列的 left 偏移量（前面所有可见 sticky 列的宽度之和） */
+export function getStickyOffset(visibleColumns: ColumnConfig[], colIndex: number): number {
+  let offset = 0;
+  for (let i = 0; i < colIndex; i++) {
+    if (visibleColumns[i].sticky) {
+      offset += visibleColumns[i].width;
+    }
+  }
+  return offset;
 }
 
 /** 获取列配置通过列号 */
@@ -590,6 +637,7 @@ export function formatLagDays(days?: number): string {
 
 /** localStorage 键名 */
 export const COLUMN_VISIBILITY_KEY = 'wbs-column-visibility';
+export const STICKY_CONFIG_KEY = 'wbs-column-sticky';
 
 /** 从 localStorage 加载列可见性 */
 export function loadColumnVisibility(): Record<string, boolean> {
@@ -609,6 +657,31 @@ export function loadColumnVisibility(): Record<string, boolean> {
 export function saveColumnVisibility(visibility: Record<string, boolean>): void {
   try {
     localStorage.setItem(COLUMN_VISIBILITY_KEY, JSON.stringify(visibility));
+  } catch {
+    // ignore
+  }
+}
+
+/** 从 localStorage 加载列固定配置，未配置的列使用列定义默认值 */
+export function loadStickyConfig(): Record<string, boolean> {
+  try {
+    const saved = localStorage.getItem(STICKY_CONFIG_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch {
+    // ignore
+  }
+  // 默认：使用 WBS_COLUMNS 中的 sticky 字段
+  const defaults: Record<string, boolean> = {};
+  WBS_COLUMNS.forEach(col => { defaults[col.id] = col.sticky === true; });
+  return defaults;
+}
+
+/** 保存列固定配置到 localStorage */
+export function saveStickyConfig(config: Record<string, boolean>): void {
+  try {
+    localStorage.setItem(STICKY_CONFIG_KEY, JSON.stringify(config));
   } catch {
     // ignore
   }

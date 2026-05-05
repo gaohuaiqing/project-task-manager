@@ -29,6 +29,26 @@ export function ScatterChart({
   showQuadrant = true,
   onPointClick,
 }: ScatterChartProps) {
+  // 安全数据处理
+  const safeData = data || {
+    points: [],
+    xAxis: { label: '', min: 0, max: 100 },
+    yAxis: { label: '', min: 0, max: 100 },
+  };
+  const points = safeData.points || [];
+  const xAxis = safeData.xAxis || { label: '', min: 0, max: 100 };
+  const yAxis = safeData.yAxis || { label: '', min: 0, max: 100 };
+  const quadrantLines = safeData.quadrantLines;
+
+  // 空数据处理
+  if (points.length === 0) {
+    return (
+      <div className="flex items-center justify-center text-muted-foreground text-sm" style={{ height }}>
+        暂无数据
+      </div>
+    );
+  }
+
   const getPointColor = (point: ScatterPoint) => {
     if (point.color) return point.color;
 
@@ -48,14 +68,14 @@ export function ScatterChart({
         <XAxis
           type="number"
           dataKey="x"
-          name={data.xAxis.label}
-          domain={[data.xAxis.min, data.xAxis.max]}
+          name={xAxis.label}
+          domain={[xAxis.min, xAxis.max]}
           tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
           stroke="hsl(var(--border))"
           tickLine={false}
           axisLine={false}
           label={{
-            value: data.xAxis.label,
+            value: xAxis.label,
             position: 'bottom',
             offset: 0,
             fontSize: 10,
@@ -65,14 +85,14 @@ export function ScatterChart({
         <YAxis
           type="number"
           dataKey="y"
-          name={data.yAxis.label}
-          domain={[data.yAxis.min, data.yAxis.max]}
+          name={yAxis.label}
+          domain={[yAxis.min, yAxis.max]}
           tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
           stroke="hsl(var(--border))"
           tickLine={false}
           axisLine={false}
           label={{
-            value: data.yAxis.label,
+            value: yAxis.label,
             angle: -90,
             position: 'insideLeft',
             fontSize: 10,
@@ -89,8 +109,8 @@ export function ScatterChart({
             fontSize: '11px',
           }}
           formatter={(value: number, name: string) => {
-            if (name === data.xAxis.label) return [value, data.xAxis.label];
-            if (name === data.yAxis.label) return [value, data.yAxis.label];
+            if (name === xAxis.label) return [value, xAxis.label];
+            if (name === yAxis.label) return [value, yAxis.label];
             return [value, name];
           }}
           labelFormatter={(_, payload) => {
@@ -103,16 +123,16 @@ export function ScatterChart({
         />
 
         {/* 四象限线 */}
-        {showQuadrant && data.quadrantLines && (
+        {showQuadrant && quadrantLines && (
           <>
             <ReferenceLine
-              x={data.quadrantLines.x}
+              x={quadrantLines.x}
               stroke="hsl(var(--muted-foreground))"
               strokeDasharray="5 5"
               opacity={0.5}
             />
             <ReferenceLine
-              y={data.quadrantLines.y}
+              y={quadrantLines.y}
               stroke="hsl(var(--muted-foreground))"
               strokeDasharray="5 5"
               opacity={0.5}
@@ -121,10 +141,10 @@ export function ScatterChart({
         )}
 
         <Scatter
-          data={data.points}
+          data={points}
           fill={CHART_COLORS.primary}
         >
-          {data.points.map((point, index) => (
+          {points.map((point, index) => (
             <Cell
               key={`cell-${index}`}
               fill={getPointColor(point)}

@@ -223,9 +223,9 @@ export function MemberCapabilityDialog({
           {selectedModel && (
             <div className="space-y-4">
               <Separator />
-              <div className="flex items-center justify-between">
-                <Label>维度评分</Label>
-                <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between gap-4">
+                <Label className="shrink-0">维度评分</Label>
+                <div className="flex items-center gap-2 shrink-0">
                   <span className="text-sm text-muted-foreground">综合分数:</span>
                   <Badge className={`${level.color} bg-opacity-20`}>
                     {overallScore} - {level.label}
@@ -309,7 +309,7 @@ export function MemberCapabilityDialog({
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
             取消
           </Button>
-          <Button onClick={handleSubmit} disabled={!selectedModelId || isSubmitting}>
+          <Button variant="outline" onClick={handleSubmit} disabled={!selectedModelId || isSubmitting}>
             {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             保存评定
           </Button>

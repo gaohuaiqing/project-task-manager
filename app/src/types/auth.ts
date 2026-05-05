@@ -14,3 +14,11 @@ export type {
   LoginRequest,
   LoginResponse,
 } from '@/features/auth/types';
+
+export {
+  ROLE_CONFIG,
+  canAccessDataScope,
+  canPerformTaskOperation,
+  canPerformUserManagement,
+  canAccessOrganization,
+} from '@/features/auth/types';

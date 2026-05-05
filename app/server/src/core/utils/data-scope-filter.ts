@@ -12,7 +12,7 @@ import type { User } from '../types';
 /**
  * 数据范围过滤类型
  */
-export type DataScopeType = 'all' | 'department' | 'self';
+export type DataScopeType = 'all' | 'department' | 'departments' | 'self';
 
 /**
  * 数据范围过滤器
@@ -23,6 +23,9 @@ export interface DataScopeFilter {
 
   /** 部门 ID（type=department 时有效） */
   department_id?: number;
+
+  /** 部门 ID 列表（type=departments 时有效，用于技术经理管理多个组） */
+  department_ids?: number[];
 
   /** 用户 ID（type=self 时有效） */
   user_id?: number;
@@ -107,6 +110,22 @@ export function scopeFilterToSQL(
         params: [filter.department_id],
       };
 
+    case 'departments':
+      // 按多个部门过滤（技术经理跨组场景）
+      if (!filter.department_ids || filter.department_ids.length === 0) {
+        return { condition: '1=0', params: [] };
+      }
+      if (filter.department_ids.length === 1) {
+        return {
+          condition: `${userTableAlias}.department_id = ?`,
+          params: [filter.department_ids[0]],
+        };
+      }
+      return {
+        condition: `${userTableAlias}.department_id IN (${filter.department_ids.map(() => '?').join(',')})`,
+        params: [...filter.department_ids],
+      };
+
     case 'self':
       // 按用户过滤（只看自己负责的任务）
       if (!filter.user_id) {
@@ -138,6 +157,8 @@ export function getScopeFilterDescription(filter: DataScopeFilter): string {
       return '全部数据';
     case 'department':
       return `部门 ID: ${filter.department_id}`;
+    case 'departments':
+      return `部门 IDs: [${filter.department_ids?.join(', ')}]`;
     case 'self':
       return `用户 ID: ${filter.user_id}`;
     default:

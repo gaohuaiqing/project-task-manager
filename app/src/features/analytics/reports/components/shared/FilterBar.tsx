@@ -19,8 +19,9 @@ import { RefreshCw, Download, CalendarIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
+import { useTaskTypeOptions } from '@/features/org/hooks/useOrg';
 import type { ReportFilters, TimeRange, ReportType } from '../../types';
-import { TIME_RANGE_OPTIONS, DELAY_TYPE_OPTIONS, TASK_TYPE_OPTIONS } from '../../config';
+import { TIME_RANGE_OPTIONS, DELAY_TYPE_OPTIONS, TASK_TYPE_OPTIONS as DEFAULT_TASK_TYPE_OPTIONS } from '../../config';
 
 /** 预估准确性范围选项 */
 const ESTIMATION_ACCURACY_OPTIONS = [
@@ -55,6 +56,13 @@ export function FilterBar({
   techGroups = [],
 }: FilterBarProps) {
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+
+  // 任务类型选项（优先从 API 获取，后备使用常量）
+  const { options: taskTypeOptionsFromApi, hasApiData } = useTaskTypeOptions();
+  // 报表筛选需要的是中文名称数组
+  const taskTypeOptions = hasApiData
+    ? taskTypeOptionsFromApi.map(opt => opt.label)
+    : DEFAULT_TASK_TYPE_OPTIONS;
 
   const updateFilter = <K extends keyof ReportFilters>(key: K, value: ReportFilters[K]) => {
     onFiltersChange({ ...filters, [key]: value });
@@ -175,7 +183,7 @@ export function FilterBar({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部类型</SelectItem>
-              {TASK_TYPE_OPTIONS.map((type) => (
+              {taskTypeOptions.map((type) => (
                 <SelectItem key={type} value={type}>
                   {type}
                 </SelectItem>

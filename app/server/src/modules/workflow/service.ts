@@ -2,8 +2,11 @@
 import { v4 as uuidv4 } from 'uuid';
 import { WorkflowRepository } from './repository';
 import { OrgService } from '../org/service';
+import { TaskService } from '../task/service';
 import { ValidationError, ForbiddenError } from '../../core/errors';
+import { sanitizeString } from '../../core/utils/sanitize';
 import { sendToUser } from '../../core/realtime';
+import { logger } from '../../core/logger';
 import {
   taskEvents,
   TaskEventType,
@@ -11,15 +14,19 @@ import {
   type TaskPlanChangeApprovedEvent,
 } from '../../core/events';
 import type { User } from '../../core/types';
-import type { PlanChange, DelayRecord, Notification, ApprovalStatus, CreatePlanChangeRequest, ApprovalDecisionRequest, CreateDelayRecordRequest, CreateNotificationRequest } from './types';
+import type { PlanChange, DelayRecord, Notification, ApprovalStatus, CreatePlanChangeRequest, ApprovalDecisionRequest, CreateDelayRecordRequest, CreateNotificationRequest, ApprovalItem, ApprovalItemsQueryOptions, ApprovalItemsResponse } from './types';
 
 export class WorkflowService {
+  private static listenersInitialized = false;
   private repo = new WorkflowRepository();
   private orgService = new OrgService();
 
   constructor() {
-    // 订阅计划变更请求事件
-    this.setupEventListeners();
+    // 仅在首次实例化时注册事件监听器，防止多实例导致重复处理
+    if (!WorkflowService.listenersInitialized) {
+      this.setupEventListeners();
+      WorkflowService.listenersInitialized = true;
+    }
   }
 
   /**
@@ -41,7 +48,7 @@ export class WorkflowService {
         try {
           await this.handlePlanChangeRequested(event);
         } catch (error) {
-          console.error('处理计划变更请求事件失败:', error);
+          logger.error('处理计划变更请求事件失败: %s', error instanceof Error ? error.message : String(error));
         }
       }
     );
@@ -53,7 +60,7 @@ export class WorkflowService {
         try {
           await this.handlePlanChangeApproved(event);
         } catch (error) {
-          console.error('处理计划变更审批通过事件失败:', error);
+          logger.error('处理计划变更审批通过事件失败: %s', error instanceof Error ? error.message : String(error));
         }
       }
     );
@@ -61,23 +68,131 @@ export class WorkflowService {
 
   /**
    * 处理计划变更请求事件
+   *
+   * 修复：事件处理器失败时不应清除 pending_changes，否则会导致：
+   * 1. 任务状态为 pending_approval 但 pending_changes 为 null
+   * 2. calculateStatus 返回错误状态
+   * 3. 审批人收不到通知
    */
   private async handlePlanChangeRequested(event: TaskPlanChangeRequestedEvent): Promise<void> {
-    // 为每个变更字段创建审批记录
-    for (const change of event.changes) {
-      await this.repo.createPlanChange({
-        id: uuidv4(),
-        task_id: event.taskId,
-        user_id: event.userId,
-        change_type: change.field as 'start_date' | 'duration' | 'predecessor_id' | 'lag_days',
-        old_value: change.oldValue != null ? String(change.oldValue) : null,
-        new_value: change.newValue != null ? String(change.newValue) : null,
-        reason: event.reason,
-      });
+    // 获取任务信息（用于通知内容）
+    const task = await this.repo.getTaskWithDates(event.taskId);
+
+    // 前置检查：任务必须存在
+    if (!task) {
+      logger.error('任务不存在，无法处理计划变更请求: taskId=%s', event.taskId);
+      return;
     }
 
-    // 更新任务的计划变更次数
-    await this.repo.incrementTaskCounter(event.taskId, 'plan_change_count');
+    // XSS 防护：消毒变更原因
+    const sanitizedReason = sanitizeString(event.reason, 1000);
+
+    // 优先发送通知（确保审批人能收到，即使后续步骤失败）
+    const approver = await this.findApprover(event.userId);
+    if (approver) {
+      const applicant = await this.repo.getUserById(event.userId);
+      const applicantName = applicant?.real_name || '工程师';
+      const projectName = task.project_id ? (await this.repo.getProjectName(task.project_id)) ?? '' : '';
+      const taskDescription = task.description || '';
+
+      const FIELD_LABELS: Record<string, string> = {
+        start_date: '开始日期',
+        duration: '工期',
+        predecessor_id: '前置任务',
+        lag_days: '提前/落后天数',
+      };
+
+      const changeDescription = event.changes
+        .map(c => `${FIELD_LABELS[c.field] || c.field}: ${c.oldValue ?? '空'} → ${c.newValue ?? '空'}`)
+        .join('，');
+
+      const contextParts: string[] = [];
+      if (projectName) contextParts.push(`项目：${projectName}`);
+      if (taskDescription) contextParts.push(`任务：${taskDescription}`);
+
+      const contentParts = [
+        `${applicantName} 提交了计划变更请求`,
+        ...contextParts.length > 0 ? contextParts : [],
+        `变更内容：${changeDescription}`,
+        `变更原因：${sanitizedReason}`,
+      ];
+
+      try {
+        await this.sendNotification(
+          approver.id,
+          'approval',
+          '待审批：计划变更请求',
+          contentParts.join('\n'),
+          `/settings/approvals`,
+          task.project_id,
+          event.taskId
+        );
+      } catch (notifyError) {
+        logger.error('发送审批通知失败: %s', notifyError instanceof Error ? notifyError.message : String(notifyError));
+        // 通知失败不阻断流程，继续创建审批记录
+      }
+    } else {
+      logger.warn('未找到用户 %d 的审批人，审批通知未发送', event.userId);
+    }
+
+    // 为每个变更字段创建审批记录，记录失败的字段
+    // P9: 使用事件中的 submission_id（如果有），否则生成新的
+    const submissionId = event.submissionId || uuidv4();
+    const failedFields: string[] = [];
+    for (const change of event.changes) {
+      try {
+        // 跳过 new_value 为 null 的变更（如 predecessor_id 设为空，无法写入 NOT NULL 列）
+        const newValue = change.newValue != null ? String(change.newValue) : null;
+        if (newValue === null) {
+          logger.warn('跳过 new_value 为 null 的变更 (task=%s, field=%s)', event.taskId, change.field);
+          continue;
+        }
+
+        await this.repo.createPlanChange({
+          id: uuidv4(),
+          submission_id: submissionId,
+          task_id: event.taskId,
+          user_id: event.userId,
+          change_type: change.field as 'start_date' | 'duration' | 'predecessor_id' | 'lag_days',
+          old_value: change.oldValue != null ? String(change.oldValue) : null,
+          new_value: newValue,
+          reason: sanitizedReason,
+        });
+      } catch (createError) {
+        failedFields.push(change.field);
+        logger.error('创建审批记录失败 (task=%s, field=%s): %s',
+          event.taskId, change.field, createError instanceof Error ? createError.message : String(createError));
+      }
+    }
+
+    // 处理审批记录创建结果
+    if (failedFields.length === event.changes.length) {
+      // 所有审批记录都创建失败，回滚任务状态
+      logger.error('所有审批记录创建失败 (task=%s)，回滚任务状态', event.taskId);
+      await this.repo.clearPendingChanges(event.taskId);
+      const rollbackStatus = task.actual_start_date ? 'in_progress' : 'not_started';
+      await this.repo.updateTaskStatus(event.taskId, rollbackStatus);
+
+      // 通知申请人失败
+      try {
+        await this.sendNotification(
+          event.userId,
+          'system',
+          '审批请求提交失败',
+          '您的计划变更请求提交失败，请联系管理员处理',
+          `/tasks/${event.taskId}`,
+          task.project_id,
+          event.taskId
+        );
+      } catch (notifyError) {
+        logger.error('发送失败通知失败: %s', notifyError instanceof Error ? notifyError.message : String(notifyError));
+      }
+    } else if (failedFields.length > 0) {
+      logger.warn('部分审批记录创建失败 (task=%s, fields=%s)，审批人可能只能审批部分字段',
+        event.taskId, failedFields.join(', '));
+    }
+
+    // 注意：计划变更次数已在 task/service.ts 的 updateTask 方法中更新，此处不再重复更新
   }
 
   /**
@@ -110,6 +225,17 @@ export class WorkflowService {
     return { items, total, page, pageSize, totalPages };
   }
 
+  /**
+   * 获取分组后的审批项列表
+   */
+  async getApprovalItems(options?: ApprovalItemsQueryOptions): Promise<ApprovalItemsResponse> {
+    const page = options?.page || 1;
+    const pageSize = options?.pageSize || 20;
+    const { items, total } = await this.repo.getApprovalItems(options);
+    const totalPages = Math.ceil(total / pageSize);
+    return { items, total, page, pageSize, totalPages };
+  }
+
   async getPlanChangeById(id: string): Promise<PlanChange | null> {
     return this.repo.getPlanChangeById(id);
   }
@@ -126,15 +252,38 @@ export class WorkflowService {
       throw new ValidationError('变更原因不能为空');
     }
 
+    // XSS 防护：消毒变更原因
+    data.reason = sanitizeString(data.reason, 1000);
+
     const id = uuidv4();
     await this.repo.createPlanChange({ ...data, id, user_id: currentUser.id });
 
     return id;
   }
 
-  private async getTaskById(taskId: string): Promise<{ id: string } | null> {
-    // 简化实现，实际应该注入 TaskRepository
-    return { id: taskId };
+  private async getTaskById(taskId: string): Promise<{
+    id: string;
+    project_id: string;
+    version: number;
+    last_plan_refresh_at: Date | null;
+    delay_count: number;
+    end_date: Date | null;
+    actual_start_date: Date | null;
+  } | null> {
+    // 从数据库获取完整的任务信息
+    const task = await this.repo.getTaskWithDates(taskId);
+    if (!task) {
+      return null;
+    }
+    return {
+      id: task.id,
+      project_id: task.project_id,
+      version: task.version || 1,
+      last_plan_refresh_at: task.last_plan_refresh_at || null,
+      delay_count: task.delay_count || 0,
+      end_date: task.end_date || null,
+      actual_start_date: task.actual_start_date || null,
+    };
   }
 
   async approvePlanChange(id: string, data: ApprovalDecisionRequest, currentUser: User): Promise<void> {
@@ -153,6 +302,10 @@ export class WorkflowService {
     }
 
     // 更新审批记录状态
+    // XSS 防护：消毒驳回原因
+    if (data.rejection_reason) {
+      data.rejection_reason = sanitizeString(data.rejection_reason, 1000);
+    }
     await this.repo.approvePlanChange(id, currentUser.id, data.rejection_reason);
 
     if (data.approved) {
@@ -166,19 +319,17 @@ export class WorkflowService {
       // 2. 清除待审批数据
       await this.repo.clearPendingChanges(change.task_id);
 
-      // 3. 重新计算任务状态（让定时任务或下次查询时自动计算）
-      // 获取任务当前状态
-      const task = await this.repo.getTaskById(change.task_id);
-      if (task && task.project_id) {
-        // 如果状态是 pending_approval，恢复到 not_started
-        // 实际状态会在下次查询时由 calculateStatus 自动计算
-        await this.repo.updateTaskStatus(change.task_id, 'not_started');
+      // 3. 获取完整任务信息，调用 calculateStatus 重新计算状态
+      const approvedTask = await this.repo.getTaskWithDates(change.task_id);
+      if (approvedTask) {
+        const newStatus = TaskService.calculateStatus(approvedTask);
+        await this.repo.updateTaskStatus(change.task_id, newStatus);
       }
 
       // 4. 发送通知
-      await this.sendNotification(change.user_id, 'approval_result', '变更审批通过', `您的变更请求已通过审批`);
+      await this.sendNotification(change.user_id, 'approval_result', '变更审批通过', `您的变更请求已通过审批`, `/tasks/${change.task_id}`, approvedTask?.project_id, change.task_id);
 
-      // 5. 发出事件（用于触发级联更新等，注意：不再重复应用变更）
+      // 5. 发出事件（触发级联更新，不再重复应用变更）
       taskEvents.emit(TaskEventType.PLAN_CHANGE_APPROVED, {
         planChangeId: id,
         taskId: change.task_id,
@@ -187,7 +338,6 @@ export class WorkflowService {
           field: change.change_type,
           value: change.new_value,
         }],
-        // 标记变更已应用，避免重复处理
         alreadyApplied: true,
       } as TaskPlanChangeApprovedEvent);
     } else {
@@ -195,28 +345,152 @@ export class WorkflowService {
       // 1. 清除待审批数据
       await this.repo.clearPendingChanges(change.task_id);
 
-      // 2. 更新任务状态为 rejected
-      await this.repo.updateTaskStatus(change.task_id, 'rejected');
+      // 2. 获取完整任务信息，调用 calculateStatus 重新计算状态
+      const rejectedTask = await this.repo.getTaskWithDates(change.task_id);
+      if (rejectedTask) {
+        const newStatus = TaskService.calculateStatus(rejectedTask);
+        await this.repo.updateTaskStatus(change.task_id, newStatus);
+      }
 
       // 3. 发送通知
       await this.sendNotification(
         change.user_id,
         'approval_result',
         '变更审批驳回',
-        `您的变更请求已被驳回：${data.rejection_reason || '无原因'}`
+        `您的变更请求已被驳回：${data.rejection_reason || '无原因'}`,
+        `/tasks/${change.task_id}`,
+        rejectedTask?.project_id,
+        change.task_id
       );
     }
   }
 
+  /**
+   * 审批整个 submission（通过或驳回）
+   */
+  async approveSubmission(
+    submissionId: string,
+    data: ApprovalDecisionRequest,
+    currentUser: User
+  ): Promise<void> {
+    // 获取 submission 详情
+    const item = await this.repo.getApprovalItemBySubmissionId(submissionId);
+    if (!item) {
+      throw new ValidationError('审批请求不存在');
+    }
+
+    if (item.status !== 'pending') {
+      throw new ValidationError('该审批请求已处理');
+    }
+
+    // 验证审批权限（复用现有逻辑：取第一条变更记录判断）
+    const firstChange = await this.repo.getPlanChangeById(item.changes[0].id);
+    if (!firstChange || !await this.canApprove(firstChange, currentUser)) {
+      throw new ForbiddenError('无权限审批此变更');
+    }
+
+    // XSS 防护：消毒驳回原因
+    if (data.rejection_reason) {
+      data.rejection_reason = sanitizeString(data.rejection_reason, 1000);
+    }
+
+    // 批量更新状态
+    await this.repo.approveSubmission(
+      submissionId,
+      currentUser.id,
+      data.approved,
+      data.rejection_reason
+    );
+
+    if (data.approved) {
+      // ========== 审批通过 ==========
+      // 1. 应用所有变更到任务
+      const updates: Record<string, string | number | null> = {};
+      for (const change of item.changes) {
+        updates[change.change_type] = change.new_value;
+      }
+      await this.repo.updateTaskFields(item.taskId, updates);
+
+      // 2. 清除待审批数据
+      await this.repo.clearPendingChanges(item.taskId);
+
+      // 3. 重新计算任务状态
+      const approvedTask = await this.repo.getTaskWithDates(item.taskId);
+      if (approvedTask) {
+        const newStatus = TaskService.calculateStatus(approvedTask);
+        await this.repo.updateTaskStatus(item.taskId, newStatus);
+      }
+
+      // 4. 发送通知
+      const taskInfo = await this.repo.getTaskById(item.taskId);
+      await this.sendNotification(
+        item.userId,
+        'approval_result',
+        '变更审批通过',
+        `您的变更请求已通过审批`,
+        `/tasks/${item.taskId}`,
+        taskInfo?.project_id,
+        item.taskId
+      );
+
+      // 5. 发出事件
+      taskEvents.emit(TaskEventType.PLAN_CHANGE_APPROVED, {
+        planChangeId: submissionId,
+        taskId: item.taskId,
+        approverId: currentUser.id,
+        changes: item.changes.map(c => ({
+          field: c.change_type,
+          value: c.new_value,
+        })),
+        alreadyApplied: true,
+      } as TaskPlanChangeApprovedEvent);
+    } else {
+      // ========== 审批驳回 ==========
+      // 1. 清除待审批数据
+      await this.repo.clearPendingChanges(item.taskId);
+
+      // 2. 重新计算任务状态
+      const rejectedTask = await this.repo.getTaskWithDates(item.taskId);
+      if (rejectedTask) {
+        const newStatus = TaskService.calculateStatus(rejectedTask);
+        await this.repo.updateTaskStatus(item.taskId, newStatus);
+      }
+
+      // 3. 发送通知
+      const taskInfo = await this.repo.getTaskById(item.taskId);
+      await this.sendNotification(
+        item.userId,
+        'approval_result',
+        '变更审批驳回',
+        `您的变更请求已被驳回：${data.rejection_reason || '无原因'}`,
+        `/tasks/${item.taskId}`,
+        taskInfo?.project_id,
+        item.taskId
+      );
+    }
+  }
+
+  /**
+   * 按 submission_id 获取审批项详情
+   */
+  async getApprovalItemBySubmissionId(submissionId: string): Promise<ApprovalItem | null> {
+    return this.repo.getApprovalItemBySubmissionId(submissionId);
+  }
+
   private async canApprove(change: PlanChange, user: User): Promise<boolean> {
-    // 管理员和技术经理可以审批
-    if (user.role === 'admin' || user.role === 'tech_manager') {
+    // 管理员可以审批所有
+    if (user.role === 'admin') {
       return true;
     }
-    // 部门经理可以审批本部门成员的变更
+    // 技术经理可以审批本技术组下成员的变更
+    if (user.role === 'tech_manager') {
+      const approver = await this.orgService.findApprover(change.user_id);
+      return approver?.id === user.id;
+    }
+    // 部门经理仅在技术组无技术经理时可审批（兜底）
     if (user.role === 'dept_manager') {
-      // 简化实现，实际应该检查组织架构
-      return true;
+      const approver = await this.orgService.findApprover(change.user_id);
+      return approver?.id === user.id;
     }
     return false;
   }
@@ -242,6 +516,9 @@ export class WorkflowService {
     if (!data.reason || data.reason.trim() === '') {
       throw new ValidationError('延期原因不能为空');
     }
+
+    // XSS 防护：消毒延期原因
+    data.reason = sanitizeString(data.reason, 1000);
 
     const id = uuidv4();
     await this.repo.createDelayRecord({
@@ -277,20 +554,52 @@ export class WorkflowService {
     await this.repo.deleteNotification(id, userId);
   }
 
-  async sendNotification(userId: number, type: CreateNotificationRequest['type'], title: string, content: string, link?: string): Promise<void> {
-    const id = uuidv4();
-    await this.repo.createNotification({ id, user_id: userId, type, title, content, link });
-
-    // WebSocket 实时推送
-    sendToUser(userId, 'notification', { id, type, title, content, link, isRead: false });
+  async deleteNotifications(ids: string[], userId: number): Promise<number> {
+    return this.repo.deleteNotifications(ids, userId);
   }
 
-  async sendNotificationsToUsers(userIds: number[], type: CreateNotificationRequest['type'], title: string, content: string, link?: string): Promise<void> {
-    await this.repo.createNotificationsForUsers(userIds, { type, title, content, link });
+  async deleteAllReadNotifications(userId: number): Promise<number> {
+    return this.repo.deleteAllReadNotifications(userId);
+  }
+
+  async sendNotification(
+    userId: number,
+    type: CreateNotificationRequest['type'],
+    title: string,
+    content: string,
+    link?: string,
+    projectId?: string | null,
+    taskId?: string | null
+  ): Promise<void> {
+    // XSS 防护：消毒通知内容
+    title = sanitizeString(title, 200);
+    content = sanitizeString(content, 2000);
+
+    const id = uuidv4();
+    await this.repo.createNotification({ id, user_id: userId, type, title, content, link, project_id: projectId, task_id: taskId });
+
+    // WebSocket 实时推送
+    sendToUser(userId, 'notification', { id, type, title, content, link, project_id: projectId, task_id: taskId, is_read: false, created_at: new Date().toISOString() });
+  }
+
+  async sendNotificationsToUsers(
+    userIds: number[],
+    type: CreateNotificationRequest['type'],
+    title: string,
+    content: string,
+    link?: string,
+    projectId?: string | null,
+    taskId?: string | null
+  ): Promise<void> {
+    // XSS 防护：消毒通知内容
+    title = sanitizeString(title, 200);
+    content = sanitizeString(content, 2000);
+
+    await this.repo.createNotificationsForUsers(userIds, { type, title, content, link, project_id: projectId, task_id: taskId });
 
     // 批量 WebSocket 实时推送
     for (const userId of userIds) {
-      sendToUser(userId, 'notification', { type, title, content, link, isRead: false });
+      sendToUser(userId, 'notification', { type, title, content, link, project_id: projectId, task_id: taskId, is_read: false, created_at: new Date().toISOString() });
     }
   }
 
@@ -314,9 +623,9 @@ export class WorkflowService {
         // 获取任务信息，根据是否有实际开始日期决定恢复到哪个状态
         const task = await this.repo.getTaskById(approval.task_id);
         if (task) {
-          // 恢复到之前的状态（简化处理：如果有计划日期，设为 not_started，否则也设为 not_started）
-          // 实际应该根据业务逻辑恢复到更精确的状态
-          await this.repo.updateTaskStatus(approval.task_id, 'not_started');
+          // 与 approvePlanChange 保持一致：根据 actual_start_date 判断恢复状态
+          const newStatus = task.actual_start_date ? 'in_progress' : 'not_started';
+          await this.repo.updateTaskStatus(approval.task_id, newStatus);
         }
 
         // 通知申请人
@@ -325,7 +634,9 @@ export class WorkflowService {
           'approval_timeout',
           '审批请求超时',
           `您提交的变更请求因超过7天未审批已自动关闭`,
-          `/tasks/${approval.task_id}`
+          `/tasks/${approval.task_id}`,
+          task?.project_id,
+          approval.task_id
         );
       }
     }
@@ -368,7 +679,9 @@ export class WorkflowService {
           'delay_warning',
           '任务延期预警',
           `任务 "${task.description}" 即将到期，请注意进度`,
-          `/tasks/${task.id}`
+          `/tasks/${task.id}`,
+          task.project_id,
+          task.id
         );
       }
       warningCount++;
@@ -392,7 +705,9 @@ export class WorkflowService {
           'task_delayed',
           '任务已延期',
           `任务 "${task.description}" 已超过截止日期，请尽快处理`,
-          `/tasks/${task.id}`
+          `/tasks/${task.id}`,
+          task.project_id,
+          task.id
         );
       }
 
@@ -404,7 +719,9 @@ export class WorkflowService {
           'task_delayed',
           '项目任务延期提醒',
           `任务 "${task.description}" 已延期，负责人：${task.assignee_name || '未分配'}`,
-          `/tasks/${task.id}`
+          `/tasks/${task.id}`,
+          task.project_id,
+          task.id
         );
       }
 
@@ -422,7 +739,7 @@ export class WorkflowService {
    * - 刷新后再次超期：再+1（延期后用户刷新了计划，然后又延期了）
    */
   private async incrementDelayCount(taskId: string): Promise<{ incremented: boolean; reason: string }> {
-    const task = await this.repo.getTaskById(taskId);
+    const task = await this.getTaskById(taskId);
     if (!task) {
       return { incremented: false, reason: '任务不存在' };
     }
@@ -476,3 +793,4 @@ export class WorkflowService {
     }
   }
 }
+

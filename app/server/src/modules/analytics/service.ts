@@ -1,6 +1,10 @@
 // app/server/src/modules/analytics/service.ts
 import { AnalyticsRepository } from './repository';
+import { WorkflowRepository } from '../workflow/repository';
 import { ForbiddenError, ValidationError } from '../../core/errors';
+import { DEFAULTS, TIME_INTERVALS } from './constants';
+import { getPool } from '../../core/db';
+import type { RowDataPacket } from 'mysql2/promise';
 import type { User } from '../../core/types';
 import type {
   DashboardStats, ProjectProgressReport, TaskStatisticsReport,
@@ -19,12 +23,20 @@ import type { ProjectType } from '../project/types';
 
 export class AnalyticsService {
   private repo = new AnalyticsRepository();
+  private workflowRepo = new WorkflowRepository();
 
   // ========== 仪表板 ==========
 
   async getDashboardStats(user: User): Promise<DashboardStats & { urgent_tasks: unknown[] }> {
     const stats = await this.repo.getDashboardStats(user);
     const urgentTasks = await this.repo.getUrgentTasks(user);
+
+    // 修正 pending_approval_tasks：使用审批链逻辑，仅统计需要当前用户审批的数量
+    // 管理员看全部，技术经理仅看本技术组，部门经理仅在无技术经理时兜底
+    if (user.role === 'admin' || user.role === 'tech_manager' || user.role === 'dept_manager') {
+      const myPendingApprovals = await this.workflowRepo.getPendingApprovalsCountForUser(user.id);
+      stats.pending_approval_tasks = myPendingApprovals;
+    }
 
     return {
       ...stats,
@@ -42,12 +54,41 @@ export class AnalyticsService {
     return this.repo.getAllProjectsProgress(user);
   }
 
+  /**
+   * 获取优先级完成率趋势
+   */
+  async getPriorityCompletionTrend(
+    startDate: string,
+    endDate: string,
+    user: User,
+    projectId?: string
+  ): Promise<Array<{ period: string; priority: string; completionRate: number; totalTasks: number; completedTasks: number }>> {
+    // 权限检查：engineer 不可见报表分析模块
+    if (user.role === 'engineer') {
+      throw new ForbiddenError('无权限查看优先级完成率趋势');
+    }
+    return this.repo.getPriorityCompletionTrend(startDate, endDate, user, projectId);
+  }
+
   // ========== 报表分析 ==========
 
   async getProjectProgressReport(projectId: string, currentUser: User): Promise<ProjectProgressReport | null> {
-    // 验证权限
-    // 简化实现
-    return this.repo.getProjectProgressReport(projectId);
+    // 权限检查：engineer 不可见报表分析模块
+    if (currentUser.role === 'engineer') {
+      throw new ForbiddenError('无权限查看项目进度报表');
+    }
+    return this.repo.getProjectProgressReport(projectId, currentUser);
+  }
+
+  /**
+   * 获取项目进度汇总报表（多项目对比视图）
+   */
+  async getProjectProgressSummary(currentUser: User): Promise<import('./types').ProjectProgressSummary> {
+    // 权限检查：engineer 不可见报表分析模块
+    if (currentUser.role === 'engineer') {
+      throw new ForbiddenError('无权限查看项目进度报表');
+    }
+    return this.repo.getProjectProgressSummary(currentUser);
   }
 
   async getTaskStatisticsReport(options: ReportQueryOptions, currentUser: User): Promise<TaskStatisticsReport> {
@@ -55,7 +96,7 @@ export class AnalyticsService {
     if (currentUser.role === 'engineer') {
       throw new ForbiddenError('无权限查看任务统计报表');
     }
-    return this.repo.getTaskStatisticsReport(options);
+    return this.repo.getTaskStatisticsReport(options, currentUser);
   }
 
   async getDelayAnalysisReport(options: ReportQueryOptions, currentUser: User): Promise<DelayAnalysisReport> {
@@ -63,7 +104,7 @@ export class AnalyticsService {
     if (currentUser.role === 'engineer') {
       throw new ForbiddenError('无权限查看延期分析报表');
     }
-    return this.repo.getDelayAnalysisReport(options);
+    return this.repo.getDelayAnalysisReport(options, currentUser);
   }
 
   async getMemberAnalysisReport(memberId: number, currentUser: User): Promise<MemberAnalysisReport | null> {
@@ -76,7 +117,7 @@ export class AnalyticsService {
     // 简化实现：仅允许查看自己或同部门成员
     // TODO: 使用 ScopeService.canAccessMember 实现更完整的权限检查
 
-    return this.repo.getMemberAnalysisReport(memberId);
+    return this.repo.getMemberAnalysisReport(memberId, currentUser);
   }
 
   /**
@@ -100,7 +141,7 @@ export class AnalyticsService {
     if (currentUser.role === 'engineer') {
       throw new ForbiddenError('无权限查看资源效能分析报表');
     }
-    return this.repo.getResourceEfficiencyReport(options);
+    return this.repo.getResourceEfficiencyReport(options, currentUser);
   }
 
   // ========== 系统配置 ==========
@@ -161,9 +202,9 @@ export class AnalyticsService {
    * 获取仪表板统计卡片的趋势数据
    * 对比当前周期 vs 上一个同等周期
    */
-  async getDashboardTrends(user: User, days: number = 30): Promise<Record<string, StatsWithTrend>> {
+  async getDashboardTrends(user: User, days: number = DEFAULTS.TREND_DAYS): Promise<Record<string, StatsWithTrend>> {
     const endDate = new Date().toISOString().split('T')[0];
-    const startDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
+    const startDate = new Date(Date.now() - days * TIME_INTERVALS.MS_PER_DAY).toISOString().split('T')[0];
 
     const [activeProjects, totalTasks, completedTasks, delayWarning, overdue] = await Promise.all([
       this.repo.getStatsWithTrend(user, 'active_projects', startDate, endDate),
@@ -203,19 +244,19 @@ export class AnalyticsService {
     let data: Record<string, unknown>;
     switch (domain) {
       case 'task-statistics': {
-        const report = await this.repo.getTaskStatisticsReport(filters || {});
+        const report = await this.repo.getTaskStatisticsReport(filters || {}, user);
         data = report as unknown as Record<string, unknown>;
         break;
       }
       case 'delay-analysis': {
-        const report = await this.repo.getDelayAnalysisReport(filters || {});
+        const report = await this.repo.getDelayAnalysisReport(filters || {}, user);
         data = report as unknown as Record<string, unknown>;
         break;
       }
       case 'project-progress': {
         // 支持不指定项目ID时导出全部项目进度
         if (filters?.project_id) {
-          const report = await this.repo.getProjectProgressReport(filters.project_id);
+          const report = await this.repo.getProjectProgressReport(filters.project_id, user);
           if (!report) throw new ValidationError('项目不存在');
           data = report as unknown as Record<string, unknown>;
         } else {
@@ -230,7 +271,7 @@ export class AnalyticsService {
         break;
       }
       case 'resource-efficiency': {
-        const report = await this.repo.getResourceEfficiencyReport(filters || {});
+        const report = await this.repo.getResourceEfficiencyReport(filters || {}, user);
         data = report as unknown as Record<string, unknown>;
         break;
       }
@@ -243,8 +284,9 @@ export class AnalyticsService {
       return Buffer.from(JSON.stringify(data, null, 2), 'utf-8');
     }
 
-    // Excel/CSV 使用 exceljs
-    const ExcelJS = await import('exceljs');
+    // Excel/CSV 使用 exceljs（兼容ESM和CommonJS导出）
+    const exceljsModule = await import('exceljs');
+    const ExcelJS = exceljsModule.default || exceljsModule;
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('数据');
 
@@ -519,29 +561,131 @@ export class AnalyticsService {
         const { ProjectService } = await import('../project/service');
         const projectService = new ProjectService();
 
+        // 获取项目类型配置（用于中文名称到代码的转换）
+        const projectTypes = await this.repo.getProjectTypes();
+        const nameToCodeMap = new Map(projectTypes.map(t => [t.name, t.code]));
+        const validCodes = projectTypes.map(t => t.code);
+
+        // 日期格式正则
+        const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+        // 获取所有有效用户ID（用于成员验证）
+        const validUserIds = await this.getValidUserIds();
+
         for (let i = 0; i < data.length; i++) {
           const row = data[i] as Record<string, unknown>;
+          const rowNumber = i + 1;
+
           try {
-            if (!row.name) {
-              errors.push({ row: i + 1, message: '项目名称不能为空' });
+            // ===== 必填字段验证 =====
+            if (!row.code || String(row.code).trim() === '') {
+              errors.push({ row: rowNumber, message: '项目编码不能为空' });
+              continue;
+            }
+            if (!row.name || String(row.name).trim() === '') {
+              errors.push({ row: rowNumber, message: '项目名称不能为空' });
+              continue;
+            }
+            if (!row.project_type || String(row.project_type).trim() === '') {
+              errors.push({ row: rowNumber, message: '项目类型不能为空' });
               continue;
             }
             if (!row.planned_start_date || !row.planned_end_date) {
-              errors.push({ row: i + 1, message: '开始日期和结束日期为必填项' });
+              errors.push({ row: rowNumber, message: '开始日期和截止日期为必填项' });
               continue;
             }
 
+            // ===== 项目类型验证与转换 =====
+            // 支持中文名称或代码
+            const projectTypeInput = String(row.project_type).trim();
+            let projectTypeCode: string | undefined;
+
+            if (nameToCodeMap.has(projectTypeInput)) {
+              projectTypeCode = nameToCodeMap.get(projectTypeInput);
+            } else if (validCodes.includes(projectTypeInput as ProjectType)) {
+              projectTypeCode = projectTypeInput;
+            }
+
+            if (!projectTypeCode) {
+              const validOptions = [...nameToCodeMap.keys(), ...validCodes].join('、');
+              errors.push({
+                row: rowNumber,
+                message: `项目类型无效，可选值：${validOptions}`
+              });
+              continue;
+            }
+
+            // ===== 日期格式验证 =====
+            const startDateStr = String(row.planned_start_date).trim();
+            const endDateStr = String(row.planned_end_date).trim();
+
+            if (!DATE_REGEX.test(startDateStr)) {
+              errors.push({ row: rowNumber, message: '开始日期格式必须为 YYYY-MM-DD' });
+              continue;
+            }
+            if (!DATE_REGEX.test(endDateStr)) {
+              errors.push({ row: rowNumber, message: '截止日期格式必须为 YYYY-MM-DD' });
+              continue;
+            }
+
+            // ===== 日期逻辑验证 =====
+            const startDate = new Date(startDateStr);
+            const endDate = new Date(endDateStr);
+            if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+              errors.push({ row: rowNumber, message: '日期格式无效，请检查日期是否正确' });
+              continue;
+            }
+            if (endDate < startDate) {
+              errors.push({ row: rowNumber, message: '截止日期不能早于开始日期' });
+              continue;
+            }
+
+            // ===== 成员ID存在性验证 =====
+            let memberIds: number[] = [];
+            if (row.member_ids) {
+              const idsStr = String(row.member_ids).trim();
+              if (idsStr) {
+                memberIds = idsStr.split(',')
+                  .map(id => Number(id.trim()))
+                  .filter(id => !isNaN(id) && id > 0);
+
+                // 验证成员ID是否存在
+                const invalidIds = memberIds.filter(id => !validUserIds.includes(id));
+                if (invalidIds.length > 0) {
+                  errors.push({
+                    row: rowNumber,
+                    message: `成员ID [${invalidIds.join(', ')}] 不存在`
+                  });
+                  continue;
+                }
+              }
+            }
+            if (memberIds.length === 0) {
+              memberIds = [currentUser.id]; // 默认当前用户
+            }
+
+            // ===== 创建项目 =====
             await projectService.createProject({
-              name: String(row.name),
-              code: `IMP-${Date.now()}-${i}`,
-              project_type: (row.project_type as ProjectType) || 'product_dev',
-              planned_start_date: String(row.planned_start_date),
-              planned_end_date: String(row.planned_end_date),
-              member_ids: row.manager_id ? [Number(row.manager_id)] : [currentUser.id],
+              code: String(row.code).trim(),
+              name: String(row.name).trim(),
+              project_type: projectTypeCode as ProjectType,
+              description: row.description ? String(row.description).trim() : undefined,
+              planned_start_date: startDateStr,
+              planned_end_date: endDateStr,
+              member_ids: memberIds,
             }, currentUser);
             succeeded++;
-          } catch (err: any) {
-            errors.push({ row: i + 1, message: err.message || '创建失败' });
+
+          } catch (err: unknown) {
+            // ===== 错误类型处理 =====
+            const errorMessage = err instanceof Error ? err.message : '创建失败';
+            if (err instanceof ValidationError) {
+              errors.push({ row: rowNumber, message: errorMessage });
+            } else if (err instanceof ForbiddenError) {
+              errors.push({ row: rowNumber, message: '无权限创建项目，请联系管理员' });
+            } else {
+              errors.push({ row: rowNumber, message: errorMessage });
+            }
           }
         }
         break;
@@ -561,7 +705,8 @@ export class AnalyticsService {
   }
 
   async downloadTemplate(type: string): Promise<Buffer> {
-    const ExcelJS = await import('exceljs');
+    const exceljsModule = await import('exceljs');
+    const ExcelJS = exceljsModule.default || exceljsModule;
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('导入模板');
 
@@ -622,32 +767,63 @@ export class AnalyticsService {
       }
 
       case 'projects': {
+        // 获取系统中的项目类型配置
+        const projectTypes = await this.repo.getProjectTypes();
+        const projectTypeNames = projectTypes.map(t => t.name);
+
         worksheet.columns = [
+          { header: '项目编码 *', key: 'code', width: 15 },
           { header: '项目名称 *', key: 'name', width: 25 },
-          { header: '项目类型', key: 'project_type', width: 12 },
+          { header: '项目类型 *', key: 'project_type', width: 12 },
+          { header: '项目描述', key: 'description', width: 30 },
           { header: '开始日期 *', key: 'planned_start_date', width: 16 },
-          { header: '结束日期 *', key: 'planned_end_date', width: 16 },
-          { header: '负责人ID', key: 'manager_id', width: 12 },
+          { header: '截止日期 *', key: 'planned_end_date', width: 16 },
+          { header: '项目成员ID', key: 'member_ids', width: 20 },
         ];
 
         worksheet.getRow(1).eachCell((cell: Cell) => {
           cell.style = headerStyle;
         });
 
+        // 示例数据（使用中文名称）
+        const firstTypeName = projectTypeNames[0] || '产品开发';
+        const secondTypeName = projectTypeNames[1] || projectTypeNames[0] || '职能管理';
         worksheet.addRow({
+          code: 'PRJ-001',
           name: '新零售系统 v2.0',
-          project_type: 'product',
+          project_type: firstTypeName,
+          description: '升级新零售系统核心功能',
           planned_start_date: '2026-04-01',
           planned_end_date: '2026-06-30',
-          manager_id: '1',
+          member_ids: '1,2,3',
         });
         worksheet.addRow({
+          code: 'PRJ-002',
           name: '数据平台迁移',
-          project_type: 'internal',
+          project_type: secondTypeName,
+          description: '',
           planned_start_date: '2026-05-01',
           planned_end_date: '2026-08-31',
-          manager_id: '2',
+          member_ids: '4',
         });
+
+        // 为项目类型列添加下拉验证（C列，从第2行开始）
+        // 使用中文名称作为下拉选项
+        if (projectTypeNames.length > 0) {
+          const typeList = projectTypeNames.join(',');
+          for (let row = 2; row <= 102; row++) {
+            const cell = worksheet.getCell(`C${row}`);
+            cell.dataValidation = {
+              type: 'list',
+              formulae: [`"${typeList}"`],
+              allowBlank: false,
+              showErrorMessage: true,
+              errorStyle: 'error',
+              errorTitle: '无效的项目类型',
+              error: `请从列表中选择`,
+            };
+          }
+        }
         break;
       }
 
@@ -666,23 +842,36 @@ export class AnalyticsService {
 
   // ========== 仪表板 Detail API（按角色聚合） ==========
 
-  async getDashboardAdminDetail(user: User): Promise<AdminDashboardDetailResponse> {
+  async getDashboardAdminDetail(user: User, projectId?: string): Promise<AdminDashboardDetailResponse> {
     if (user.role !== 'admin') throw new ForbiddenError('无权限访问管理员仪表板详情');
-    return this.repo.getDashboardAdminDetail(user);
+    return this.repo.getDashboardAdminDetail(user, projectId);
   }
 
-  async getDashboardDeptManagerDetail(user: User): Promise<DeptManagerDashboardDetailResponse> {
+  async getDashboardDeptManagerDetail(user: User, projectId?: string): Promise<DeptManagerDashboardDetailResponse> {
     if (user.role !== 'dept_manager') throw new ForbiddenError('无权限访问部门经理仪表板详情');
-    return this.repo.getDashboardDeptManagerDetail(user);
+    return this.repo.getDashboardDeptManagerDetail(user, projectId);
   }
 
-  async getDashboardTechManagerDetail(user: User, groupId?: number): Promise<TechManagerDashboardDetailResponse> {
+  async getDashboardTechManagerDetail(user: User, groupId?: number, projectId?: string): Promise<TechManagerDashboardDetailResponse> {
     if (user.role !== 'tech_manager') throw new ForbiddenError('无权限访问技术经理仪表板详情');
-    return this.repo.getDashboardTechManagerDetail(user, groupId);
+    return this.repo.getDashboardTechManagerDetail(user, groupId, projectId);
   }
 
-  async getDashboardEngineerDetail(user: User): Promise<EngineerDashboardDetailResponse> {
+  async getDashboardEngineerDetail(user: User, projectId?: string): Promise<EngineerDashboardDetailResponse> {
     if (user.role !== 'engineer') throw new ForbiddenError('无权限访问工程师仪表板详情');
-    return this.repo.getDashboardEngineerDetail(user);
+    return this.repo.getDashboardEngineerDetail(user, projectId);
+  }
+
+  // ========== 辅助方法 ==========
+
+  /**
+   * 获取所有有效用户ID（用于导入时验证成员ID）
+   */
+  private async getValidUserIds(): Promise<number[]> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT id FROM users WHERE is_active = 1'
+    );
+    return rows.map(r => r.id);
   }
 }

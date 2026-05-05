@@ -1,221 +1,285 @@
 /**
  * 报表数据Hook
- * 统一数据入口，方便切换Mock和真实API
+ * 使用 React Query 实现缓存和自动刷新
+ * @module analytics/reports/data/useReportData
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type {
   ReportFilters,
-  ReportType,
   ProjectProgressData,
+  ProjectProgressSummaryData,
   TaskStatisticsData,
   DelayAnalysisData,
   MemberAnalysisData,
   ResourceEfficiencyData,
 } from '../types';
 
-// ==================== 配置开关 ====================
-
-/**
- * 设置为 true 使用模拟数据，false 使用真实API
- * 删除 mock 目录后，将此值改为 false
- */
-const USE_MOCK_DATA = true;
-
-// ==================== 模拟数据导入 ====================
+// ==================== API 导入 ====================
 
 import {
-  getMockProjectProgressData,
-  getMockTaskStatisticsData,
-  getMockDelayAnalysisData,
-  getMockMemberAnalysisData,
-  getMockResourceEfficiencyData,
-} from './mock';
+  getTaskStatisticsReport,
+  getDelayAnalysisReport,
+  getMemberAnalysisReport,
+  getResourceEfficiencyReport,
+  getProjectProgressReport,
+  getProjectsSimple,
+  getMembersSimple,
+} from '../api';
 
-// ==================== 数据获取Hook ====================
+import {
+  transformTaskStatisticsReport,
+  transformDelayAnalysisReport,
+  transformMemberAnalysisReport,
+  transformResourceEfficiencyReport,
+  transformProjectProgressReport,
+  transformProjectProgressSummary,
+} from './transformers';
 
-interface UseReportDataResult<T> {
+import { analyticsApi } from '@/lib/api/analytics.api';
+import { CACHE_TIMES, TIME_PERIODS } from '../../shared/constants';
+
+// ==================== 类型定义 ====================
+
+/** Hook 返回结果类型 */
+export interface UseReportDataResult<T> {
   data: T | null;
   isLoading: boolean;
   error: Error | null;
   refetch: () => void;
 }
 
+// ==================== 缓存配置 ====================
+
+/** 报表数据缓存时间：5分钟内不重新请求 */
+const REPORT_STALE_TIME = CACHE_TIMES.staleTime;
+
+/** 缓存保留时间：10分钟后清理 */
+const REPORT_GC_TIME = CACHE_TIMES.staleTime * 2;
+
+/** 筛选器数据缓存时间：30分钟内不重新请求 */
+const FILTER_STALE_TIME = 30 * 60 * 1000;
+
+// ==================== 辅助函数 ====================
+
+function filtersToQueryOptions(filters: ReportFilters) {
+  return {
+    project_id: filters.projectId,
+    assignee_id: filters.assigneeId ? parseInt(filters.assigneeId) : undefined,
+    start_date: filters.startDate,
+    end_date: filters.endDate,
+    task_type: filters.taskType,
+    delay_type: filters.delayType,
+    department_id: filters.departmentId ? parseInt(filters.departmentId) : undefined,
+    tech_group_id: filters.techGroupId ? parseInt(filters.techGroupId) : undefined,
+  };
+}
+
+function getStartDate(filters: ReportFilters): string {
+  return filters.startDate || new Date(Date.now() - TIME_PERIODS.month * CACHE_TIMES.dayMs).toISOString().split('T')[0];
+}
+
+function getEndDate(filters: ReportFilters): string {
+  return filters.endDate || new Date().toISOString().split('T')[0];
+}
+
+// ==================== 通用报表 Hook ====================
+
 /**
- * 通用报表数据Hook
+ * 通用报表数据获取 Hook
+ * @param queryKey React Query 缓存键
+ * @param filters 筛选条件
+ * @param fetcher 数据获取函数
  */
-function useReportData<T>(
-  reportType: ReportType,
+export function useReportData<T>(
+  queryKey: string,
   filters: ReportFilters,
-  mockFetcher: () => T
+  fetcher: (filters: ReportFilters) => Promise<T>
 ): UseReportDataResult<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: [queryKey, filters],
+    queryFn: () => fetcher(filters),
+    staleTime: REPORT_STALE_TIME,
+    gcTime: REPORT_GC_TIME,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
 
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  return {
+    data: data ?? null,
+    isLoading,
+    error: error ?? null,
+    refetch: () => refetch(),
+  };
+}
 
-    try {
-      if (USE_MOCK_DATA) {
-        // 模拟网络延迟
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        setData(mockFetcher());
-      } else {
-        // 真实API调用
-        const params = new URLSearchParams();
-        if (filters.projectId) params.set('project_id', filters.projectId);
-        if (filters.assigneeId) params.set('assignee_id', filters.assigneeId);
-        if (filters.timeRange) params.set('time_range', filters.timeRange);
-        if (filters.startDate) params.set('start_date', filters.startDate);
-        if (filters.endDate) params.set('end_date', filters.endDate);
+// ==================== 具体报表 Hook ====================
 
-        const response = await fetch(`/api/reports/${reportType}?${params.toString()}`, {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          },
-        });
+/**
+ * 任务统计报表
+ */
+export function useTaskStatisticsData(filters: ReportFilters): UseReportDataResult<TaskStatisticsData> {
+  return useReportData('task-statistics', filters, async (f) => {
+    const options = filtersToQueryOptions(f);
+    const startDate = getStartDate(f);
+    const endDate = getEndDate(f);
 
-        if (!response.ok) {
-          throw new Error(`获取数据失败: ${response.status}`);
-        }
+    // 并行获取所有数据，避免串行等待
+    const [reportResult, trendResult, priorityTrendResult] = await Promise.allSettled([
+      getTaskStatisticsReport(options),
+      analyticsApi.getTaskTrend({ startDate, endDate }),
+      analyticsApi.getPriorityCompletionTrend({ startDate, endDate }),
+    ]);
 
-        const result = await response.json();
-        setData(result.data);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('未知错误'));
-    } finally {
-      setIsLoading(false);
+    if (reportResult.status === 'rejected') {
+      throw reportResult.reason;
     }
-  }, [reportType, filters, mockFetcher]);
+    const report = reportResult.value;
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    const trendData = trendResult.status === 'fulfilled' ? (trendResult.value || []) : [];
+    if (trendResult.status === 'rejected') {
+      if (import.meta.env.DEV) console.warn('Failed to fetch task trend:', trendResult.reason);
+    }
 
-  return { data, isLoading, error, refetch: fetchData };
+    const priorityTrendData = priorityTrendResult.status === 'fulfilled' ? (priorityTrendResult.value || []) : [];
+    if (priorityTrendResult.status === 'rejected') {
+      if (import.meta.env.DEV) console.warn('Failed to fetch priority trend:', priorityTrendResult.reason);
+    }
+
+    return transformTaskStatisticsReport(report, trendData, priorityTrendData);
+  });
 }
 
-// ==================== 各报表专用Hook ====================
-
-export function useProjectProgressData(filters: ReportFilters) {
-  return useReportData<ProjectProgressData>(
-    'project-progress',
-    filters,
-    getMockProjectProgressData
-  );
+/**
+ * 延期分析报表
+ */
+export function useDelayAnalysisData(filters: ReportFilters): UseReportDataResult<DelayAnalysisData> {
+  return useReportData('delay-analysis', filters, async (f) => {
+    const options = filtersToQueryOptions(f);
+    const report = await getDelayAnalysisReport(options);
+    return transformDelayAnalysisReport(report);
+  });
 }
 
-export function useTaskStatisticsData(filters: ReportFilters) {
-  return useReportData<TaskStatisticsData>(
-    'task-statistics',
-    filters,
-    getMockTaskStatisticsData
-  );
+/**
+ * 成员分析报表
+ */
+export function useMemberAnalysisData(filters: ReportFilters): UseReportDataResult<MemberAnalysisData> {
+  return useReportData('member-analysis', filters, async (f) => {
+    const options = filtersToQueryOptions(f);
+    // 映射 assignee_id → member_id（成员分析 API 使用 member_id）
+    const report = await getMemberAnalysisReport({
+      member_id: options.assignee_id,
+      start_date: options.start_date,
+      end_date: options.end_date,
+    });
+    return transformMemberAnalysisReport(report);
+  });
 }
 
-export function useDelayAnalysisData(filters: ReportFilters) {
-  return useReportData<DelayAnalysisData>(
-    'delay-analysis',
-    filters,
-    getMockDelayAnalysisData
-  );
+/**
+ * 资源效能报表
+ */
+export function useResourceEfficiencyData(filters: ReportFilters): UseReportDataResult<ResourceEfficiencyData> {
+  return useReportData('resource-efficiency', filters, async (f) => {
+    const options = filtersToQueryOptions(f);
+    const report = await getResourceEfficiencyReport(options);
+    return transformResourceEfficiencyReport(report);
+  });
 }
 
-export function useMemberAnalysisData(filters: ReportFilters) {
-  return useReportData<MemberAnalysisData>(
-    'member-analysis',
-    filters,
-    getMockMemberAnalysisData
-  );
+/**
+ * 项目进度报表
+ * @param projectId 项目ID，可选。不传则返回汇总数据
+ */
+export function useProjectProgressData(projectId?: string): {
+  data: ProjectProgressData | ProjectProgressSummaryData | null;
+  isLoading: boolean;
+  error: Error | null;
+  refetch: () => void;
+  isSummary: boolean;
+} {
+  const queryKey = projectId ? ['project-progress', projectId] : ['project-progress-summary'];
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const report = await getProjectProgressReport(projectId);
+      if (!report) return null;
+
+      // 根据 report 内容判断是汇总还是单项目
+      if ('projects' in report) {
+        return transformProjectProgressSummary(report as any);
+      } else {
+        return transformProjectProgressReport(report as any);
+      }
+    },
+    staleTime: REPORT_STALE_TIME,
+    gcTime: REPORT_GC_TIME,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
+  // 基于实际数据形态判断视图类型
+  const isSummary = data ? 'projects' in data : !projectId;
+
+  return {
+    data: data ?? null,
+    isLoading,
+    error: error ?? null,
+    refetch: () => refetch(),
+    isSummary,
+  };
 }
 
-export function useResourceEfficiencyData(filters: ReportFilters) {
-  return useReportData<ResourceEfficiencyData>(
-    'resource-efficiency',
-    filters,
-    getMockResourceEfficiencyData
-  );
-}
+// ==================== 筛选器数据 Hook ====================
 
-// ==================== 辅助数据Hook ====================
-
-/** 获取项目列表（用于筛选器） */
+/**
+ * 获取项目列表（用于筛选器）
+ * 使用全局缓存，30分钟内不重新请求
+ */
 export function useProjectsForReport() {
-  const [data, setData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['report-projects'],
+    queryFn: async () => {
+      const projects = await getProjectsSimple();
+      return projects ?? [];
+    },
+    staleTime: FILTER_STALE_TIME,
+    gcTime: FILTER_STALE_TIME * 2,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
 
-  useEffect(() => {
-    const fetchProjects = async () => {
-      try {
-        if (USE_MOCK_DATA) {
-          await new Promise((resolve) => setTimeout(resolve, 200));
-          setData([
-            { id: '1', name: '智能终端项目' },
-            { id: '2', name: '数据平台项目' },
-            { id: '3', name: '移动端优化项目' },
-            { id: '4', name: '安全审计项目' },
-          ]);
-        } else {
-          const response = await fetch('/api/projects?simple=true', {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem('token')}`,
-            },
-          });
-          const result = await response.json();
-          setData(result.data || result);
-        }
-      } catch (err) {
-        console.error('获取项目列表失败:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchProjects();
-  }, []);
-
-  return { data, isLoading };
+  return {
+    data: data ?? [],
+    isLoading,
+    error: error ?? null,
+    refetch: () => refetch(),
+  };
 }
 
-/** 获取成员列表（用于筛选器） */
+/**
+ * 获取成员列表（用于筛选器）
+ * 使用全局缓存，30分钟内不重新请求
+ */
 export function useMembersForReport() {
-  const [data, setData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['report-members'],
+    queryFn: async () => {
+      const members = await getMembersSimple();
+      return members ?? [];
+    },
+    staleTime: FILTER_STALE_TIME,
+    gcTime: FILTER_STALE_TIME * 2,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
 
-  useEffect(() => {
-    const fetchMembers = async () => {
-      try {
-        if (USE_MOCK_DATA) {
-          await new Promise((resolve) => setTimeout(resolve, 200));
-          setData([
-            { id: '1', name: '张三' },
-            { id: '2', name: '李四' },
-            { id: '3', name: '王五' },
-            { id: '4', name: '赵六' },
-            { id: '5', name: '钱七' },
-            { id: '6', name: '孙八' },
-          ]);
-        } else {
-          const response = await fetch('/api/users?simple=true', {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem('token')}`,
-            },
-          });
-          const result = await response.json();
-          setData(result.data || result);
-        }
-      } catch (err) {
-        console.error('获取成员列表失败:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchMembers();
-  }, []);
-
-  return { data, isLoading };
+  return {
+    data: data ?? [],
+    isLoading,
+    error: error ?? null,
+    refetch: () => refetch(),
+  };
 }

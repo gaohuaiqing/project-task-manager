@@ -7,6 +7,7 @@
 import {
   BarChart as RechartsBarChart,
   Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -27,6 +28,8 @@ export interface BarChartProps {
   yAxisLabel?: string;
   /** 柱子最大宽度，默认32px */
   maxBarSize?: number;
+  /** 是否显示X轴，默认true */
+  showXAxis?: boolean;
 }
 
 const COLORS = [
@@ -46,11 +49,17 @@ export function BarChart({
   xAxisLabel,
   yAxisLabel,
   maxBarSize = 32,
+  showXAxis = true,
 }: BarChartProps) {
-  const chartData = data.labels.map((label, index) => {
+  // 安全数据处理
+  const safeData = data || { labels: [], datasets: [] };
+  const labels = safeData.labels || [];
+  const datasets = safeData.datasets || [];
+
+  const chartData = labels.map((label, index) => {
     const item: Record<string, string | number> = { name: label };
-    data.datasets.forEach((dataset) => {
-      item[dataset.label] = dataset.values[index];
+    datasets.forEach((dataset) => {
+      item[dataset.label] = dataset.values?.[index] ?? 0;
     });
     return item;
   });
@@ -58,13 +67,30 @@ export function BarChart({
   const isVertical = layout === 'vertical';
 
   // 根据数据量动态调整X轴标签显示
-  const labelCount = data.labels.length;
+  const labelCount = labels.length;
   const interval = labelCount > 10 ? Math.ceil(labelCount / 8) : 0;
   const needRotate = labelCount > 5;
 
   // 根据是否有标签调整margin
-  const marginBottom = xAxisLabel ? (needRotate ? 55 : 40) : (needRotate ? 40 : 25);
+  // 如果隐藏X轴，减少底部边距
+  const marginBottom = showXAxis
+    ? (xAxisLabel ? (needRotate ? 55 : 40) : (needRotate ? 40 : 25))
+    : 10;
   const marginLeft = yAxisLabel ? 55 : 35;
+
+  // 空数据处理
+  if (labels.length === 0 || datasets.length === 0) {
+    return (
+      <div className="flex items-center justify-center text-muted-foreground text-sm" style={{ height }}>
+        暂无数据
+      </div>
+    );
+  }
+
+  // 坐标轴样式
+  const AXIS_STROKE = 'hsl(var(--border))';
+  const TICK_STROKE = 'hsl(var(--border))';
+  const TICK_STYLE = { fontSize: 10, fill: 'hsl(var(--muted-foreground))' };
 
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -74,30 +100,32 @@ export function BarChart({
         margin={{ top: 10, right: 20, left: marginLeft, bottom: marginBottom }}
         barCategoryGap="20%"
       >
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} vertical={!isVertical} horizontal={isVertical} />
 
         {/* XAxis - 直接子元素，不用 Fragment 包裹 */}
         {isVertical ? (
           <XAxis
             type="number"
-            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-            stroke="hsl(var(--border))"
-            tickLine={false}
-            axisLine={false}
-            label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -5, fontSize: 10, fill: 'hsl(var(--muted-foreground))' } : undefined}
+            tick={showXAxis ? TICK_STYLE : false}
+            stroke={AXIS_STROKE}
+            tickLine={{ stroke: TICK_STROKE, strokeWidth: 1 }}
+            tickSize={4}
+            axisLine={{ stroke: showXAxis ? AXIS_STROKE : 'transparent', strokeWidth: showXAxis ? 1 : 0 }}
+            label={showXAxis && xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -5, fontSize: 10, fill: 'hsl(var(--muted-foreground))' } : undefined}
           />
         ) : (
           <XAxis
             dataKey="name"
-            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-            stroke="hsl(var(--border))"
-            tickLine={false}
-            axisLine={false}
+            tick={showXAxis ? TICK_STYLE : false}
+            stroke={showXAxis ? AXIS_STROKE : 'transparent'}
+            tickLine={{ stroke: showXAxis ? TICK_STROKE : 'transparent', strokeWidth: showXAxis ? 1 : 0 }}
+            tickSize={4}
+            axisLine={{ stroke: showXAxis ? AXIS_STROKE : 'transparent', strokeWidth: showXAxis ? 1 : 0 }}
             interval={interval}
-            angle={needRotate ? -35 : 0}
-            textAnchor={needRotate ? 'end' : 'middle'}
-            height={needRotate ? 60 : 40}
-            label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: needRotate ? -5 : -2, fontSize: 10, fill: 'hsl(var(--muted-foreground))' } : undefined}
+            angle={showXAxis && needRotate ? -35 : 0}
+            textAnchor={showXAxis && needRotate ? 'end' : 'middle'}
+            height={showXAxis && needRotate ? 60 : 40}
+            label={showXAxis && xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: needRotate ? -5 : -2, fontSize: 10, fill: 'hsl(var(--muted-foreground))' } : undefined}
           />
         )}
 
@@ -106,18 +134,20 @@ export function BarChart({
           <YAxis
             type="category"
             dataKey="name"
-            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-            stroke="hsl(var(--border))"
-            tickLine={false}
-            axisLine={false}
+            tick={TICK_STYLE}
+            stroke={AXIS_STROKE}
+            tickLine={{ stroke: TICK_STROKE, strokeWidth: 1 }}
+            tickSize={4}
+            axisLine={{ stroke: AXIS_STROKE, strokeWidth: 1 }}
             width={90}
           />
         ) : (
           <YAxis
-            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-            stroke="hsl(var(--border))"
-            tickLine={false}
-            axisLine={false}
+            tick={TICK_STYLE}
+            stroke={AXIS_STROKE}
+            tickLine={{ stroke: TICK_STROKE, strokeWidth: 1 }}
+            tickSize={4}
+            axisLine={{ stroke: AXIS_STROKE, strokeWidth: 1 }}
             label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, fontSize: 10, fill: 'hsl(var(--muted-foreground))', style: { textAnchor: 'middle' } } : undefined}
           />
         )}
@@ -132,16 +162,27 @@ export function BarChart({
           }}
         />
         {showLegend && <Legend wrapperStyle={{ fontSize: '10px' }} iconType="circle" />}
-        {data.datasets.map((dataset, index) => (
-          <Bar
-            key={dataset.label}
-            dataKey={dataset.label}
-            fill={dataset.color || COLORS[index % COLORS.length]}
-            stackId={stacked ? 'stack' : undefined}
-            radius={stacked ? undefined : [4, 4, 0, 0]}
-            maxBarSize={maxBarSize}
-          />
-        ))}
+        {datasets.map((dataset, index) => {
+          const baseFill = Array.isArray(dataset.color)
+            ? COLORS[index % COLORS.length]
+            : (dataset.color || COLORS[index % COLORS.length]);
+
+          return (
+            <Bar
+              key={dataset.label}
+              dataKey={dataset.label}
+              fill={baseFill}
+              stackId={stacked ? 'stack' : undefined}
+              radius={stacked ? undefined : [4, 4, 0, 0]}
+              maxBarSize={maxBarSize}
+            >
+              {Array.isArray(dataset.color) &&
+                dataset.color.map((color, cellIndex) => (
+                  <Cell key={cellIndex} fill={color} />
+                ))}
+            </Bar>
+          );
+        })}
       </RechartsBarChart>
     </ResponsiveContainer>
   );

@@ -591,7 +591,7 @@ export function UsersSettings() {
             <Button variant="outline" onClick={() => setEditDialogOpen(false)} data-testid="users-btn-cancel">
               取消
             </Button>
-            <Button onClick={submitEdit} disabled={updateMutation.isPending} data-testid="users-btn-submit">
+            <Button variant="outline" onClick={submitEdit} disabled={updateMutation.isPending} data-testid="users-btn-submit">
               {updateMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               保存
             </Button>
@@ -752,7 +752,7 @@ export function UsersSettings() {
 
           <DialogFooter>
             {newPassword ? (
-              <Button onClick={closeResetPasswordDialog}>
+              <Button variant="outline" onClick={closeResetPasswordDialog}>
                 关闭
               </Button>
             ) : (

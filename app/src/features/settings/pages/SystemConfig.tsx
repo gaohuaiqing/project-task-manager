@@ -57,7 +57,7 @@ export function SystemConfigSettings() {
               <CardDescription>
                 管理系统运行参数和              </CardDescription>
             </div>
-            <Button onClick={handleSave}>
+            <Button variant="outline" onClick={handleSave}>
               <Save className="h-4 w-4 mr-2" />
               保存配置
             </Button>

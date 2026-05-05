@@ -53,7 +53,6 @@ interface ImportPreviewDialogProps {
   errors: ValidationError[];
   newCount: number;
   updateCount: number;
-  projectId: string;
   onConfirm?: () => Promise<ImportResult | void>;
   isLoading?: boolean;
 }
@@ -66,7 +65,6 @@ export function ImportPreviewDialog({
   errors,
   newCount,
   updateCount,
-  projectId,
   onConfirm,
   isLoading,
 }: ImportPreviewDialogProps) {
@@ -88,10 +86,11 @@ export function ImportPreviewDialog({
 
   // 分批导入函数
   const handleBatchImport = async (
-    tasks: ParsedTaskData[],
-    projectId: string
+    tasks: ParsedTaskData[]
   ): Promise<ImportResult> => {
-    const BATCH_SIZE = 20;
+    // 使用大批次大小（500），避免跨批次查找父任务的问题
+    // WBS 任务导入需要保证父任务在同一个批次中
+    const BATCH_SIZE = 500;
     const batches: ParsedTaskData[][] = [];
 
     // 分批
@@ -109,7 +108,7 @@ export function ImportPreviewDialog({
 
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
-      const result = await taskApi.importTasks(projectId, batch);
+      const result = await taskApi.importTasks(batch);
 
       // 汇总结果
       allResults.push(...result.results);
@@ -172,27 +171,10 @@ export function ImportPreviewDialog({
     setImportProgress(0);
 
     try {
-      // 使用 props 传入的 projectId
-      if (!projectId) {
-        console.error('[ImportPreviewDialog] 缺少 projectId');
-        setImportResult({
-          total: parsedData.length,
-          success: 0,
-          failed: parsedData.length,
-          results: parsedData.map(t => ({
-            success: false,
-            wbsCode: t.wbsCode,
-            rowNumber: t.rowNumber,
-            error: '缺少项目ID',
-          })),
-        });
-        return;
-      }
-
       console.log('[ImportPreviewDialog] 开始分批导入, 总数:', parsedData.length);
 
-      // 调用分批导入
-      const result = await handleBatchImport(parsedData, projectId);
+      // 调用分批导入（项目编码由后端自动匹配项目UUID）
+      const result = await handleBatchImport(parsedData);
 
       console.log('[ImportPreviewDialog] 导入完成:', result);
       setImportResult(result);
@@ -417,7 +399,7 @@ export function ImportPreviewDialog({
               {isImportComplete && importResult.failed > 0 && (
                 <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800">
                   <div className="text-yellow-700 dark:text-yellow-500 text-sm">
-                    ⚠️ 由于部分数据导入失败，所有更改已回滚。请修正错误后重新导入。
+                    ⚠️ 部分任务导入失败，失败的批次已回滚。请修正错误后重新导入失败的任务。
                   </div>
                 </div>
               )}

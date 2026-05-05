@@ -186,3 +186,42 @@ docker-compose.override.yml
 # 临时文件
 cookies.txt
 **/cookies.txt
+cookies*.txt
+**/cookies*.txt
+
+# 备份目录
+app/server/backups/
+
+# 后台运行日志
+nohup.out
+**/nohup.out
+
+# 测试结果（根目录）
+test-results/
+
+# 截图目录
+screenshots/
+scripts/screenshots/
+
+# 临时目录
+tmp/
+
+# 根目录临时截图
+*.png
+!docs/screenshots/*.png
+
+# 临时测试脚本
+app/test-*.cjs
+app/test-*.js
+fix_wbs.js
+test-cdp.js
+test-e2e-chrome.mjs
+test-level-management.js
+test_template.xlsx
+
+# 脚本临时文件
+scripts/chrome-login.js
+scripts/test-report.json
+scripts/zai-mcp-with-proxy.*
+scripts/e2e-task-template-download.mjs
+scripts/fix_wbs_codes.py

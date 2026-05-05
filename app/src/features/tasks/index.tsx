@@ -1,8 +1,10 @@
 /**
  * 任务管理页面
  */
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useParams, useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { WbsTable } from './components/WbsTable';
@@ -16,11 +18,15 @@ import {
   useCreateTask,
   useUpdateTask,
   useDeleteTask,
+  useChangeTaskLevel,
+  useReorderTask,
 } from './hooks/useTaskMutations';
 import { useProjects } from '@/features/projects/hooks/useProjects';
 import { getMembers } from '@/lib/api/org.api';
-import { taskApi } from '@/lib/api/task.api';
+import { taskApi, batchDeleteTasks } from '@/lib/api/task.api';
+import type { BatchDeleteTaskResult } from '@/lib/api/task.api';
 import { queryKeys } from '@/lib/api/query-keys';
+import { invalidationBatcher } from '@/lib/utils/invalidationBatcher';
 import { useAuth } from '@/features/auth';
 import { PLAN_FIELDS } from './hooks/usePermissions';
 import type { WBSTaskListItem, CreateTaskRequest, UpdateTaskRequest, TaskQueryParams } from './types';
@@ -44,6 +50,8 @@ interface TasksPageProps {
 export default function TasksPage({ projectId }: TasksPageProps) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { id: urlTaskId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
   // 筛选状态
   const [filters, setFilters] = useState<TaskQueryParams>({
@@ -55,6 +63,9 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchDeleteLoading, setBatchDeleteLoading] = useState(false);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [selectedTask, setSelectedTask] = useState<WBSTaskListItem | null>(null);
   const [parentId, setParentId] = useState<string | null>(null);
   const [wbsLevel, setWbsLevel] = useState<number>(1);
@@ -98,6 +109,8 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   const createMutation = useCreateTask();
   const deleteMutation = useDeleteTask();
   const updateMutation = useUpdateTask(); // 不传参数，在调用时传递 { id, data }
+  const changeLevelMutation = useChangeTaskLevel();
+  const reorderMutation = useReorderTask();
 
   // 处理创建任务
   const handleCreateTask = (parentTaskId?: string, level?: number, parentTask?: WBSTaskListItem) => {
@@ -126,9 +139,19 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     setFormOpen(true);
   };
 
-  // 处理删除任务
-  const handleDeleteTask = (task: WBSTaskListItem) => {
+  // 删除预览数据
+  const [deletePreview, setDeletePreview] = useState<{ descendantCount: number; descendants: Array<{ id: string; wbs_code: string; description: string }>; hasMore: boolean } | null>(null);
+
+  // 处理删除任务 - 先获取预览数据
+  const handleDeleteTask = async (task: WBSTaskListItem) => {
     setSelectedTask(task);
+    setDeletePreview(null);
+    try {
+      const res = await taskApi.getDeletePreview(task.id);
+      setDeletePreview(res.data);
+    } catch {
+      // 预览获取失败不影响删除流程
+    }
     setDeleteOpen(true);
   };
 
@@ -155,6 +178,38 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     }
   };
 
+  // 批量删除任务
+  const canBatchDelete = user?.role === 'admin' || user?.role === 'dept_manager';
+
+  const handleBatchDelete = useCallback((taskIds: string[]) => {
+    setSelectedTaskIds(taskIds);
+    setBatchDeleteOpen(true);
+  }, []);
+
+  const handleConfirmBatchDelete = async () => {
+    setBatchDeleteLoading(true);
+    try {
+      const result = await batchDeleteTasks(selectedTaskIds);
+      setBatchDeleteOpen(false);
+      setSelectedTaskIds([]);
+      // 强制刷新任务列表（批量删除后需要重新计算 WBS 编码）
+      await queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
+      await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
+      invalidationBatcher.invalidate(queryKeys.analytics.all);
+      if (result.failed > 0) {
+        // 简化错误提示，只显示失败数量
+        toast.error(`删除完成：成功 ${result.success} 个，失败 ${result.failed} 个`);
+      } else {
+        toast.success(`已删除 ${result.success} 个任务`);
+      }
+    } catch (error: any) {
+      const msg = error?.message || (error instanceof Error ? error.message : '批量删除失败');
+      toast.error(msg);
+    } finally {
+      setBatchDeleteLoading(false);
+    }
+  };
+
   // 查看进展记录
   const handleViewProgress = (task: WBSTaskListItem) => {
     setSelectedTask(task);
@@ -176,12 +231,65 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     setDetailOpen(true);
   };
 
+  // 导入任务处理 - 返回导入结果给对话框显示
+  // 项目编码由后端自动匹配项目UUID
+  const handleImportTasks = useCallback(async (tasks: Array<Record<string, unknown>>) => {
+    try {
+      const result = await taskApi.importTasks(tasks);
+      if (result.success > 0) {
+        // 强制刷新任务列表（导入任务后需要重新计算 WBS 编码）
+        await queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
+        await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
+        invalidationBatcher.invalidate(queryKeys.analytics.all);
+      }
+      // 返回完整结果，由对话框显示详细错误
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      toast.error(`导入失败: ${errorMessage}`);
+      return {
+        success: 0,
+        failed: tasks.length,
+        results: tasks.map(t => ({
+          success: false,
+          wbsCode: (t.wbsCode || t['WBS编码'] || '未知') as string,
+          rowNumber: t.rowNumber as number,
+          error: errorMessage,
+        })),
+      };
+    }
+  }, [queryClient]);
+
   // 计算任务树（添加 hasChildren 和 depth）
   // 展平嵌套的 children 结构
   const { tasksWithMeta, taskMap } = useMemo(() => {
     if (!tasksData?.items) return { tasksWithMeta: [], taskMap: new Map() };
 
     const taskMap = new Map<string, WBSTaskListItem & { hasChildren: boolean; depth: number }>();
+
+    // 当后端返回扁平列表（无项目过滤）时，使用 parentId 前端构建树结构
+    const buildTreeIfNeeded = (items: WBSTaskListItem[]): WBSTaskListItem[] => {
+      const hasTreeStructure = items.some(item => Array.isArray(item.children) && item.children.length > 0);
+      if (hasTreeStructure) return items;
+
+      const nodeMap = new Map<string, WBSTaskListItem>();
+      const roots: WBSTaskListItem[] = [];
+
+      items.forEach(item => {
+        nodeMap.set(item.id, { ...item, children: [] });
+      });
+
+      items.forEach(item => {
+        const node = nodeMap.get(item.id)!;
+        if (item.parentId && nodeMap.has(item.parentId)) {
+          nodeMap.get(item.parentId)!.children!.push(node);
+        } else {
+          roots.push(node);
+        }
+      });
+
+      return roots;
+    };
 
     // 递归展平任务（包括 children）
     const flattenTasks = (tasks: WBSTaskListItem[]) => {
@@ -202,14 +310,19 @@ export default function TasksPage({ projectId }: TasksPageProps) {
       });
     };
 
-    flattenTasks(tasksData.items);
+    const treeItems = buildTreeIfNeeded(tasksData.items);
+    flattenTasks(treeItems);
 
     return { tasksWithMeta: Array.from(taskMap.values()), taskMap };
   }, [tasksData]);
 
-  // 行内更新任务（字段级别）- 使用 Map O(1) 查找
+  // 性能优化：使用ref存储taskMap最新值，避免handleUpdateTaskField因taskMap变化重建
+  const taskMapRef = useRef(taskMap);
+  taskMapRef.current = taskMap;
+
+  // 行内更新任务（字段级别）- 使用 Map O(1) 查找，稳定引用避免重渲染
   const handleUpdateTaskField = useCallback(async (taskId: string, field: string, value: unknown) => {
-    const task = taskMap.get(taskId);
+    const task = taskMapRef.current.get(taskId);
     if (!task) return;
 
     // 工程师修改计划字段时，弹出变更原因弹窗
@@ -241,8 +354,10 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     } as UpdateTaskRequest;
 
     await taskApi.updateTask(taskId, updateData);
-    queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
-  }, [taskMap, queryClient, user?.role]);
+    // 强制刷新任务列表
+    await queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
+    await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
+  }, [user?.role, queryClient]);
 
   /** 行内更新携带变更原因提交 */
   const handleReasonConfirm = useCallback(async (reason: string) => {
@@ -256,7 +371,9 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     } as UpdateTaskRequest;
 
     await taskApi.updateTask(taskId, updateData);
-    queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
+    // 强制刷新任务列表
+    await queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
+    await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
     setReasonDialogOpen(false);
     setPendingFieldUpdate(null);
   }, [pendingFieldUpdate, queryClient]);
@@ -270,6 +387,37 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   const projects = useMemo(() => {
     return projectsData?.items.map(p => ({ id: String(p.id), name: p.name })) ?? [];
   }, [projectsData]);
+
+  // 处理 URL 中的任务 ID，自动打开任务详情
+  useEffect(() => {
+    if (!urlTaskId || tasksLoading) return;
+
+    // 首先尝试在当前列表中查找
+    const task = tasksData?.items?.find(t => String(t.id) === urlTaskId);
+    if (task) {
+      setSelectedTask(task);
+      setDetailOpen(true);
+      navigate('/tasks', { replace: true });
+      return;
+    }
+
+    // 任务不在当前视图，尝试直接获取
+    const fetchAndOpenTask = async () => {
+      const result = await taskApi.tryGetTask(urlTaskId);
+      if (result.success && result.task) {
+        // 将任务转换为 WBSTaskListItem 格式
+        const taskItem = { ...result.task, hasChildren: false, depth: result.task.wbsLevel, children: [] } as WBSTaskListItem;
+        setSelectedTask(taskItem);
+        setDetailOpen(true);
+        navigate('/tasks', { replace: true });
+      } else {
+        // 任务不存在或无权限，显示提示后清除 URL
+        toast.error(result.error?.message || '无法访问该任务');
+        navigate('/tasks', { replace: true });
+      }
+    };
+    fetchAndOpenTask();
+  }, [urlTaskId, tasksData, tasksLoading, navigate]);
 
   return (
     <div className="flex flex-col h-full animate-fade-in" data-testid="task-page-container">
@@ -291,13 +439,23 @@ export default function TasksPage({ projectId }: TasksPageProps) {
           members={members}
           projects={projects}
           isLoading={tasksLoading}
+          projectId={projectId || filters.projectId}
+          projectName={projects.find(p => p.id === (projectId || filters.projectId))?.name}
           onCreateTask={handleCreateTask}
           onEditTask={handleEditTask}
           onDeleteTask={handleDeleteTask}
           onViewProgress={handleViewProgress}
           onViewDelayHistory={handleViewDelayHistory}
           onViewPlanChanges={handleViewPlanChanges}
-          onUpdateTask={handleUpdateTaskField}
+          onImportTasks={handleImportTasks}
+          onBatchDelete={canBatchDelete ? handleBatchDelete : undefined}
+          onChangeLevel={async (taskId, targetLevel) => {
+            await changeLevelMutation.mutateAsync({ taskId, targetLevel });
+          }}
+          onReorderTask={async (taskId, afterTaskId) => {
+            await reorderMutation.mutateAsync({ taskId, afterTaskId });
+          }}
+          totalCount={tasksData?.total}
         />
       </div>
 
@@ -331,13 +489,37 @@ export default function TasksPage({ projectId }: TasksPageProps) {
         open={deleteOpen}
         onOpenChange={(open) => {
           setDeleteOpen(open);
-          if (!open) setSelectedTask(null);
+          if (!open) {
+            setSelectedTask(null);
+            setDeletePreview(null);
+          }
         }}
         title="删除任务"
-        description={`确定要删除任务 "${selectedTask?.description}" 吗？此操作将同时删除所有子任务，无法撤销。`}
+        description={
+          deletePreview && deletePreview.descendantCount > 0
+            ? `确定要删除任务 "${selectedTask?.description}" 吗？此操作将同时删除 ${deletePreview.descendantCount} 个子任务，无法撤销。`
+            : `确定要删除任务 "${selectedTask?.description}" 吗？此操作无法撤销。`
+        }
         confirmText="删除"
         onConfirm={handleConfirmDelete}
         loading={deleteMutation.isPending}
+        variant="destructive"
+      />
+
+      {/* 批量删除确认对话框 */}
+      <ConfirmDialog
+        open={batchDeleteOpen}
+        onOpenChange={(open) => {
+          setBatchDeleteOpen(open);
+          if (!open) setSelectedTaskIds([]);
+        }}
+        title="批量删除任务"
+        description={
+          `确定要删除选中的 ${selectedTaskIds.length} 个任务吗？删除任务将同时删除其所有子任务，此操作不可撤销。`
+        }
+        confirmText={`删除 ${selectedTaskIds.length} 个任务`}
+        onConfirm={handleConfirmBatchDelete}
+        loading={batchDeleteLoading}
         variant="destructive"
       />
 

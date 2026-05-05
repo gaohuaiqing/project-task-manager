@@ -41,10 +41,14 @@ export const PERMISSIONS: Record<string, UserRole[]> = {
 
   // ========== 数据导入导出权限 ==========
   /** 导入数据 */
-  DATA_IMPORT: ['admin', 'dept_manager'],
+  DATA_IMPORT: ['admin', 'dept_manager', 'tech_manager'],
 
   /** 导出数据 */
   DATA_EXPORT: ['admin', 'dept_manager', 'tech_manager'],
+
+  // ========== 数据备份权限 ==========
+  /** 数据备份管理 */
+  BACKUP_MANAGE: ['admin'],
 };
 
 /**
@@ -180,3 +184,9 @@ export const requireAdminRole: RequestHandler = (req: Request, res: Response, ne
 
   next();
 };
+
+/**
+ * 权限中间件别名
+ * 与 requirePermission 功能相同
+ */
+export const permissionMiddleware = requirePermission;

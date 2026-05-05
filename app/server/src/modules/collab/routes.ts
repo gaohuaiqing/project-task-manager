@@ -2,6 +2,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { CollabService } from './service';
 import { ValidationError } from '../../core/errors';
+import { getPool } from '../../core/db';
 import type { User } from '../../core/types';
 import type { UploadAttachmentRequest, BatchQueryRequest } from './types';
 
@@ -100,7 +101,7 @@ router.post('/batch/query', async (req: Request, res: Response, next: NextFuncti
 router.post('/batch/projects', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { ids } = req.body;
-    const pool = require('../../core/db').getPool();
+    const pool = getPool();
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute('SELECT * FROM projects WHERE id IN (' + placeholders + ')', ids);
     res.json({ success: true, data: rows });
@@ -112,10 +113,10 @@ router.post('/batch/projects', async (req: Request, res: Response, next: NextFun
 router.post('/batch/members', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { ids } = req.body;
-    const pool = require('../../core/db').getPool();
+    const pool = getPool();
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      'SELECT id, username, real_name, role, department_id, email, phone, is_active FROM users WHERE id IN (' + placeholders + ')',
+      'SELECT id, username, real_name, role, gender, department_id, email, phone, is_active FROM users WHERE id IN (' + placeholders + ')',
       ids
     );
     res.json({ success: true, data: rows });
@@ -127,7 +128,7 @@ router.post('/batch/members', async (req: Request, res: Response, next: NextFunc
 router.post('/batch/wbs-tasks', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { ids } = req.body;
-    const pool = require('../../core/db').getPool();
+    const pool = getPool();
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute('SELECT * FROM wbs_tasks WHERE id IN (' + placeholders + ')', ids);
     res.json({ success: true, data: rows });

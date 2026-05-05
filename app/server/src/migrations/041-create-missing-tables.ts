@@ -114,9 +114,10 @@ async function createConfigProjectTypesTable(): Promise<boolean> {
     await databaseService.query(`
       INSERT INTO config_project_types (code, name, sort_order) VALUES
       ('product_dev', '产品开发', 1),
-      ('func_mgmt', '功能管理', 2),
-      ('material_sub', '物料替代', 3),
-      ('quality_handle', '质量处理', 4)
+      ('func_mgmt', '职能管理', 2),
+      ('material_sub', '物料改代', 3),
+      ('quality_handle', '质量处理', 4),
+      ('tech_research', '技术预研', 5)
     `);
 
     log('Step 2', 'success', 'config_project_types 表创建成功，已插入默认数据');

@@ -9,6 +9,10 @@ import CacheService from '../../services/CacheService';
 // 缓存键前缀
 const CACHE_KEY_PREFIX = 'scope:dept_ids:';
 
+// 缓存时间配置（单位：秒）
+const SCOPE_CACHE_TTL = 900; // 权限范围缓存：15分钟（优化性能）
+const TABLE_EXISTS_CACHE_TTL = 3600; // 表存在检查缓存：1小时（表结构不频繁变化）
+
 /**
  * 数据范围SQL过滤结果
  */
@@ -36,110 +40,215 @@ export async function buildTaskScopeFilter(
   user: User,
   tableAlias: string = 't',
   joinProjects: boolean = true,
+  projectId?: string,
 ): Promise<ScopeFilter> {
+  // 先获取基础 scope
+  let baseScope: ScopeFilter;
+
+  // admin: 无过滤
+  if (user.role === 'admin') {
+    baseScope = { clause: '1=1', params: [] };
+  } else if (user.role === 'dept_manager') {
+    if (!user.department_id) {
+      baseScope = { clause: '1=0', params: [] };
+    } else {
+      const deptIds = await getManagedDepartmentIds(user.id, user.department_id);
+      if (deptIds.length === 0) {
+        baseScope = { clause: '1=0', params: [] };
+      } else {
+        const placeholders = deptIds.map(() => '?').join(',');
+        baseScope = {
+          clause: `(${tableAlias}.assignee_id IS NULL OR EXISTS (SELECT 1 FROM users sub_u WHERE sub_u.id = ${tableAlias}.assignee_id AND sub_u.department_id IN (${placeholders}) AND sub_u.is_active = 1))`,
+          params: deptIds,
+        };
+      }
+    }
+  } else if (user.role === 'tech_manager') {
+    if (!user.department_id) {
+      baseScope = { clause: '1=0', params: [] };
+    } else {
+      const groupIds = await getTechManagerGroupIds(user.id, user.department_id);
+      if (groupIds.length === 0) {
+        baseScope = { clause: '1=0', params: [] };
+      } else {
+        const placeholders = groupIds.map(() => '?').join(',');
+        baseScope = {
+          clause: `(${tableAlias}.assignee_id IS NULL OR EXISTS (SELECT 1 FROM users sub_u WHERE sub_u.id = ${tableAlias}.assignee_id AND sub_u.department_id IN (${placeholders}) AND sub_u.is_active = 1))`,
+          params: groupIds,
+        };
+      }
+    }
+  } else {
+    // engineer: 自己参与的项目中的任务（含未分配任务）
+    // 使用 ${tableAlias}.project_id 替代 p.id，使子查询自包含，不依赖外部别名
+    baseScope = {
+      clause: `(${tableAlias}.assignee_id IS NULL OR EXISTS (
+        SELECT 1 FROM project_members pm
+        WHERE pm.project_id = ${tableAlias}.project_id
+        AND pm.user_id = ?
+      ))`,
+      params: [user.id],
+    };
+  }
+
+  // 如果指定了 projectId，添加项目过滤条件
+  if (projectId) {
+    const projectAlias = joinProjects ? 'p' : tableAlias.replace('t', 'p');
+    return {
+      clause: `${baseScope.clause} AND ${projectAlias}.id = ?`,
+      params: [...baseScope.params, projectId],
+    };
+  }
+
+  return baseScope;
+}
+
+/**
+ * 根据角色构建项目数据范围的SQL过滤条件
+ * projectId 用于进一步过滤特定项目
+ */
+export async function buildProjectScopeFilter(
+  user: User,
+  tableAlias: string = 'p',
+  projectId?: string,
+): Promise<ScopeFilter> {
+  let baseScope: ScopeFilter;
+
+  // admin: 无过滤
+  if (user.role === 'admin') {
+    baseScope = { clause: '1=1', params: [] };
+  } else if (user.role === 'dept_manager') {
+    if (!user.department_id) {
+      baseScope = { clause: '1=0', params: [] };
+    } else {
+      const deptIds = await getManagedDepartmentIds(user.id, user.department_id);
+      if (deptIds.length === 0) {
+        baseScope = { clause: '1=0', params: [] };
+      } else {
+        const userPlaceholders = deptIds.map(() => '?').join(',');
+        baseScope = {
+          clause: `EXISTS (
+            SELECT 1 FROM project_members pm
+            JOIN users sub_u ON pm.user_id = sub_u.id
+            WHERE pm.project_id = ${tableAlias}.id
+            AND sub_u.department_id IN (${userPlaceholders})
+            AND sub_u.is_active = 1
+          )`,
+          params: deptIds,
+        };
+      }
+    }
+  } else if (user.role === 'tech_manager') {
+    if (!user.department_id) {
+      baseScope = { clause: '1=0', params: [] };
+    } else {
+      const groupIds = await getTechManagerGroupIds(user.id, user.department_id);
+      if (groupIds.length === 0) {
+        baseScope = { clause: '1=0', params: [] };
+      } else {
+        const userPlaceholders = groupIds.map(() => '?').join(',');
+        baseScope = {
+          clause: `EXISTS (
+            SELECT 1 FROM project_members pm
+            JOIN users sub_u ON pm.user_id = sub_u.id
+            WHERE pm.project_id = ${tableAlias}.id
+            AND sub_u.department_id IN (${userPlaceholders})
+            AND sub_u.is_active = 1
+          )`,
+          params: groupIds,
+        };
+      }
+    }
+  } else {
+    // engineer: 自己参与的项目
+    baseScope = {
+      clause: `EXISTS (
+        SELECT 1 FROM project_members pm
+        WHERE pm.project_id = ${tableAlias}.id
+        AND pm.user_id = ?
+      )`,
+      params: [user.id],
+    };
+  }
+
+  // 如果指定了 projectId，添加项目过滤条件
+  if (projectId) {
+    return {
+      clause: `${baseScope.clause} AND ${tableAlias}.id = ?`,
+      params: [...baseScope.params, projectId],
+    };
+  }
+
+  return baseScope;
+}
+
+/**
+ * 根据角色构建用户部门范围的SQL过滤条件
+ * 用于 member_status 等需要按部门过滤用户的场景
+ *
+ * 角色层级：
+ * - admin: 无过滤，查看全部用户
+ * - dept_manager: 本部门及所有子部门的用户
+ * - tech_manager: 本技术组 + 被授权技术组的用户
+ * - engineer: 仅自己
+ */
+export async function buildUserDepartmentScopeFilter(user: User): Promise<ScopeFilter> {
   // admin: 无过滤
   if (user.role === 'admin') {
     return { clause: '1=1', params: [] };
   }
 
-  // dept_manager: 本部门所有人员的任务
-  if (user.role === 'dept_manager' && user.department_id) {
+  // dept_manager: 本部门所有子部门的用户
+  if (user.role === 'dept_manager') {
+    if (!user.department_id) {
+      return { clause: '1=0', params: [] };
+    }
     const deptIds = await getManagedDepartmentIds(user.id, user.department_id);
     if (deptIds.length === 0) {
-      return { clause: '1=0', params: [] }; // 无管辖范围，返回空
+      return { clause: '1=0', params: [] };
     }
     const placeholders = deptIds.map(() => '?').join(',');
     return {
-      clause: `EXISTS (SELECT 1 FROM users u WHERE u.id = ${tableAlias}.assignee_id AND u.department_id IN (${placeholders}) AND u.is_active = 1)`,
+      clause: `u.department_id IN (${placeholders})`,
       params: deptIds,
     };
   }
 
-  // tech_manager: 本技术组 + 被授权技术组
-  if (user.role === 'tech_manager' && user.department_id) {
+  // tech_manager: 本技术组 + 被授权技术组的用户
+  if (user.role === 'tech_manager') {
+    if (!user.department_id) {
+      return { clause: '1=0', params: [] };
+    }
     const groupIds = await getTechManagerGroupIds(user.id, user.department_id);
     if (groupIds.length === 0) {
       return { clause: '1=0', params: [] };
     }
     const placeholders = groupIds.map(() => '?').join(',');
     return {
-      clause: `EXISTS (SELECT 1 FROM users u WHERE u.id = ${tableAlias}.assignee_id AND u.department_id IN (${placeholders}) AND u.is_active = 1)`,
+      clause: `u.department_id IN (${placeholders})`,
       params: groupIds,
     };
   }
 
-  // engineer: 自己参与的项目中的任务
+  // engineer: 仅自己
   return {
-    clause: `FIND_IN_SET(?, p.member_ids) > 0`,
-    params: [user.id.toString()],
+    clause: `u.id = ?`,
+    params: [user.id],
   };
 }
 
-/**
- * 根据角色构建项目数据范围的SQL过滤条件
- */
-export async function buildProjectScopeFilter(
-  user: User,
-  tableAlias: string = 'p',
-): Promise<ScopeFilter> {
-  // admin: 无过滤
-  if (user.role === 'admin') {
-    return { clause: '1=1', params: [] };
-  }
-
-  // dept_manager: 本部门人员参与的项目
-  if (user.role === 'dept_manager' && user.department_id) {
-    const deptIds = await getManagedDepartmentIds(user.id, user.department_id);
-    if (deptIds.length === 0) {
-      return { clause: '1=0', params: [] };
-    }
-    // 项目成员中有本部门人员
-    const userPlaceholders = deptIds.map(() => '?').join(',');
-    return {
-      clause: `EXISTS (
-        SELECT 1 FROM users u
-        WHERE FIND_IN_SET(u.id, ${tableAlias}.member_ids) > 0
-        AND u.department_id IN (${userPlaceholders})
-        AND u.is_active = 1
-      )`,
-      params: deptIds,
-    };
-  }
-
-  // tech_manager: 本技术组+授权组人员参与的项目
-  if (user.role === 'tech_manager' && user.department_id) {
-    const groupIds = await getTechManagerGroupIds(user.id, user.department_id);
-    if (groupIds.length === 0) {
-      return { clause: '1=0', params: [] };
-    }
-    const userPlaceholders = groupIds.map(() => '?').join(',');
-    return {
-      clause: `EXISTS (
-        SELECT 1 FROM users u
-        WHERE FIND_IN_SET(u.id, ${tableAlias}.member_ids) > 0
-        AND u.department_id IN (${userPlaceholders})
-        AND u.is_active = 1
-      )`,
-      params: groupIds,
-    };
-  }
-
-  // engineer: 自己参与的项目
-  return {
-    clause: `FIND_IN_SET(?, ${tableAlias}.member_ids) > 0`,
-    params: [user.id.toString()],
-  };
-}
-
-// ========== 内部辅助方法 ==========
+// ========== 内部辅助方法（部分导出供 repository 复用） ==========
 
 /**
  * 获取 dept_manager 管理的所有部门ID（包括子部门）
  *
  * 部门层级: 根部门(dept_manager管理) → 技术组(tech_manager管理) → 用户部门
  * dept_manager 管理的是根部门及其所有子部门下的用户
+ *
+ * 优先使用 departments.manager_id（始终可用），
+ * department_managers 表作为可选增强（支持多经理场景）
  */
-async function getManagedDepartmentIds(
+export async function getManagedDepartmentIds(
   managerId: number,
   managerDeptId: number,
 ): Promise<number[]> {
@@ -152,19 +261,31 @@ async function getManagedDepartmentIds(
 
   const pool = getPool();
 
-  // 方式1: 直接是部门manager
-  // 方式2: 递归查找所有子部门
-  const [rows] = await pool.execute<RowDataPacket[]>(
-    `WITH RECURSIVE dept_tree AS (
-      SELECT id FROM departments WHERE manager_id = ? AND is_active = 1
-      UNION ALL
-      SELECT d.id FROM departments d
-      JOIN dept_tree dt ON d.parent_id = dt.id
-      WHERE d.is_active = 1
-    )
-    SELECT id FROM dept_tree`,
-    [managerId]
-  );
+  // 检查 department_managers 表是否存在
+  const tableExists = await checkTableExists('department_managers');
+
+  // 递归查找所有子部门
+  const query = tableExists
+    ? `WITH RECURSIVE dept_tree AS (
+        SELECT d.id FROM departments d
+        LEFT JOIN department_managers dm ON d.id = dm.department_id
+        WHERE d.manager_id = ? OR dm.user_id = ?
+        UNION ALL
+        SELECT d.id FROM departments d
+        JOIN dept_tree dt ON d.parent_id = dt.id
+      )
+      SELECT id FROM dept_tree`
+    : `WITH RECURSIVE dept_tree AS (
+        SELECT d.id FROM departments d
+        WHERE d.manager_id = ?
+        UNION ALL
+        SELECT d.id FROM departments d
+        JOIN dept_tree dt ON d.parent_id = dt.id
+      )
+      SELECT id FROM dept_tree`;
+
+  const params = tableExists ? [managerId, managerId] : [managerId];
+  const [rows] = await pool.execute<RowDataPacket[]>(query, params);
 
   const deptIds = rows.map((r: RowDataPacket) => r.id);
 
@@ -173,8 +294,8 @@ async function getManagedDepartmentIds(
     deptIds.push(managerDeptId);
   }
 
-  // 缓存结果（5分钟）
-  CacheService.set(cacheKey, deptIds, 300);
+  // 缓存结果（15分钟 - 优化性能）
+  CacheService.set(cacheKey, deptIds, SCOPE_CACHE_TTL);
 
   return deptIds;
 }
@@ -184,8 +305,11 @@ async function getManagedDepartmentIds(
  *
  * tech_manager 管理的是技术组及其子部门下的用户
  * 被授权技术组需要通过授权机制获取
+ *
+ * 优先使用 departments.manager_id（始终可用），
+ * department_managers 表作为可选增强
  */
-async function getTechManagerGroupIds(
+export async function getTechManagerGroupIds(
   managerId: number,
   managerDeptId: number,
 ): Promise<number[]> {
@@ -198,28 +322,21 @@ async function getTechManagerGroupIds(
 
   const pool = getPool();
 
-  // 1. 获取直接管理的技术组
-  const [managedGroups] = await pool.execute<RowDataPacket[]>(
-    `WITH RECURSIVE group_tree AS (
-      SELECT id FROM departments WHERE manager_id = ? AND is_active = 1
-      UNION ALL
-      SELECT d.id FROM departments d
-      JOIN group_tree gt ON d.parent_id = gt.id
-      WHERE d.is_active = 1
-    )
-    SELECT id FROM group_tree`,
-    [managerId]
-  );
+  // 检查 department_managers 表是否存在
+  const tableExists = await checkTableExists('department_managers');
+
+  // 获取直接管理的技术组
+  const query = tableExists
+    ? `SELECT DISTINCT d.id FROM departments d
+       LEFT JOIN department_managers dm ON d.id = dm.department_id
+       WHERE d.manager_id = ? OR dm.user_id = ?`
+    : `SELECT DISTINCT d.id FROM departments d
+       WHERE d.manager_id = ?`;
+
+  const params = tableExists ? [managerId, managerId] : [managerId];
+  const [managedGroups] = await pool.execute<RowDataPacket[]>(query, params);
 
   const groupIds = managedGroups.map((r: RowDataPacket) => r.id);
-
-  // 2. 获取被授权管理的技术组（如果有授权表的话）
-  // TODO: 当授权表创建后，从 team_authorizations 表查询
-  // const [authorizedGroups] = await pool.execute<RowDataPacket[]>(
-  //   `SELECT tech_group_id FROM team_authorizations WHERE tech_manager_id = ? AND is_active = 1`,
-  //   [managerId]
-  // );
-  // groupIds.push(...authorizedGroups.map((r: RowDataPacket) => r.tech_group_id));
 
   // fallback
   if (groupIds.length === 0 && managerDeptId) {
@@ -228,8 +345,35 @@ async function getTechManagerGroupIds(
 
   const result = [...new Set(groupIds)]; // 去重
 
-  // 缓存结果（5分钟）
-  CacheService.set(cacheKey, result, 300);
+  // 缓存结果（15分钟 - 优化性能）
+  CacheService.set(cacheKey, result, SCOPE_CACHE_TTL);
 
   return result;
+}
+
+/**
+ * 检查数据库表是否存在
+ * 缓存结果避免重复查询
+ */
+export async function checkTableExists(tableName: string): Promise<boolean> {
+  const cacheKey = `${CACHE_KEY_PREFIX}table_exists:${tableName}`;
+  const cached = CacheService.get<boolean>(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const pool = getPool();
+  try {
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1',
+      [tableName]
+    );
+    const exists = rows.length > 0;
+    // 缓存1小时（表结构不频繁变化）
+    CacheService.set(cacheKey, exists, TABLE_EXISTS_CACHE_TTL);
+    return exists;
+  } catch {
+    CacheService.set(cacheKey, false, TABLE_EXISTS_CACHE_TTL);
+    return false;
+  }
 }

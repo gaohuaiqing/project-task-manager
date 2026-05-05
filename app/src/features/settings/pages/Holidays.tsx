@@ -206,7 +206,7 @@ export function HolidaysSettings() {
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
-        <Button onClick={handleAdd} data-testid="holiday-btn-add">
+        <Button variant="outline" onClick={handleAdd} data-testid="holiday-btn-add">
           <Plus className="h-4 w-4 mr-2" />
           添加节假日
         </Button>
@@ -337,7 +337,7 @@ export function HolidaysSettings() {
             <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
               取消
             </Button>
-            <Button onClick={handleSave} disabled={createMutation.isPending}>
+            <Button variant="outline" onClick={handleSave} disabled={createMutation.isPending}>
               {createMutation.isPending ? '保存中...' : '保存'}
             </Button>
           </DialogFooter>

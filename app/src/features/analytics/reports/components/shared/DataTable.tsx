@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { escapeHtml } from '@/utils/sanitize';
 import type { TableColumn, Pagination } from '../../types';
 
 export interface DataTableProps<T extends Record<string, unknown>> {
@@ -38,6 +39,10 @@ export function DataTable<T extends Record<string, unknown>>({
   className,
   renderCell,
 }: DataTableProps<T>) {
+  // 安全数据处理
+  const safeData = data && Array.isArray(data) ? data : [];
+  const safeColumns = columns && Array.isArray(columns) ? columns : [];
+
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
 
@@ -58,9 +63,9 @@ export function DataTable<T extends Record<string, unknown>>({
 
   // 排序后的数据
   const sortedData = useMemo(() => {
-    if (!sortKey || !sortDirection) return data;
+    if (!sortKey || !sortDirection) return safeData;
 
-    return [...data].sort((a, b) => {
+    return [...safeData].sort((a, b) => {
       const aVal = a[sortKey];
       const bVal = b[sortKey];
 
@@ -77,7 +82,7 @@ export function DataTable<T extends Record<string, unknown>>({
         ? aStr.localeCompare(bStr, 'zh-CN')
         : bStr.localeCompare(aStr, 'zh-CN');
     });
-  }, [data, sortKey, sortDirection]);
+  }, [safeData, sortKey, sortDirection]);
 
   // 渲染排序图标
   const renderSortIcon = (column: TableColumn) => {
@@ -132,11 +137,16 @@ export function DataTable<T extends Record<string, unknown>>({
     if (column.type === 'enum') {
       const enumValue = String(value);
       const colorMap: Record<string, string> = {
-        // 任务状态
+        // 任务状态 — key 覆盖后端 TaskStatus 全部枚举值
         not_started: 'bg-slate-100 text-slate-700',
         in_progress: 'bg-blue-100 text-blue-700',
         completed: 'bg-green-100 text-green-700',
+        early_completed: 'bg-green-100 text-green-700',
+        on_time_completed: 'bg-green-100 text-green-700',
+        overdue_completed: 'bg-slate-100 text-slate-700',
         delayed: 'bg-red-100 text-red-700',
+        delay_warning: 'bg-orange-100 text-orange-700',
+        pending_approval: 'bg-orange-100 text-orange-700',
         pending_review: 'bg-orange-100 text-orange-700',
         review_rejected: 'bg-red-100 text-red-700',
         waiting: 'bg-slate-100 text-slate-700',
@@ -145,30 +155,33 @@ export function DataTable<T extends Record<string, unknown>>({
         // 里程碑状态
         pending: 'bg-slate-100 text-slate-700',
         overdue: 'bg-red-100 text-red-700',
-        // 延期类型
-        delay_warning: 'bg-orange-100 text-orange-700',
-        overdue_completed: 'bg-slate-100 text-slate-700',
         // 风险等级
         high: 'bg-red-100 text-red-700',
         medium: 'bg-orange-100 text-orange-700',
         low: 'bg-green-100 text-green-700',
-        // 效能等级
       };
 
       const labelMap: Record<string, string> = {
+        // 任务状态 — key 覆盖后端 TaskStatus 全部枚举值
+        pending_approval: '待审批',
         not_started: '未开始',
         in_progress: '进行中',
-        completed: '已完成',
+        early_completed: '提前完成',
+        on_time_completed: '按时完成',
+        delay_warning: '延期预警',
         delayed: '已延期',
+        overdue_completed: '超期完成',
+        // 兼容旧数据/其他场景的状态值
+        completed: '已完成',
         pending_review: '待审核',
         review_rejected: '审核驳回',
         waiting: '等待中',
         suspended: '已暂停',
         cancelled: '已取消',
+        // 里程碑状态
         pending: '待处理',
         overdue: '已逾期',
-        delay_warning: '延期预警',
-        overdue_completed: '超期完成',
+        // 风险等级
         high: '高',
         medium: '中',
         low: '低',
@@ -186,8 +199,8 @@ export function DataTable<T extends Record<string, unknown>>({
       return <span className="font-mono">{Number(value).toLocaleString()}</span>;
     }
 
-    // 默认字符串
-    return String(value);
+    // 默认字符串 — XSS 防护：转义 HTML 特殊字符
+    return escapeHtml(String(value));
   };
 
   return (
@@ -196,7 +209,7 @@ export function DataTable<T extends Record<string, unknown>>({
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              {columns.map((column) => (
+              {safeColumns.map((column) => (
                 <TableHead
                   key={column.key}
                   style={{ width: column.width }}
@@ -218,7 +231,7 @@ export function DataTable<T extends Record<string, unknown>>({
             {sortedData.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={columns.length}
+                  colSpan={safeColumns.length}
                   className="h-24 text-center text-muted-foreground"
                 >
                   暂无数据
@@ -230,7 +243,7 @@ export function DataTable<T extends Record<string, unknown>>({
                   key={index}
                   className="hover:bg-muted/30 transition-colors"
                 >
-                  {columns.map((column) => (
+                  {safeColumns.map((column) => (
                     <TableCell key={column.key} className="text-sm">
                       {renderCell
                         ? renderCell(item, column)

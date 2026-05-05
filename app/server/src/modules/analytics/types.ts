@@ -26,23 +26,26 @@ export interface TimeSeriesPoint {
 export interface DashboardStats {
   // 项目统计
   total_projects: number;
-  active_projects: number;
+  active_projects: number;      // planning + in_progress（含历史 active 值兼容）
+  delayed_projects: number;     // delayed
   completed_projects: number;
 
   // 任务统计（按状态细分）
   total_tasks: number;
   pending_approval_tasks: number;  // pending_approval
-  rejected_tasks: number;          // rejected
   pending_tasks: number;        // not_started
   in_progress_tasks: number;    // in_progress
   completed_tasks: number;      // early_completed + on_time_completed + overdue_completed
   delay_warning_tasks: number;  // delay_warning
   overdue_tasks: number;        // delayed
+  unassigned_tasks: number;     // assignee_id IS NULL
 
   // 其他统计
   total_members: number;
   avg_progress: number;         // 项目平均进度百分比
   activity_rate: number;        // 活跃度：7日内有更新的任务占比（百分比）
+  utilization_rate: number;     // 资源利用率：成员平均工作负荷比率
+  week_due_tasks: number;       // 本周到期：未来7天到期的未完成任务数
 }
 
 export interface TrendDataPoint {
@@ -127,13 +130,14 @@ export interface MilestoneProgress {
 }
 
 export interface TaskStatisticsReport {
-  total_tasks: number;
+  total_tasks: number;                    // 全部任务数
+  total_root_tasks: number;               // 根任务数（wbs_level=1）
   avg_completion_rate: number;
   delay_rate: number;
   urgent_count: number;
-  priority_distribution: Record<string, number>;
+  priority_distribution: Record<string, number>;      // 优先级分布（基于根任务）
   assignee_distribution: AssigneeTaskCount[];
-  task_type_distribution: TaskTypeDistributionItem[];  // v1.2 新增：任务类型分布
+  task_type_distribution: TaskTypeDistributionItem[]; // 任务类型分布（基于根任务）
   task_list: TaskStatisticsItem[];  // 任务明细列表（需求文档要求）
   task_trend?: TrendDataPoint[];    // v1.3 新增：任务趋势数据（最近30天）
 }
@@ -230,6 +234,7 @@ export interface MemberTask {
   status: string;
   progress: number;
   full_time_ratio: number;
+  activity_rate: number;  // 活跃度（v1.2 新增）
   planned_duration?: number;  // 计划工期（v1.2 新增）
   actual_duration?: number;   // 实际工期（v1.2 新增）
   estimation_accuracy?: number;  // 预估准确性（v1.2 新增）
@@ -366,6 +371,8 @@ export interface MemberSummaryItem {
   member_id: number;
   member_name: string;
   department: string | null;
+  root_tasks: number;           // 负责的根任务数（wbs_level=1）
+  sub_tasks: number;            // 参与的子任务数（wbs_level>1）
   current_tasks: number;
   completed_tasks: number;  // 已完成任务数
   total_full_time_ratio: number;
@@ -572,6 +579,7 @@ export interface TodoTaskItem {
 }
 
 export interface EngineerDashboardDetailResponse {
+  todo_tasks: TodoTaskItem[];
   need_update_tasks: TodoTaskItem[];
   task_status_distribution: StatusDistributionItem[];
 }

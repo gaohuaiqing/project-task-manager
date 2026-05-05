@@ -99,6 +99,31 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
+// 批量删除项目（admin/dept_manager）
+router.post('/batch-delete', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: '请提供要删除的项目ID列表' } });
+    }
+
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权限批量删除项目' } });
+    }
+
+    if (ids.length > 50) {
+      return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: '单次最多删除50个项目' } });
+    }
+
+    const results = await projectService.batchDeleteProjects(ids, currentUser);
+    res.json({ success: true, data: results });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // 获取项目详情
 router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {

@@ -29,12 +29,28 @@ export function PieChart({
   innerRadius = 0,
   outerRadius = 80,
 }: PieChartProps) {
-  const chartData = data.labels.map((label, index) => ({
+  // 安全数据处理
+  const safeData = data || { labels: [], values: [], percentages: [] };
+  const labels = safeData.labels || [];
+  const values = safeData.values || [];
+  const percentages = safeData.percentages || [];
+  const colors = safeData.colors || [];
+
+  const chartData = labels.map((label, index) => ({
     name: label,
-    value: data.values[index],
-    percentage: data.percentages[index],
-    color: data.colors?.[index] || Object.values(CHART_COLORS.status)[index % 10] || CHART_COLORS.primary,
+    value: values[index] ?? 0,
+    percentage: percentages[index] ?? 0,
+    color: colors[index] || Object.values(CHART_COLORS.status)[index % 10] || CHART_COLORS.primary,
   }));
+
+  // 空数据处理
+  if (labels.length === 0 || values.length === 0) {
+    return (
+      <div className="flex items-center justify-center text-muted-foreground text-sm" style={{ height }}>
+        暂无数据
+      </div>
+    );
+  }
 
   return (
     <ResponsiveContainer width="100%" height={height}>

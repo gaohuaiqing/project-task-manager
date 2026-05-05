@@ -6,6 +6,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "test": "tsx tests/wbs-code-service.test.ts",
+    "test:backup": "tsx ../../Test/backend/backup-api.test.ts",
+    "test:backup-e2e": "tsx ../../Test/backend/backup-e2e-verify.ts",
     "test:concurrency": "tsx tests/concurrency-test.ts",
     "test:api": "tsx tests/api.test.ts",
     "test:load": "tsx scripts/load-test.ts",
@@ -40,7 +43,8 @@
     "redis": "^4.7.1",
     "uuid": "^9.0.0",
     "ws": "^8.14.2",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "xss": "^1.0.15"
   },
   "devDependencies": {
     "@types/compression": "^1.8.1",

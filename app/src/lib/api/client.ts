@@ -36,7 +36,7 @@ function getCsrfToken(): string | null {
 }
 
 /**
- * 请求拦截器：添加 CSRF token、禁用缓存、转换命名风格
+ * 请求拦截器：添加 CSRF token、条件缓存、转换命名风格
  */
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
@@ -44,8 +44,8 @@ apiClient.interceptors.request.use(
     if (csrfToken && config.headers) {
       config.headers['X-CSRF-Token'] = csrfToken;
     }
-    // 禁用浏览器缓存，避免 304 响应
-    if (config.headers) {
+    // 仅对非 GET 请求禁用缓存；GET 请求允许浏览器 304 协商缓存
+    if (config.method !== 'get' && config.headers) {
       config.headers['Cache-Control'] = 'no-cache';
       config.headers['Pragma'] = 'no-cache';
     }
@@ -70,6 +70,10 @@ apiClient.interceptors.request.use(
  */
 apiClient.interceptors.response.use(
   (response) => {
+    // 跳过 blob/arraybuffer 类型的响应（文件下载等）
+    if (response.config?.responseType === 'blob' || response.config?.responseType === 'arraybuffer') {
+      return response;
+    }
     // 转换响应数据：snake_case -> camelCase
     const data = response.data;
     if (data && typeof data === 'object') {

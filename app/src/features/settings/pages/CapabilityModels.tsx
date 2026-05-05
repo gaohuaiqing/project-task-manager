@@ -351,7 +351,7 @@ export function CapabilityModelsSettings() {
               配置能力评估模型，定义评价维度和权重
             </CardDescription>
           </div>
-          <Button onClick={handleCreate} data-testid="model-btn-add">
+          <Button variant="outline" onClick={handleCreate} data-testid="model-btn-add">
             <Plus className="h-4 w-4 mr-2" />
             添加模型
           </Button>
@@ -456,7 +456,7 @@ export function CapabilityModelsSettings() {
             <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
               取消
             </Button>
-            <Button onClick={submitCreate} disabled={createMutation.isPending || !isWeightValid}>
+            <Button variant="outline" onClick={submitCreate} disabled={createMutation.isPending || !isWeightValid}>
               {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               确认创建
             </Button>
@@ -505,7 +505,7 @@ export function CapabilityModelsSettings() {
             <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
               取消
             </Button>
-            <Button onClick={submitEdit} disabled={updateMutation.isPending || !isWeightValid}>
+            <Button variant="outline" onClick={submitEdit} disabled={updateMutation.isPending || !isWeightValid}>
               {updateMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               保存
             </Button>

@@ -1,14 +1,16 @@
-import { useEffect } from 'react';
-import { lazy, Suspense } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { AppProvider } from '@/shared/context/AppContext';
 import { ProtectedRoute } from '@/features/auth/components/ProtectedRoute';
 import { MainLayout } from '@/shared/layout/MainLayout';
-import { FullPageLoader } from '@/shared/components/LoadingSpinner';
+import { InlinePageLoader } from '@/shared/components/LoadingSpinner';
 import { wsClient } from '@/lib/api';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { useAuth } from '@/features/auth';
+import { queryClient } from '@/shared/utils/query-client';
+import { useTaskRealtimeSync } from '@/features/tasks/hooks/useTaskRealtimeSync';
 
 // 懒加载页面
 const LoginPage = lazy(() => import('@/features/auth'));
@@ -19,69 +21,83 @@ const Assignment = lazy(() => import('@/features/assignment'));
 const Reports = lazy(() => import('@/features/analytics/reports/ReportsPage'));
 const Settings = lazy(() => import('@/features/settings'));
 
-// React Query 客户端配置
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000, // 5 分钟
-      gcTime: 10 * 60 * 1000, // 10 分钟
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-    mutations: {
-      retry: 0,
-    },
-  },
-});
+/** 需要管理员/经理角色的路由（工程师不可访问） */
+const REPORT_ALLOWED_ROLES = ['admin', 'dept_manager', 'tech_manager'];
 
 /**
- * 应用入口组件
+ * 基于角色的路由守卫
+ * 不满足角色要求时重定向到仪表板
  */
-export function App() {
+function RoleGuard({ roles, children }: { roles: string[]; children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (!user || !roles.includes(user.role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <>{children}</>;
+}
+
+/**
+ * 应用内部组件（在 QueryClientProvider 内部，可使用 React Query hooks）
+ */
+function AppInner() {
   // 启动 WebSocket 连接
   useEffect(() => {
     wsClient.connect();
     return () => wsClient.disconnect();
   }, []);
 
+  // 启用任务实时数据同步
+  useTaskRealtimeSync();
+
+  return (
+    <AuthProvider>
+      <AppProvider>
+        <Toaster position="top-center" richColors />
+        <BrowserRouter>
+          <Routes>
+            <Route
+              path="/login"
+              element={
+                <Suspense fallback={<InlinePageLoader />}>
+                  <LoginPage />
+                </Suspense>
+              }
+            />
+
+            <Route
+              element={
+                <ProtectedRoute>
+                  <MainLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/projects" element={<Projects />} />
+              <Route path="/projects/:id" element={<Projects />} />
+              <Route path="/tasks" element={<Tasks />} />
+              <Route path="/tasks/:id" element={<Tasks />} />
+              <Route path="/assignment" element={<Assignment />} />
+              <Route path="/reports" element={<RoleGuard roles={REPORT_ALLOWED_ROLES}><Reports /></RoleGuard>} />
+              <Route path="/reports/:tab" element={<RoleGuard roles={REPORT_ALLOWED_ROLES}><Reports /></RoleGuard>} />
+              <Route path="/settings/*" element={<Settings />} />
+            </Route>
+
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </AppProvider>
+    </AuthProvider>
+  );
+}
+
+/**
+ * 应用入口组件
+ */
+export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <AppProvider>
-          <Toaster position="top-center" richColors />
-          <BrowserRouter>
-          <Suspense fallback={<FullPageLoader />}>
-            <Routes>
-              {/* 公开路由 */}
-              <Route path="/login" element={<LoginPage />} />
-
-              {/* 受保护路由 */}
-              <Route
-                element={
-                  <ProtectedRoute>
-                    <MainLayout />
-                  </ProtectedRoute>
-                }
-              >
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/projects" element={<Projects />} />
-                <Route path="/projects/:id" element={<Projects />} />
-                <Route path="/tasks" element={<Tasks />} />
-                <Route path="/tasks/:id" element={<Tasks />} />
-                <Route path="/assignment" element={<Assignment />} />
-                <Route path="/reports" element={<Reports />} />
-                <Route path="/reports/:tab" element={<Reports />} />
-                <Route path="/settings/*" element={<Settings />} />
-              </Route>
-
-              {/* 默认重定向 */}
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
-        </AppProvider>
-      </AuthProvider>
+      <AppInner />
     </QueryClientProvider>
   );
 }

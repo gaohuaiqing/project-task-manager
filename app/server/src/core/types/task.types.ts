@@ -1,7 +1,7 @@
 // app/server/src/core/types/task.types.ts
 
 export type TaskStatus =
-  | 'pending_approval' | 'rejected' | 'not_started' | 'in_progress'
+  | 'pending_approval' | 'not_started' | 'in_progress'
   | 'early_completed' | 'on_time_completed' | 'delay_warning'
   | 'delayed' | 'overdue_completed';
 

@@ -14,7 +14,7 @@ export const DASHBOARD_CONFIG = {
    * - true: 使用 Mock 数据（开发阶段）
    * - false: 使用真实 API（对接后端时）
    */
-  USE_MOCK_DATA: true,
+  USE_MOCK_DATA: false,
 
   /**
    * 按角色单独配置（可选，优先级高于全局开关）

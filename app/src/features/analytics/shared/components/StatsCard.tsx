@@ -100,13 +100,15 @@ export function StatsCard({
   // 趋势方向和颜色
   const trendDirection = trend !== undefined ? getTrendDirection(trend) : null;
   const trendColorClass = trendDirection
-    ? invertTrendColors
-      ? trendDirection === 'down'
-        ? 'text-emerald-500'
-        : 'text-red-500'
-      : trendDirection === 'up'
-        ? 'text-emerald-500'
-        : 'text-red-500'
+    ? trendDirection === 'flat'
+      ? 'text-gray-400 dark:text-gray-500'
+      : invertTrendColors
+        ? trendDirection === 'down'
+          ? 'text-emerald-500'
+          : 'text-red-500'
+        : trendDirection === 'up'
+          ? 'text-emerald-500'
+          : 'text-red-500'
     : '';
 
   if (isLoading) {

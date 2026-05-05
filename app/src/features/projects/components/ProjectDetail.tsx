@@ -530,7 +530,7 @@ export function ProjectDetail({
                       <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                         取消
                       </Button>
-                      <Button onClick={handleCreateTimeline} disabled={createTimelineMutation.isPending}>
+                      <Button variant="outline" onClick={handleCreateTimeline} disabled={createTimelineMutation.isPending}>
                         {createTimelineMutation.isPending ? '创建中...' : '创建'}
                       </Button>
                     </DialogFooter>

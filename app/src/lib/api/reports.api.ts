@@ -47,28 +47,32 @@ function stat(value: number, displayValue?: string, trend?: number): StatsCardDa
   };
 }
 
-/** 状态中文映射 */
+/** 状态中文映射 — 标签与 shared/constants/index.ts 保持一致 */
 const STATUS_LABELS: Record<string, string> = {
+  pending_approval: '待审批',
   not_started: '未开始',
   in_progress: '进行中',
-  delay_warning: '延期预警',
-  delayed: '已延迟',
   early_completed: '提前完成',
   on_time_completed: '按时完成',
+  delay_warning: '延期预警',
+  delayed: '已延期',
   overdue_completed: '超期完成',
-  suspended: '暂停',
-  cancelled: '取消',
+  // 兼容旧数据
+  suspended: '已暂停',
+  cancelled: '已取消',
 };
 
 /** 状态颜色映射 */
 const STATUS_COLORS: Record<string, string> = {
+  pending_approval: '#a855f7',
   not_started: '#94a3b8',
   in_progress: '#3b82f6',
-  delay_warning: '#f59e0b',
-  delayed: '#ef4444',
   early_completed: '#22c55e',
   on_time_completed: '#10b981',
+  delay_warning: '#f59e0b',
+  delayed: '#ef4444',
   overdue_completed: '#f97316',
+  // 兼容旧数据
   suspended: '#8b5cf6',
   cancelled: '#6b7280',
 };
@@ -87,7 +91,7 @@ const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, 
 /** 延期类型中文 */
 const DELAY_TYPE_LABELS: Record<string, string> = {
   delay_warning: '延期预警',
-  delayed: '已延迟',
+  delayed: '已延期',
   overdue_completed: '超期完成',
 };
 
@@ -314,7 +318,7 @@ export async function getDelayAnalysisReport(filters: ReportFilters = {}): Promi
   // 延期类型分布 → 饼图
   const delayTypeDistribution: PieChartDataItem[] = [
     { name: '延期预警', value: warningCount, color: '#f59e0b' },
-    { name: '已延迟', value: delayedCount, color: '#ef4444' },
+    { name: '已延期', value: delayedCount, color: '#ef4444' },
     { name: '超期完成', value: overdueCompletedCount, color: '#f97316' },
   ].filter(d => d.value > 0);
 

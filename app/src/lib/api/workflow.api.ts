@@ -28,6 +28,7 @@ export interface PlanChange {
   createdAt: string;
   // 关联信息
   taskDescription?: string;
+  projectName?: string;
   userName?: string;
   approverName?: string;
 }
@@ -81,7 +82,11 @@ export interface CreateDelayRecordRequest {
 
 export type NotificationType =
   | 'approval' | 'approval_result' | 'approval_timeout'
-  | 'delay' | 'delay_warning' | 'task_delayed'
+  | 'delay_warning' | 'task_delayed'
+  | 'task_assigned'      // 任务分配
+  | 'task_completed'     // 任务完成
+  | 'project_updated'    // 项目更新
+  | 'mention'            // @提及
   | 'daily_summary' | 'system'
   | 'new_device'          // 新设备登录
   | 'ip_change'           // IP地址变更
@@ -90,12 +95,49 @@ export type NotificationType =
 export interface Notification {
   id: string;
   userId: number;
+  projectId: string | null;
+  taskId: string | null;
   type: NotificationType;
   title: string;
   content: string;
   link: string | null;
   isRead: boolean;
+  readAt: string | null;
   createdAt: string;
+}
+
+// ============ 审批项分组类型 ============
+
+export interface ApprovalChange {
+  id: string;
+  changeType: string;
+  oldValue: string | null;
+  newValue: string | null;
+}
+
+export interface ApprovalItem {
+  submissionId: string;
+  taskId: string;
+  taskDescription: string;
+  projectName: string;
+  userId: number;
+  userName: string;
+  reason: string;
+  status: ApprovalStatus;
+  approverId: number | null;
+  approverName: string | null;
+  approvedAt: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  changes: ApprovalChange[];
+}
+
+export interface ApprovalItemsResponse {
+  items: ApprovalItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 // ============ 延期记录 API ============
@@ -261,6 +303,72 @@ export async function deleteNotification(id: string): Promise<void> {
   await apiClient.delete(`${BASE_PATH}/notifications/${id}`);
 }
 
+/**
+ * 批量删除通知
+ */
+export async function deleteNotifications(ids: string[]): Promise<{ count: number }> {
+  const response = await apiClient.post<ApiResponse<{ count: number }>>(
+    `${BASE_PATH}/notifications/batch-delete`,
+    { ids }
+  );
+  return response.data;
+}
+
+/**
+ * 删除所有已读通知
+ */
+export async function deleteAllReadNotifications(): Promise<{ count: number }> {
+  const response = await apiClient.delete<ApiResponse<{ count: number }>>(
+    `${BASE_PATH}/notifications/read`
+  );
+  return response.data;
+}
+
+// ============ 审批项 API ============
+
+/**
+ * 获取分组后的审批项列表
+ */
+export async function getApprovalItems(options?: {
+  status?: ApprovalStatus;
+  projectId?: string;
+  userId?: number;
+  page?: number;
+  pageSize?: number;
+}): Promise<ApprovalItemsResponse> {
+  const response = await apiClient.get<ApiResponse<ApprovalItemsResponse>>(
+    `${BASE_PATH}/approval-items`,
+    { params: options }
+  );
+  return response.data;
+}
+
+/**
+ * 获取审批项详情
+ */
+export async function getApprovalItemBySubmissionId(submissionId: string): Promise<ApprovalItem | null> {
+  const response = await apiClient.get<ApiResponse<ApprovalItem>>(
+    `${BASE_PATH}/approval-items/${submissionId}`
+  );
+  return response.data;
+}
+
+/**
+ * 通过审批项
+ */
+export async function approveApprovalItem(submissionId: string): Promise<void> {
+  await apiClient.post(`${BASE_PATH}/approval-items/${submissionId}/approve`);
+}
+
+/**
+ * 驳回审批项
+ */
+export async function rejectApprovalItem(submissionId: string, rejectionReason: string): Promise<void> {
+  await apiClient.post(`${BASE_PATH}/approval-items/${submissionId}/reject`, {
+    rejection_reason: rejectionReason,
+  });
+}
+
 export const workflowApi = {
   getDelayRecords,
   addDelayRecord,
@@ -279,4 +387,11 @@ export const workflowApi = {
   markNotificationAsRead,
   markAllNotificationsAsRead,
   deleteNotification,
+  deleteNotifications,
+  deleteAllReadNotifications,
+  // 审批项 API
+  getApprovalItems,
+  getApprovalItemBySubmissionId,
+  approveApprovalItem,
+  rejectApprovalItem,
 };

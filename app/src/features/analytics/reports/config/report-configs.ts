@@ -38,7 +38,7 @@ export const TASK_STATISTICS_STATS: StatCard[] = [
 export const DELAY_ANALYSIS_STATS: StatCard[] = [
   { key: 'totalDelayed', label: '延期任务总数', value: 0, icon: 'AlertCircle' },
   { key: 'delayWarningCount', label: '延期预警', value: 0, icon: 'AlertTriangle' },
-  { key: 'delayedCount', label: '已延迟', value: 0, icon: 'XCircle' },
+  { key: 'delayedCount', label: '已延期', value: 0, icon: 'XCircle' },
   { key: 'overdueCompletedCount', label: '超期完成', value: 0, icon: 'CheckCircle2' },
 ];
 
@@ -140,37 +140,38 @@ export const MEMBER_EFFICIENCY_COLUMNS: TableColumn[] = [
 
 // ==================== 图表配置 ====================
 
-/** 图表颜色 */
+/** 图表颜色 — 统一引用共享常量，确保全局配色一致 */
 export const CHART_COLORS = {
-  primary: '#0EA5E9',
-  success: '#22C55E',
-  warning: '#F97316',
-  danger: '#EF4444',
-  info: '#3B82F6',
-  muted: '#64748B',
-  // 任务状态颜色
+  primary: '#2563EB',   // 钴蓝 (blue-600) — 与 Tailwind chart.blue 一致
+  success: '#059669',   // 翠绿 (green-600) — 与 Tailwind chart.green 一致
+  warning: '#D97706',   // 琥珀 (amber-600) — 与 Tailwind chart.amber 一致
+  danger: '#DC2626',    // 朱红 (red-600) — 与 Tailwind chart.red 一致
+  info: '#2563EB',      // 钴蓝 (blue-600)
+  muted: '#64748B',     // 石板灰 (slate-500)
+  // 任务状态颜色 — 与 shared/constants/colors.ts STATUS_COLORS 一致
   status: {
     not_started: '#94A3B8',
-    in_progress: '#3B82F6',
-    completed: '#22C55E',
-    delayed: '#EF4444',
-    pending_review: '#F97316',
-    review_rejected: '#EF4444',
+    in_progress: '#2563EB',
+    completed: '#059669',
+    delayed: '#DC2626',
+    delay_warning: '#D97706',
+    pending_review: '#7C3AED',
+    review_rejected: '#DB2777',
     waiting: '#94A3B8',
     suspended: '#64748B',
     cancelled: '#64748B',
   },
   // 延期类型颜色
   delayType: {
-    delay_warning: '#F97316',
-    delayed: '#EF4444',
-    overdue_completed: '#64748B',
+    delay_warning: '#D97706',
+    delayed: '#DC2626',
+    overdue_completed: '#6B7280',
   },
   // 风险等级颜色
   riskLevel: {
-    high: '#EF4444',
-    medium: '#F97316',
-    low: '#22C55E',
+    high: '#DC2626',
+    medium: '#D97706',
+    low: '#059669',
   },
 };
 
@@ -187,12 +188,13 @@ export const TIME_RANGE_OPTIONS = [
 /** 延期类型选项 */
 export const DELAY_TYPE_OPTIONS = [
   { value: 'delay_warning', label: '延期预警' },
-  { value: 'delayed', label: '已延迟' },
+  { value: 'delayed', label: '已延期' },
   { value: 'overdue_completed', label: '超期完成' },
 ];
 
 /** 任务类型选项 */
 export const TASK_TYPE_OPTIONS = [
-  '固件', '板卡', '驱动', '结构', '测试', '认证',
-  '项目管理', '配置管理', '采购', '综合', '质量', '其他',
+  '固件', '板卡', '驱动', '接口类', '硬件恢复包',
+  '物料导入', '物料改代', '系统设计', '核心风险',
+  '接口人', '职能任务', '其它',
 ];

@@ -199,7 +199,7 @@ export function AddTimelineDialog({
           <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
             取消
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
+          <Button variant="outline" onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? '创建中...' : '创建'}
           </Button>
         </DialogFooter>

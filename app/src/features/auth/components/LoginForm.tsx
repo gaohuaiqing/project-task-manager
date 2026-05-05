@@ -132,7 +132,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
             </Label>
           </div>
 
-          <Button type="submit" data-testid="login-btn-submit" className="w-full" disabled={isLoading}>
+          <Button variant="outline" type="submit" data-testid="login-btn-submit" className="w-full" disabled={isLoading}>
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -19,6 +20,8 @@ import {
 } from '@/components/ui/tooltip';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '@/features/auth';
+import { preloadRouteModule } from '@/shared/utils/route-preload';
+import { prefetchRouteData } from '@/shared/utils/route-data-prefetch';
 
 /**
  * 导航菜单项配置
@@ -34,6 +37,7 @@ const ALL_NAV_ITEMS = [
 
 /**
  * 侧边栏组件
+ * 支持鼠标悬停时预加载目标模块和数据
  */
 export function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useAppContext();
@@ -44,6 +48,15 @@ export function Sidebar() {
     if (!user?.role) return false;
     return item.roles.includes(user.role as any);
   });
+
+  /**
+   * 鼠标悬停时触发预加载
+   * 同时预加载 JS chunk 和预取数据
+   */
+  const handleNavHover = useCallback((path: string) => {
+    preloadRouteModule(path);
+    prefetchRouteData(path);
+  }, []);
 
   return (
     <aside
@@ -82,6 +95,7 @@ export function Sidebar() {
                 <NavLink
                   to={item.path}
                   data-testid={item.testId}
+                  onMouseEnter={() => handleNavHover(item.path)}
                   className={({ isActive }) =>
                     cn(
                       // 基础样式

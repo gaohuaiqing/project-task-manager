@@ -150,7 +150,7 @@ export function AddMilestoneDialog({
           <Button variant="outline" onClick={onClose}>
             取消
           </Button>
-          <Button onClick={handleSubmit}>
+          <Button variant="outline" onClick={handleSubmit}>
             添加里程碑
           </Button>
         </DialogFooter>

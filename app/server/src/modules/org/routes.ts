@@ -4,6 +4,7 @@ import { OrgService } from './service';
 import { ValidationError } from '../../core/errors';
 import type { User } from '../../core/types';
 
+
 const router = Router();
 const orgService = new OrgService();
 
@@ -715,6 +716,112 @@ router.delete('/task-type-mappings/:id', async (req: Request, res: Response, nex
   }
 });
 
+// ========== 任务类型配置管理 ==========
+
+// 获取所有任务类型
+router.get('/task-types', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const taskTypes = await orgService.getTaskTypes();
+    res.json({ success: true, data: taskTypes });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 获取单个任务类型
+router.get('/task-types/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new ValidationError('无效的任务类型ID');
+    }
+
+    const taskType = await orgService.getTaskTypeById(id);
+    if (!taskType) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: '任务类型不存在' }
+      });
+    }
+
+    res.json({ success: true, data: taskType });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 创建任务类型
+router.post('/task-types', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = await orgService.createTaskType(req.body, currentUser);
+    res.status(201).json({ success: true, data: { id } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 更新任务类型
+router.put('/task-types/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new ValidationError('无效的任务类型ID');
+    }
+
+    const updated = await orgService.updateTaskType(id, req.body, currentUser);
+    res.json({ success: true, data: { updated } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 删除任务类型
+router.delete('/task-types/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: '未登录' }
+      });
+    }
+
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new ValidationError('无效的任务类型ID');
+    }
+
+    const result = await orgService.deleteTaskType(id, currentUser);
+    res.json({
+      success: true,
+      data: {
+        message: result.affectedTasks > 0
+          ? `已删除任务类型，${result.affectedTasks} 个任务已改为"其它"类型`
+          : '任务类型已删除',
+        affectedTasks: result.affectedTasks
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ========== 导入导出功能 ==========
 
 import multer from 'multer';
@@ -798,5 +905,6 @@ router.post('/import/organization', upload.single('file'), async (req: Request, 
     next(error);
   }
 });
+
 
 export default router;

@@ -3,7 +3,8 @@ import { getPool } from '../../core/db';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import type {
   Department, DepartmentTreeNode, Member,
-  CapabilityModel, MemberCapability, AssigneeRecommendation, TaskTypeMapping
+  CapabilityModel, MemberCapability, AssigneeRecommendation, TaskTypeMapping,
+  TaskTypeConfig,
 } from './types';
 
 // ============ 部门相关 ============
@@ -13,6 +14,7 @@ interface MemberRow extends RowDataPacket, Member {}
 interface CapabilityModelRow extends RowDataPacket, CapabilityModel {}
 interface MemberCapabilityRow extends RowDataPacket, MemberCapability {}
 interface TaskTypeMappingRow extends RowDataPacket, TaskTypeMapping {}
+interface TaskTypeConfigRow extends RowDataPacket, TaskTypeConfig {}
 
 export class OrgRepository {
   // ========== 部门 CRUD ==========
@@ -90,32 +92,33 @@ export class OrgRepository {
   }
 
   /**
-   * 获取所有子部门ID（递归）
+   * 获取所有子部门ID（使用 CTE 递归，单次查询替代 N+1 递归）
    */
   async getAllChildDepartmentIds(departmentId: number): Promise<number[]> {
     const pool = getPool();
     const [rows] = await pool.execute<RowDataPacket[]>(
-      'SELECT id FROM departments WHERE parent_id = ?',
+      `WITH RECURSIVE dept_tree AS (
+        SELECT id FROM departments WHERE parent_id = ?
+        UNION ALL
+        SELECT d.id FROM departments d INNER JOIN dept_tree dt ON d.parent_id = dt.id
+      )
+      SELECT id FROM dept_tree`,
       [departmentId]
     );
-    const childIds = rows.map(r => r.id);
-    // 递归获取子部门的子部门
-    for (const childId of childIds) {
-      const grandChildren = await this.getAllChildDepartmentIds(childId);
-      childIds.push(...grandChildren);
-    }
-    return childIds;
+    return rows.map(r => r.id);
   }
 
   /**
    * 获取用户作为经理管理的部门
-   * 返回部门ID和名称
+   * 同时查 departments.manager_id 和 department_managers 关联表（如存在）
    */
   async getManagedDepartmentByUserId(userId: number): Promise<{ id: number; name: string } | null> {
+    const deptIds = await this.getManagerDepartmentIds(userId);
+    if (deptIds.length === 0) return null;
     const pool = getPool();
     const [rows] = await pool.execute<RowDataPacket[]>(
-      'SELECT id, name FROM departments WHERE manager_id = ?',
-      [userId]
+      'SELECT id, name FROM departments WHERE id = ?',
+      [deptIds[0]]
     );
     return rows[0] ? { id: rows[0].id, name: rows[0].name } : null;
   }
@@ -136,15 +139,18 @@ export class OrgRepository {
 
   /**
    * 获取用户管理的部门及其所有子部门ID
-   * @param userId 用户ID
-   * @returns 部门ID数组，如果用户不是部门经理则返回空数组
+   * 同时查 departments.manager_id 和 department_managers 关联表（如存在）
    */
   async getManagedDepartmentIds(userId: number): Promise<number[]> {
-    const managedDept = await this.getManagedDepartmentByUserId(userId);
-    if (!managedDept) return [];
+    const deptIds = await this.getManagerDepartmentIds(userId);
+    if (deptIds.length === 0) return [];
 
-    const childIds = await this.getAllChildDepartmentIds(managedDept.id);
-    return [managedDept.id, ...childIds];
+    const allChildIds: number[] = [];
+    for (const deptId of deptIds) {
+      const childIds = await this.getAllChildDepartmentIds(deptId);
+      allChildIds.push(...childIds);
+    }
+    return [...new Set([...deptIds, ...allChildIds])];
   }
 
   /**
@@ -356,11 +362,22 @@ export class OrgRepository {
     );
     const isBuiltin = userRows.length > 0 && userRows[0].is_builtin === 1;
 
-    // 检查是否是部门经理
-    const [managedDepts] = await pool.execute<RowDataPacket[]>(
-      'SELECT id, name FROM departments WHERE manager_id = ?',
-      [id]
-    );
+    // 检查是否是部门经理（查 departments.manager_id，department_managers 可选）
+    let managedDepts: RowDataPacket[];
+    try {
+      [managedDepts] = await pool.execute<RowDataPacket[]>(
+        `SELECT DISTINCT d.id, d.name FROM departments d
+         LEFT JOIN department_managers dm ON d.id = dm.department_id
+         WHERE d.manager_id = ? OR dm.user_id = ?`,
+        [id, id]
+      );
+    } catch {
+      // department_managers 表不存在时 fallback
+      [managedDepts] = await pool.execute<RowDataPacket[]>(
+        'SELECT id, name FROM departments WHERE manager_id = ?',
+        [id]
+      );
+    }
 
     // 类型转换
     const typedManagedDepts = managedDepts as { id: number; name: string }[];
@@ -587,6 +604,30 @@ export class OrgRepository {
     return rows;
   }
 
+  /**
+   * 批量获取多个成员的能力数据（单次查询替代循环）
+   */
+  async getCapabilitiesByUserIds(userIds: number[]): Promise<Map<number, MemberCapability[]>> {
+    if (userIds.length === 0) return new Map();
+    const pool = getPool();
+    const placeholders = userIds.map(() => '?').join(',');
+    const [rows] = await pool.execute<MemberCapabilityRow[]>(
+      `SELECT mc.*, cm.name as model_name
+       FROM member_capabilities mc
+       JOIN capability_models cm ON mc.model_id = cm.id
+       WHERE mc.user_id IN (${placeholders})
+       ORDER BY mc.evaluated_at DESC`,
+      userIds
+    );
+    const map = new Map<number, MemberCapability[]>();
+    for (const row of rows) {
+      const existing = map.get(row.user_id) || [];
+      existing.push(row);
+      map.set(row.user_id, existing);
+    }
+    return map;
+  }
+
   async getMemberCapabilityById(userId: number, capabilityId: string): Promise<MemberCapability | null> {
     const pool = getPool();
     const [rows] = await pool.execute<MemberCapabilityRow[]>(
@@ -802,6 +843,7 @@ export class OrgRepository {
   async getTechManager(userId: number): Promise<Member | null> {
     const pool = getPool();
     // 获取用户所在部门的父部门（技术组）的经理
+    // 优先使用 departments.manager_id，department_managers 表作为可选增强
     const [rows] = await pool.execute<MemberRow[]>(
       `SELECT u.*
        FROM users u
@@ -857,5 +899,253 @@ export class OrgRepository {
       []
     );
     return rows[0] || null;
+  }
+
+  // ========== 部门经理关联表 CRUD ==========
+
+  /**
+   * 插入部门经理关联记录
+   */
+  async addDepartmentManager(departmentId: number, userId: number, role: 'primary' | 'co_manager'): Promise<void> {
+    const pool = getPool();
+    try {
+      await pool.execute(
+        'INSERT IGNORE INTO department_managers (department_id, user_id, role) VALUES (?, ?, ?)',
+        [departmentId, userId, role]
+      );
+    } catch {
+      // department_managers 表不存在时静默忽略
+    }
+  }
+
+  /**
+   * 删除部门指定角色的经理关联记录
+   */
+  async removeDepartmentManagers(departmentId: number, role?: 'primary' | 'co_manager'): Promise<void> {
+    const pool = getPool();
+    try {
+      if (role) {
+        await pool.execute(
+          'DELETE FROM department_managers WHERE department_id = ? AND role = ?',
+          [departmentId, role]
+        );
+      } else {
+        await pool.execute(
+          'DELETE FROM department_managers WHERE department_id = ?',
+          [departmentId]
+        );
+      }
+    } catch {
+      // department_managers 表不存在时静默忽略
+    }
+  }
+
+  /**
+   * 获取部门的副经理信息
+   */
+  async getCoManager(departmentId: number): Promise<{ user_id: number; user_name: string } | null> {
+    const pool = getPool();
+    try {
+      const [rows] = await pool.execute<RowDataPacket[]>(
+        `SELECT dm.user_id, u.real_name as user_name
+         FROM department_managers dm
+         LEFT JOIN users u ON dm.user_id = u.id
+         WHERE dm.department_id = ? AND dm.role = 'co_manager'
+         LIMIT 1`,
+        [departmentId]
+      );
+      return rows[0] ? { user_id: rows[0].user_id, user_name: rows[0].user_name } : null;
+    } catch {
+      // department_managers 表不存在时返回 null
+      return null;
+    }
+  }
+
+  /**
+   * 查询用户关联的所有部门ID（同时查 departments.manager_id 和 department_managers）
+   * department_managers 表不存在时仅查 departments.manager_id
+   */
+  async getManagerDepartmentIds(userId: number): Promise<number[]> {
+    const pool = getPool();
+
+    // 先查 departments.manager_id（始终可用）
+    const [baseRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT id as dept_id FROM departments WHERE manager_id = ?',
+      [userId]
+    );
+    const deptIds = baseRows.map((r: RowDataPacket) => r.dept_id as number);
+
+    // 尝试查 department_managers（表可能不存在）
+    try {
+      const [extraRows] = await pool.execute<RowDataPacket[]>(
+        'SELECT department_id as dept_id FROM department_managers WHERE user_id = ?',
+        [userId]
+      );
+      for (const r of extraRows) {
+        const id = r.dept_id as number;
+        if (!deptIds.includes(id)) {
+          deptIds.push(id);
+        }
+      }
+    } catch {
+      // department_managers 表不存在，忽略
+    }
+
+    return deptIds;
+  }
+
+  /**
+   * 替换部门的副经理
+   */
+  async replaceCoManager(departmentId: number, coManagerId: number | null): Promise<void> {
+    const pool = getPool();
+    try {
+      // 先删除旧的副经理记录
+      await pool.execute(
+        "DELETE FROM department_managers WHERE department_id = ? AND role = 'co_manager'",
+        [departmentId]
+      );
+      // 插入新记录
+      if (coManagerId !== null) {
+        await pool.execute(
+          "INSERT INTO department_managers (department_id, user_id, role) VALUES (?, ?, 'co_manager')",
+          [departmentId, coManagerId]
+        );
+      }
+    } catch {
+      // department_managers 表不存在时静默忽略
+    }
+  }
+
+  /**
+   * 更新主经理关联记录（departments.manager_id 变更时同步）
+   */
+  async syncPrimaryManager(departmentId: number, userId: number | null): Promise<void> {
+    const pool = getPool();
+    try {
+      // 删除旧 primary 记录
+      await pool.execute(
+        "DELETE FROM department_managers WHERE department_id = ? AND role = 'primary'",
+        [departmentId]
+      );
+      // 插入新记录
+      if (userId !== null) {
+        await pool.execute(
+          "INSERT INTO department_managers (department_id, user_id, role) VALUES (?, ?, 'primary')",
+          [departmentId, userId]
+        );
+      }
+    } catch {
+      // department_managers 表不存在时静默忽略
+    }
+  }
+
+  // ========== 任务类型配置 CRUD ==========
+
+  async getTaskTypes(): Promise<TaskTypeConfig[]> {
+    const pool = getPool();
+    const [rows] = await pool.execute<TaskTypeConfigRow[]>(
+      'SELECT * FROM task_types ORDER BY sort_order, id'
+    );
+    return rows;
+  }
+
+  async getTaskTypeById(id: number): Promise<TaskTypeConfig | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<TaskTypeConfigRow[]>(
+      'SELECT * FROM task_types WHERE id = ?',
+      [id]
+    );
+    return rows[0] || null;
+  }
+
+  async getTaskTypeByCode(code: string): Promise<TaskTypeConfig | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<TaskTypeConfigRow[]>(
+      'SELECT * FROM task_types WHERE code = ?',
+      [code]
+    );
+    return rows[0] || null;
+  }
+
+  async createTaskType(data: {
+    code: string;
+    name: string;
+    color?: string;
+    description?: string;
+    group_name?: string;
+    is_active?: boolean;
+    sort_order?: number;
+  }): Promise<number> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      `INSERT INTO task_types (code, name, color, description, group_name, is_active, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        data.code,
+        data.name,
+        data.color || 'gray',
+        data.description || null,
+        data.group_name || null,
+        data.is_active !== undefined ? data.is_active : true,
+        data.sort_order || 0
+      ]
+    );
+    return result.insertId;
+  }
+
+  async updateTaskType(id: number, data: Partial<TaskTypeConfig>): Promise<boolean> {
+    const pool = getPool();
+    const fields: string[] = [];
+    const values: (string | number | boolean | null)[] = [];
+
+    if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
+    if (data.color !== undefined) { fields.push('color = ?'); values.push(data.color); }
+    if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description); }
+    if (data.group_name !== undefined) { fields.push('group_name = ?'); values.push(data.group_name); }
+    if (data.is_active !== undefined) { fields.push('is_active = ?'); values.push(data.is_active); }
+    if (data.sort_order !== undefined) { fields.push('sort_order = ?'); values.push(data.sort_order); }
+
+    if (fields.length === 0) return false;
+
+    values.push(id);
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE task_types SET ${fields.join(', ')} WHERE id = ?`,
+      values
+    );
+    return result.affectedRows > 0;
+  }
+
+  async deleteTaskType(id: number): Promise<boolean> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      'DELETE FROM task_types WHERE id = ?',
+      [id]
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * 获取使用指定任务类型的任务数量
+   */
+  async getTaskCountByType(taskTypeCode: string): Promise<number> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT COUNT(*) as count FROM wbs_tasks WHERE task_type = ?',
+      [taskTypeCode]
+    );
+    return rows[0]?.count || 0;
+  }
+
+  /**
+   * 将使用指定任务类型的任务改为 other 类型
+   */
+  async updateTasksTypeToOther(oldTypeCode: string): Promise<number> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      "UPDATE wbs_tasks SET task_type = 'other' WHERE task_type = ?",
+      [oldTypeCode]
+    );
+    return result.affectedRows;
   }
 }

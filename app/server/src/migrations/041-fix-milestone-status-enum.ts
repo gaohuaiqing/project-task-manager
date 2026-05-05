@@ -10,7 +10,7 @@
  * 1. 先将所有旧状态映射到新状态
  * 2. 修改枚举定义
  */
-import { getPool } from '../../core/db';
+import { getPool } from '../core/db';
 import type { RowDataPacket } from 'mysql2/promise';
 
 async function checkColumnExists(tableName: string, columnName: string): Promise<boolean> {

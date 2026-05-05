@@ -8,6 +8,7 @@
  */
 
 import { databaseService } from '../services/DatabaseService.js';
+import { logger } from '../core/logger.js';
 
 /** 迁移配置 */
 interface MigrationConfig {
@@ -50,19 +51,19 @@ export function createMigrationRunner(config: MigrationConfig) {
 
       // 检查是否已执行
       if (await checkMigrationExecuted()) {
-        console.log(`[Migration ${version}] 已执行，跳过`);
+        logger.info('[Migration %s] 已执行，跳过', version);
         return true;
       }
 
-      console.log(`[Migration ${version}] 开始执行: ${name}`);
+      logger.info('[Migration %s] 开始执行: %s', version, name);
 
       await up();
       await recordMigration();
 
-      console.log(`[Migration ${version}] 完成`);
+      logger.info('[Migration %s] 完成', version);
       return true;
     } catch (error) {
-      console.error(`[Migration ${version}] 失败:`, error);
+      logger.error('[Migration %s] 失败: %s', version, error instanceof Error ? error.message : String(error));
       return false;
     }
   }
@@ -74,10 +75,10 @@ export function createMigrationRunner(config: MigrationConfig) {
         try {
           await databaseService.init();
           await up();
-          console.log(`[Migration ${version}] 完成`);
+          logger.info('[Migration %s] 完成', version);
           process.exit(0);
         } catch (error) {
-          console.error(`[Migration ${version}] 失败:`, error);
+          logger.error('[Migration %s] 失败: %s', version, error instanceof Error ? error.message : String(error));
           process.exit(1);
         }
       })();

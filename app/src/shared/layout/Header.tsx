@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Bell, Moon, Sun, User, X, CheckCircle, AlertTriangle, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { wsClient } from '@/lib/api/websocket';
+import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,11 +37,13 @@ import {
   deleteNotification,
   type Notification as ApiNotification,
 } from '@/lib/api/workflow.api';
+import { tryGetTask } from '@/lib/api/task.api';
+import { NotificationAccessDialog, type NotificationAccessError } from '@/shared/components/NotificationAccessDialog';
 
 /**
  * 通知类型（映射 API 类型到 UI 显示类型）
  */
-type NotificationUIType = 'system' | 'task' | 'warning' | 'info';
+type NotificationUIType = 'system' | 'task' | 'task_completed' | 'warning' | 'security' | 'info';
 
 /**
  * 通知项接口（UI 使用）
@@ -53,7 +57,17 @@ interface Notification {
   link?: string;
   timestamp: Date;
   isRead: boolean;
+  // 扩展字段（用于按项目/任务过滤等高级功能）
+  projectId?: string | null;
+  taskId?: string | null;
+  readAt?: Date | null;
 }
+
+/** 通知数据查询键 */
+const NOTIFICATION_QUERY_KEY = ['notifications', 'list'] as const;
+
+/** 通知缓存时间：2 分钟 */
+const NOTIFICATION_STALE_TIME = 2 * 60 * 1000;
 
 /**
  * 将 API 通知类型映射为 UI 类型
@@ -64,10 +78,16 @@ function mapNotificationType(apiType: string): NotificationUIType {
     case 'approval_result':
     case 'approval_timeout':
       return 'warning';
-    case 'delay':
     case 'delay_warning':
     case 'task_delayed':
       return 'warning';
+    case 'task_assigned':
+      return 'task';
+    case 'task_completed':
+      return 'task_completed';
+    case 'project_updated':
+    case 'mention':
+      return 'info';
     case 'daily_summary':
       return 'info';
     case 'system':
@@ -75,7 +95,7 @@ function mapNotificationType(apiType: string): NotificationUIType {
     case 'new_device':
     case 'ip_change':
     case 'session_terminated':
-      return 'warning';
+      return 'security';
     default:
       return 'info';
   }
@@ -85,15 +105,23 @@ function mapNotificationType(apiType: string): NotificationUIType {
  * 将 API 通知转换为 UI 通知
  */
 function mapApiNotification(api: ApiNotification): Notification {
+  const MAX_DESC_LENGTH = 80;
+  const description = api.content.length > MAX_DESC_LENGTH
+    ? api.content.slice(0, MAX_DESC_LENGTH) + '...'
+    : api.content;
+
   return {
     id: api.id,
     type: mapNotificationType(api.type),
     title: api.title,
-    description: api.content.slice(0, 50) + (api.content.length > 50 ? '...' : ''),
+    description,
     content: api.content,
     link: api.link ?? undefined,
     timestamp: new Date(api.createdAt),
     isRead: api.isRead,
+    projectId: api.projectId,
+    taskId: api.taskId,
+    readAt: api.readAt ? new Date(api.readAt) : null,
   };
 }
 
@@ -113,6 +141,7 @@ function formatAbsoluteTime(date: Date): string {
 
 /**
  * 格式化时间为相对时间（用于列表显示）
+ * 跨年显示年份，否则只显示月日
  */
 function formatRelativeTime(date: Date): string {
   const now = new Date();
@@ -125,7 +154,20 @@ function formatRelativeTime(date: Date): string {
   if (diffMinutes < 60) return `${diffMinutes}分钟前`;
   if (diffHours < 24) return `${diffHours}小时前`;
   if (diffDays < 7) return `${diffDays}天前`;
-  return formatAbsoluteTime(date);
+
+  // 跨年显示完整日期，否则显示月日时分
+  if (date.getFullYear() !== now.getFullYear()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${month}-${day} ${hours}:${minutes}`;
 }
 
 /**
@@ -134,9 +176,13 @@ function formatRelativeTime(date: Date): string {
 function getNotificationStyle(type: NotificationUIType) {
   switch (type) {
     case 'task':
+      return { icon: CheckCircle, color: 'text-blue-500' };
+    case 'task_completed':
       return { icon: CheckCircle, color: 'text-green-500' };
     case 'warning':
       return { icon: AlertTriangle, color: 'text-amber-500' };
+    case 'security':
+      return { icon: AlertTriangle, color: 'text-red-500' };
     case 'system':
       return { icon: Info, color: 'text-blue-500' };
     default:
@@ -146,110 +192,194 @@ function getNotificationStyle(type: NotificationUIType) {
 
 /**
  * 头部组件
+ * 通知数据使用 React Query 管理，避免路由切换时重复请求
  */
 export function Header() {
   const { theme, setTheme, currentUser } = useAppContext();
   const navigate = useNavigate();
   const { lastUpdate, isHmr } = useHmrTime();
+  const queryClient = useQueryClient();
 
-  // 通知状态
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  // 对话框状态
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const [accessError, setAccessError] = useState<NotificationAccessError | null>(null);
+  const [accessDialogOpen, setAccessDialogOpen] = useState(false);
+
+  /** 是否已加载全部消息（含已读） */
+  const [hasLoadedAll, setHasLoadedAll] = useState(false);
 
   // 是否为开发环境
   const isDev = import.meta.env.DEV;
 
-  // 加载通知数据
-  const loadNotifications = useCallback(async () => {
-    if (!currentUser) return;
-    try {
-      setIsLoading(true);
-      const result = await getNotifications({ pageSize: 20 });
-      setNotifications(result.items.map(mapApiNotification));
-    } catch (error) {
-      console.error('Failed to load notifications:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentUser]);
-
-  // 初始加载
-  useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications]);
-
-  // WebSocket 实时通知订阅
-  useEffect(() => {
-    const unsubscribe = wsClient.subscribe('notification', (data: any) => {
-      const newNotification = mapApiNotification({
-        id: data.id ?? crypto.randomUUID(),
-        type: data.type ?? 'system',
-        title: data.title ?? '新通知',
-        content: data.content ?? '',
-        link: data.link ?? null,
-        isRead: false,
-        createdAt: new Date().toISOString(),
-        userId: 0,
+  // 使用 React Query 管理通知数据，避免路由切换时重复请求
+  const { data: notifications = [], isLoading } = useQuery({
+    queryKey: [...NOTIFICATION_QUERY_KEY, hasLoadedAll], // 添加 hasLoadedAll 到 queryKey
+    queryFn: async () => {
+      if (!currentUser) return [];
+      // 根据 hasLoadedAll 决定是否只加载未读
+      const result = await getNotifications({
+        unreadOnly: !hasLoadedAll,
+        pageSize: hasLoadedAll ? 50 : 20
       });
-      setNotifications((prev) => [newNotification, ...prev]);
+      return result.items.map(mapApiNotification);
+    },
+    staleTime: NOTIFICATION_STALE_TIME,
+    enabled: !!currentUser,
+  });
+
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.isRead).length,
+    [notifications]
+  );
+
+  // WebSocket 实时通知订阅（仅注册一次，通过 queryClient 更新缓存）
+  const handleWsNotification = useCallback((data: unknown) => {
+    // 验证消息数据结构有效性
+    if (!data || typeof data !== 'object') return;
+    const msg = data as Record<string, unknown>;
+    if (!msg.type || typeof msg.type !== 'string') return;
+    if (!msg.title && !msg.content) return;
+
+    // 转换后端蛇形命名为前端驼峰命名
+    const newNotification = mapApiNotification({
+      id: (msg.id as string) ?? crypto.randomUUID(),
+      userId: (msg.user_id as number) ?? (msg.userId as number) ?? 0,
+      projectId: (msg.project_id as string | null) ?? (msg.projectId as string | null) ?? null,
+      taskId: (msg.task_id as string | null) ?? (msg.taskId as string | null) ?? null,
+      type: msg.type as string,
+      title: (msg.title as string) ?? '新通知',
+      content: (msg.content as string) ?? '',
+      link: (msg.link as string | null) ?? null,
+      isRead: (msg.is_read as boolean) ?? (msg.isRead as boolean) ?? false,
+      readAt: (msg.read_at as string | null) ?? (msg.readAt as string | null) ?? null,
+      createdAt: (msg.created_at as string) ?? (msg.createdAt as string) ?? new Date().toISOString(),
     });
 
-    // 确保 WebSocket 已连接
+    // 已加载全部模式：所有通知都添加；否则只添加未读
+    if (!hasLoadedAll && newNotification.isRead) return;
+
+    // 直接更新 React Query 缓存，无需触发重新获取
+    queryClient.setQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll], (old) => {
+      return old ? [newNotification, ...old] : [newNotification];
+    });
+  }, [queryClient, hasLoadedAll]);
+
+  // 性能优化：WebSocket订阅使用useEffect，确保组件卸载时正确清理
+  useEffect(() => {
+    const unsubscribe = wsClient.subscribe('notification', handleWsNotification);
     if (wsClient.getStatus() === 'disconnected') {
       wsClient.connect();
     }
-
+    // cleanup: 组件卸载或handleWsNotification变化时取消订阅
     return unsubscribe;
-  }, []);
+  }, [handleWsNotification]);
 
   const handleLogout = () => {
     navigate('/login');
   };
 
-  const handleMarkAllRead = async () => {
+  const handleMarkAllRead = useCallback(async () => {
+    // 保存旧数据用于回滚（使用完整的 queryKey）
+    const previousData = queryClient.getQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll]);
+
+    if (hasLoadedAll) {
+      // 已加载全部：标记全部已读后更新 isRead 状态
+      queryClient.setQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll], (old) =>
+        old ? old.map((n) => ({ ...n, isRead: true })) : old
+      );
+    } else {
+      // 只显示未读：标记全部已读后清空列表
+      queryClient.setQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll], []);
+    }
+
     try {
       await markAllNotificationsAsRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     } catch (error) {
       console.error('Failed to mark all as read:', error);
+      // 回滚到之前状态
+      queryClient.setQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll], previousData);
+      toast.error('标记全部已读失败，请重试');
     }
-  };
+  }, [queryClient, hasLoadedAll]);
 
-  const handleMarkRead = async (id: string) => {
+  const handleMarkRead = useCallback(async (id: string) => {
+    // 保存旧数据用于回滚（使用完整的 queryKey）
+    const previousData = queryClient.getQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll]);
+
+    if (hasLoadedAll) {
+      // 已加载全部：标记已读后更新 isRead 状态，不移除
+      queryClient.setQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll], (old) =>
+        old ? old.map((n) => (n.id === id ? { ...n, isRead: true } : n)) : old
+      );
+    } else {
+      // 只显示未读：标记已读后从列表移除
+      queryClient.setQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll], (old) =>
+        old ? old.filter((n) => n.id !== id) : old
+      );
+    }
+
     try {
       await markNotificationAsRead(id);
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
-      );
     } catch (error) {
       console.error('Failed to mark as read:', error);
+      // 回滚到之前状态
+      queryClient.setQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll], previousData);
     }
-  };
+  }, [queryClient, hasLoadedAll]);
 
-  const handleViewNotification = (notification: Notification) => {
+  const handleViewNotification = useCallback(async (notification: Notification) => {
     if (!notification.isRead) {
       handleMarkRead(notification.id);
     }
+
+    // 审批类型通知直接跳转审批页面，无需检查任务权限
+    if (notification.type === 'warning' && notification.link?.startsWith('/settings/approvals')) {
+      navigate(notification.link);
+      return;
+    }
+
     if (notification.link) {
+      // 解析 link 获取任务 ID（格式：/tasks/:id）
+      const taskIdMatch = notification.link.match(/\/tasks\/([^/?]+)/);
+      const taskId = taskIdMatch?.[1];
+
+      if (taskId) {
+        // 先尝试获取任务，检查权限
+        const result = await tryGetTask(taskId);
+        if (!result.success && result.error) {
+          // 显示错误对话框
+          setAccessError({ code: result.error.code, message: result.error.message, taskTitle: notification.title });
+          setAccessDialogOpen(true);
+          return;
+        }
+      }
       navigate(notification.link);
     } else {
       setSelectedNotification(notification);
       setIsDetailOpen(true);
     }
-  };
+  }, [handleMarkRead, navigate]);
 
-  const handleClearNotification = async (id: string) => {
+  const handleClearNotification = useCallback(async (id: string) => {
+    // 保存旧数据用于回滚（使用完整的 queryKey）
+    const previousData = queryClient.getQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll]);
+
+    // 乐观更新缓存
+    queryClient.setQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll], (old) =>
+      old ? old.filter((n) => n.id !== id) : old
+    );
+
     try {
       await deleteNotification(id);
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
     } catch (error) {
       console.error('Failed to delete notification:', error);
+      // 回滚到之前状态
+      queryClient.setQueryData<Notification[]>([...NOTIFICATION_QUERY_KEY, hasLoadedAll], previousData);
+      toast.error('删除通知失败，请重试');
     }
-  };
+  }, [queryClient, hasLoadedAll]);
 
   return (
     <header className="flex h-16 items-center justify-between border-b bg-background px-4">
@@ -268,20 +398,39 @@ export function Header() {
         )}
 
         {/* 通知中心 */}
-        <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
+        <Popover
+          open={isPopoverOpen}
+          onOpenChange={(open) => {
+            setIsPopoverOpen(open);
+            if (!open) {
+              // 关闭时重置为只显示未读模式
+              setHasLoadedAll(false);
+            }
+          }}
+        >
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon" data-testid="header-btn-notification" className="relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              data-testid="header-btn-notification"
+              className="relative"
+              aria-label={`通知${unreadCount > 0 ? `，${unreadCount}条未读` : ''}`}
+            >
               <Bell className="h-5 w-5" />
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground flex items-center justify-center">
-                  {unreadCount > 9 ? '9+' : unreadCount}
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="absolute -top-1 -right-1 min-w-4 h-4 px-0.5 rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground flex items-center justify-center"
+                >
+                  {unreadCount > 99 ? '99+' : unreadCount}
                 </span>
               )}
             </Button>
           </PopoverTrigger>
           <PopoverContent align="end" data-testid="header-popover-notification" className="w-80 p-0">
-            <div className="flex items-center justify-between p-4 border-b">
-              <h4 className="font-semibold">通知</h4>
+            <div className="flex items-center justify-between gap-4 p-4 border-b">
+              <h4 className="font-semibold shrink-0">通知</h4>
               {unreadCount > 0 && (
                 <Button variant="ghost" size="sm" data-testid="header-btn-mark-all-read" onClick={handleMarkAllRead}>
                   全部已读
@@ -308,7 +457,8 @@ export function Header() {
                         key={notification.id}
                         className={cn(
                           'flex gap-3 p-3 hover:bg-accent cursor-pointer relative group',
-                          !notification.isRead && 'bg-accent/50'
+                          notification.isRead && 'opacity-60', // 已读消息整体灰化
+                          !notification.isRead && 'bg-accent/50' // 未读消息背景高亮
                         )}
                         onClick={() => handleViewNotification(notification)}
                       >
@@ -316,10 +466,16 @@ export function Header() {
                           <Icon className="h-5 w-5" />
                         </div>
                         <div className="flex-1 min-w-0 pr-6">
-                          <p className="text-sm font-medium truncate">
+                          <p className={cn(
+                            'text-sm font-medium truncate',
+                            notification.isRead && 'text-muted-foreground' // 已读标题灰化
+                          )}>
                             {notification.title}
                           </p>
-                          <p className="text-xs text-muted-foreground truncate">
+                          <p className={cn(
+                            'text-xs text-muted-foreground truncate',
+                            notification.isRead && 'opacity-70' // 已读描述更淡
+                          )}>
                             {notification.description}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">
@@ -347,22 +503,27 @@ export function Header() {
               )}
             </ScrollArea>
             {notifications.length > 0 && (
-              <div className="p-4 pt-0 mt-2">
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      const result = await getNotifications({ pageSize: 100 });
-                      setNotifications(result.items.map(mapApiNotification));
-                    } catch (error) {
-                      console.error('Failed to load all notifications:', error);
+              <div className="p-4 pt-0 mt-2 border-t">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-muted-foreground">
+                    {hasLoadedAll
+                      ? `未读 ${unreadCount} 条 / 共 ${notifications.length} 条`
+                      : `未读 ${notifications.length} 条`
                     }
-                  }}
-                >
-                  查看全部通知
-                </Button>
+                  </span>
+                  {!hasLoadedAll && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setHasLoadedAll(true);
+                      }}
+                    >
+                      查看更多
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
           </PopoverContent>
@@ -441,6 +602,13 @@ export function Header() {
           </DialogBody>
         </DialogContent>
       </Dialog>
+
+      {/* 通知访问错误对话框 */}
+      <NotificationAccessDialog
+        open={accessDialogOpen}
+        onOpenChange={setAccessDialogOpen}
+        error={accessError}
+      />
     </header>
   );
 }

@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { MultiSelect, type MultiSelectOption } from '@/components/ui/multi-select';
+import { useTaskTypeOptions } from '@/features/org/hooks/useOrg';
 import type { TaskQueryParams, TaskStatus, TaskPriority, TaskType } from '../types';
 import {
   TASK_STATUS_LABELS,
@@ -57,7 +58,6 @@ const STATUS_OPTIONS: MultiSelectOption[] = [
   { value: 'on_time_completed', label: TASK_STATUS_LABELS.on_time_completed },
   { value: 'overdue_completed', label: TASK_STATUS_LABELS.overdue_completed },
   { value: 'pending_approval', label: TASK_STATUS_LABELS.pending_approval },
-  { value: 'rejected', label: TASK_STATUS_LABELS.rejected },
 ];
 
 /** 所有优先级选项 */
@@ -68,8 +68,8 @@ const PRIORITY_OPTIONS: MultiSelectOption[] = [
   { value: 'low', label: TASK_PRIORITY_LABELS.low },
 ];
 
-/** 所有任务类型选项 */
-const TASK_TYPE_OPTIONS: MultiSelectOption[] = [
+/** 默认任务类型选项（后备） */
+const DEFAULT_TASK_TYPE_OPTIONS: MultiSelectOption[] = [
   { value: 'firmware', label: TASK_TYPE_LABELS.firmware },
   { value: 'board', label: TASK_TYPE_LABELS.board },
   { value: 'driver', label: TASK_TYPE_LABELS.driver },
@@ -101,6 +101,10 @@ export function TaskFilterBar({
   // 搜索输入的本地状态（用于防抖）
   const [localSearch, setLocalSearch] = useState(filters.search || '');
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 任务类型选项（优先从 API 获取，后备使用常量）
+  const { options: taskTypeOptionsFromApi, hasApiData } = useTaskTypeOptions();
+  const taskTypeOptions = hasApiData ? taskTypeOptionsFromApi : DEFAULT_TASK_TYPE_OPTIONS;
 
   // 同步外部 filters.search 到本地状态
   useEffect(() => {
@@ -253,7 +257,7 @@ export function TaskFilterBar({
       {/* 任务类型筛选 - 多选 */}
       <MultiSelect
         data-testid="task-filter-select-type"
-        options={TASK_TYPE_OPTIONS}
+        options={taskTypeOptions}
         value={ensureArray(filters.taskType as any)}
         onChange={(value) => updateMultiFilter('taskType', value)}
         placeholder="任务类型"

@@ -35,11 +35,24 @@ interface AuthSession {
   deviceId: string;
 }
 
-interface AuthContextType {
+// ================================================================
+// 性能优化：拆分为State和Actions两个独立Context
+// - AuthStateContext: 状态相关，变化时只触发消费状态的组件重渲染
+// - AuthActionsContext: 操作函数，引用稳定，消费操作的组件不受状态变化影响
+// - 原AuthContext保留向后兼容，新hooks: useAuthState/useAuthActions
+// ================================================================
+
+/** 认证状态Context - 只包含状态数据 */
+interface AuthStateContextType {
   user: User | null;
-  // ✅ isAdmin 改为计算值（基于 user.role === 'admin'）
-  get isAdmin(): boolean;
+  isAdmin: boolean;
   isAuthenticated: boolean;
+  isBackendConnected: boolean;
+  session: AuthSession | null;
+}
+
+/** 认证操作Context - 只包含操作函数 */
+interface AuthActionsContextType {
   login: (username: string, password: string) => Promise<boolean>;
   /** @deprecated 请使用 login() 代替，本函数将在未来版本中移除 */
   adminLogin: (username: string, password: string) => Promise<boolean>;
@@ -55,15 +68,18 @@ interface AuthContextType {
   adminCreateUser: (name: string, role: UserRole, employeeId?: string) => Promise<{ success: boolean; message: string; username?: string; tempPassword?: string }>;
   validateEmployeeId: (employeeId: string, excludeCurrentId?: string) => { valid: boolean; message: string };
   isEmployeeIdExists: (employeeId: string) => boolean;
-  isBackendConnected: boolean;
-
-  // 新增：会话安全相关方法
   validateSession: () => Promise<boolean>;
   forceLogoutAllDevices: () => Promise<void>;
   getSessionInfo: () => AuthSession | null;
   extendSession: () => void;
 }
 
+/** 向后兼容：完整AuthContext类型（State + Actions） */
+interface AuthContextType extends AuthStateContextType, AuthActionsContextType {}
+
+// 创建三个Context（State、Actions、组合）
+const AuthStateContext = createContext<AuthStateContextType | undefined>(undefined);
+const AuthActionsContext = createContext<AuthActionsContextType | undefined>(undefined);
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const USERS_STORAGE_KEY = 'app_users';
@@ -372,7 +388,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 登录认证函数
   // ================================================================
 
-  const login = async (username: string, password: string): Promise<boolean> => {
+  // ✅ 性能优化：使用 useCallback 稳定引用，避免 Provider 重渲染时导致 37 个消费者级联重渲染
+  const login = useCallback(async (username: string, password: string): Promise<boolean> => {
     console.log('[AuthProvider] login 开始, username:', username);
 
     try {
@@ -424,6 +441,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
             // 生成新的会话ID以防止会话固定攻击
             const newSessionId = generateSecureSessionId();
+            const now = Date.now();
 
             // 使用后端返回的用户数据
             const backendUser = result.data?.user;
@@ -434,7 +452,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 users[username] = {
                   password: '$backend_user', // 后端用户标记
                   role: backendUser.role as UserRole,
-                  name: backendUser.realName || backendUser.name || username,
+                  name: backendUser.realName || backendUser.real_name || backendUser.name || username,
                 };
                 saveUsers(users);
               }
@@ -445,8 +463,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 userId: String(backendUser.id),
                 username,
                 sessionId: newSessionId,
-                createdAt: result.session.createdAt,
-                lastAccessed: result.session.createdAt,
+                createdAt: now,
+                lastAccessed: now,
                 deviceId
               };
             } else {
@@ -458,8 +476,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 userId: `user_${Date.now()}`,
                 username,
                 sessionId: newSessionId,
-                createdAt: result.session.createdAt,
-                lastAccessed: result.session.createdAt,
+                createdAt: now,
+                lastAccessed: now,
                 deviceId
               };
             }
@@ -564,22 +582,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return false;
     }
-  };
+  }, []); // login 不依赖任何外部状态，所有数据从参数或 localStorage 获取
 
   // ================================================================
   // 管理员登录函数（废弃，保留向后兼容）
   // ================================================================
 
-  const adminLogin = async (username: string, password: string): Promise<boolean> => {
+  const adminLogin = useCallback(async (username: string, password: string): Promise<boolean> => {
     console.warn('[AuthProvider] adminLogin 已废弃，请使用 login() 代替');
     return await login(username, password);
-  };
+  }, [login]);
 
   // ================================================================
   // 用户管理函数
   // ================================================================
 
-  const updateUserRole = (role: UserRole) => {
+  // ================================================================
+  // 用户管理函数
+  // ================================================================
+
+  const updateUserRole = useCallback((role: UserRole) => {
     if (user && !isAdmin) {
       const updatedUser = { ...user, role };
       setUser(updatedUser);
@@ -592,9 +614,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         emitUserUpdated(user.username, { role });
       }
     }
-  };
+  }, [user, isAdmin]);
 
-  const updateUserProfile = (updates: Partial<User>) => {
+  const updateUserProfile = useCallback((updates: Partial<User>) => {
     if (user && !isAdmin) {
       const updatedUser = { ...user, ...updates };
       setUser(updatedUser);
@@ -607,9 +629,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         emitUserUpdated(user.username, { name: updates.name });
       }
     }
-  };
+  }, [user, isAdmin]);
 
-  const changePassword = async (oldPassword: string, newPassword: string): Promise<boolean> => {
+  const changePassword = useCallback(async (oldPassword: string, newPassword: string): Promise<boolean> => {
     if (!user) return false;
 
     if (!isAdmin) {
@@ -633,9 +655,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return true;
     }
     return false;
-  };
+  }, [user, isAdmin]);
 
-  const register = async (
+  const register = useCallback(async (
     username: string,
     password: string,
     name: string,
@@ -669,18 +691,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     emitUserRegistered(username, name.trim(), role);
 
     return { success: true, message: '注册成功' };
-  };
+  }, []);
 
-  const getAllUsers = () => {
+  const getAllUsers = useCallback(() => {
     const users = getStoredUsers();
     return Object.entries(users).map(([username, data]) => ({
       username,
       role: data.role,
       name: data.name,
     }));
-  };
+  }, []);
 
-  const adminUpdateUser = async (username: string, updates: Partial<{ role: UserRole; name: string; newUsername: string }>) => {
+  const adminUpdateUser = useCallback(async (username: string, updates: Partial<{ role: UserRole; name: string; newUsername: string }>) => {
     if (!isAdmin) return false;
 
     const users = getStoredUsers();
@@ -697,9 +719,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     emitUserUpdated(username, { role: updates.role, name: updates.name });
 
     return true;
-  };
+  }, [isAdmin]);
 
-  const adminResetPassword = async (username: string, newPassword: string): Promise<boolean> => {
+  const adminResetPassword = useCallback(async (username: string, newPassword: string): Promise<boolean> => {
     if (!isAdmin) return false;
 
     const users = getStoredUsers();
@@ -710,9 +732,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     users[username].password = await bcrypt.hash(newPassword, 10);
     saveUsers(users);
     return true;
-  };
+  }, [isAdmin]);
 
-  const adminDeleteUser = async (username: string): Promise<boolean> => {
+  const adminDeleteUser = useCallback(async (username: string): Promise<boolean> => {
     if (!isAdmin) return false;
 
     if (username === 'admin') return false;
@@ -726,9 +748,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     emitUserDeleted(username);
 
     return true;
-  };
+  }, [isAdmin]);
 
-  const adminCreateUser = async (
+  const adminCreateUser = useCallback(async (
     name: string,
     role: UserRole,
     employeeId?: string
@@ -768,22 +790,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username,
       tempPassword,
     };
-  };
+  }, [isAdmin]);
 
-  const validateEmployeeIdFn = (employeeId: string, excludeCurrentId?: string) => {
+  const validateEmployeeIdFn = useCallback((employeeId: string, excludeCurrentId?: string) => {
     return validateEmployeeId(employeeId, excludeCurrentId);
-  };
+  }, []);
 
-  const isEmployeeIdExistsFn = (employeeId: string) => {
+  const isEmployeeIdExistsFn = useCallback((employeeId: string) => {
     const users = getStoredUsers();
     return !!users[employeeId.trim()];
-  };
+  }, []);
 
   // ================================================================
   // 会话安全相关函数
   // ================================================================
 
-  const validateSession = async (): Promise<boolean> => {
+  const validateSession = useCallback(async (): Promise<boolean> => {
     if (!session || !user) {
       return false;
     }
@@ -829,9 +851,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout();
       return false;
     }
-  };
+  }, [session, user, logout]);
 
-  const forceLogoutAllDevices = async (): Promise<void> => {
+  const forceLogoutAllDevices = useCallback(async (): Promise<void> => {
     if (!user || !session) {
       return;
     }
@@ -868,13 +890,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('[AuthProvider] 强制登出所有设备失败:', error);
     }
-  };
+  }, [user, session, logout]);
 
-  const getSessionInfo = (): AuthSession | null => {
+  const getSessionInfo = useCallback((): AuthSession | null => {
     return session;
-  };
+  }, [session]);
 
-  const extendSession = (): void => {
+  const extendSession = useCallback((): void => {
     if (!session) {
       return;
     }
@@ -893,21 +915,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     console.log('[AuthProvider] 会话已延长');
-  };
+  }, [session]);
 
-  // ✅ 优化：使用 useMemo 缓存 user 对象，稳定引用
+  // ✅ 性能优化：拆分为State和Actions两个独立Context value
+  // State变化时，只有消费State的组件重渲染
+  // Actions引用稳定（useCallback），消费Actions的组件不受State变化影响
+
   const memoizedUser = useMemo(() => user, [user?.id, user?.role, user?.name]);
 
-  // ✅ 优化：使用 useMemo 缓存 Context value，防止不必要的重渲染
-  const authContextValue = useMemo(() => ({
+  // State Context value - 仅状态数据
+  const authStateValue = useMemo<AuthStateContextType>(() => ({
     user: memoizedUser,
-    get isAdmin() {
-      // ✅ 计算值：基于 user.role === 'admin'
-      return memoizedUser?.role === 'admin';
-    },
+    isAdmin: memoizedUser?.role === 'admin',
     isAuthenticated: !!memoizedUser,
+    isBackendConnected,
+    session,
+  }), [memoizedUser, isBackendConnected, session]);
+
+  // Actions Context value - 仅操作函数（引用稳定）
+  const authActionsValue = useMemo<AuthActionsContextType>(() => ({
     login,
-    adminLogin, // 标记为废弃但保留向后兼容
+    adminLogin,
     logout,
     updateUserRole,
     updateUserProfile,
@@ -920,13 +948,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     adminCreateUser,
     validateEmployeeId: validateEmployeeIdFn,
     isEmployeeIdExists: isEmployeeIdExistsFn,
-    isBackendConnected,
     validateSession,
     forceLogoutAllDevices,
     getSessionInfo,
     extendSession,
   }), [
-    memoizedUser,
     login,
     adminLogin,
     logout,
@@ -941,24 +967,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     adminCreateUser,
     validateEmployeeIdFn,
     isEmployeeIdExistsFn,
-    isBackendConnected,
     validateSession,
     forceLogoutAllDevices,
     getSessionInfo,
-    extendSession
+    extendSession,
   ]);
 
+  // 向后兼容：组合Context value
+  const authContextValue = useMemo<AuthContextType>(() => ({
+    ...authStateValue,
+    ...authActionsValue,
+  }), [authStateValue, authActionsValue]);
+
   return (
-    <AuthContext.Provider value={authContextValue}>
-      {children}
-    </AuthContext.Provider>
+    // 嵌套Provider：State在最外层，Actions在内层，组合在最内层
+    <AuthStateContext.Provider value={authStateValue}>
+      <AuthActionsContext.Provider value={authActionsValue}>
+        <AuthContext.Provider value={authContextValue}>
+          {children}
+        </AuthContext.Provider>
+      </AuthActionsContext.Provider>
+    </AuthStateContext.Provider>
   );
 }
 
+/** 向后兼容：获取完整Auth上下文（State + Actions） */
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
+
+/** 性能优化：仅获取认证状态，避免Actions变化触发重渲染 */
+export function useAuthState() {
+  const context = useContext(AuthStateContext);
+  if (context === undefined) {
+    throw new Error('useAuthState must be used within an AuthProvider');
+  }
+  return context;
+}
+
+/** 性能优化：仅获取认证操作函数，状态变化不会触发重渲染 */
+export function useAuthActions() {
+  const context = useContext(AuthActionsContext);
+  if (context === undefined) {
+    throw new Error('useAuthActions must be used within an AuthProvider');
   }
   return context;
 }

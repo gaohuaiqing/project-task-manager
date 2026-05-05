@@ -174,7 +174,7 @@ export function EditMilestoneDialog({
             <Button variant="outline" onClick={onClose}>
               取消
             </Button>
-            <Button onClick={handleSubmit}>
+            <Button variant="outline" onClick={handleSubmit}>
               保存
             </Button>
           </div>

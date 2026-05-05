@@ -14,6 +14,10 @@ export enum TaskEventType {
   PLAN_CHANGE_APPROVED = 'plan_change_approved',
   /** 任务更新（触发级联更新） */
   TASK_UPDATED = 'task_updated',
+  /** 任务创建 */
+  TASK_CREATED = 'task_created',
+  /** 任务删除 */
+  TASK_DELETED = 'task_deleted',
 }
 
 // ========== 事件载荷类型 ==========
@@ -27,6 +31,8 @@ export interface TaskPlanChangeRequestedEvent {
   changes: Array<{ field: string; oldValue: unknown; newValue: unknown }>;
   /** 变更原因 */
   reason: string;
+  /** P9: 提交批次ID，用于分组同一批次的变更 */
+  submissionId?: string;
 }
 
 export interface TaskPlanChangeApprovedEvent {
@@ -51,6 +57,20 @@ export interface TaskUpdatedEvent {
   cascadeUpdate?: boolean;
   /** 级联深度（防止无限递归） */
   cascadeDepth?: number;
+}
+
+export interface TaskCreatedEvent {
+  /** 任务ID */
+  taskId: string;
+  /** 所属项目ID */
+  projectId: string;
+}
+
+export interface TaskDeletedEvent {
+  /** 任务ID */
+  taskId: string;
+  /** 所属项目ID */
+  projectId: string;
 }
 
 // ========== 事件总线 ==========
@@ -85,4 +105,18 @@ export function emitPlanChangeApproved(event: TaskPlanChangeApprovedEvent): void
  */
 export function emitTaskUpdated(event: TaskUpdatedEvent): void {
   taskEvents.emit(TaskEventType.TASK_UPDATED, event);
+}
+
+/**
+ * 发布任务创建事件
+ */
+export function emitTaskCreated(event: TaskCreatedEvent): void {
+  taskEvents.emit(TaskEventType.TASK_CREATED, event);
+}
+
+/**
+ * 发布任务删除事件
+ */
+export function emitTaskDeleted(event: TaskDeletedEvent): void {
+  taskEvents.emit(TaskEventType.TASK_DELETED, event);
 }

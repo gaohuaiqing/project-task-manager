@@ -14,7 +14,7 @@ export function useDashboardStats() {
     queryKey: queryKeys.analytics.dashboardStats(),
     queryFn: analyticsApi.getDashboardStats,
     staleTime: 5 * 60 * 1000, // 5 分钟
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false, // 性能优化：关闭窗口焦点刷新
   });
 }
 

@@ -15,18 +15,22 @@ export interface DepartmentTreeNode extends Department {
   children: DepartmentTreeNode[];
   member_count: number;
   manager_name?: string;
+  co_manager_id?: number | null;
+  co_manager_name?: string;
 }
 
 export interface CreateDepartmentRequest {
   name: string;
   parent_id?: number | null;
   manager_id?: number | null;
+  co_manager_id?: number | null;
 }
 
 export interface UpdateDepartmentRequest {
   name?: string;
   parent_id?: number | null;
   manager_id?: number | null;
+  co_manager_id?: number | null;
 }
 
 // ============ 成员相关 ============
@@ -175,4 +179,38 @@ export interface CreateTaskTypeMappingRequest {
   task_type: string;
   model_id: string;
   priority: number;
+}
+
+// ============ 任务类型配置相关 ============
+
+export interface TaskTypeConfig {
+  id: number;
+  code: string;        // 编码（如 'firmware'）
+  name: string;        // 名称（如 '固件'）
+  color: string;       // 颜色标识
+  description: string | null;
+  group_name: string | null;
+  is_active: boolean;
+  sort_order: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CreateTaskTypeRequest {
+  code: string;
+  name: string;
+  color?: string;
+  description?: string;
+  group_name?: string;
+  is_active?: boolean;
+  sort_order?: number;
+}
+
+export interface UpdateTaskTypeRequest {
+  name?: string;
+  color?: string;
+  description?: string;
+  group_name?: string;
+  is_active?: boolean;
+  sort_order?: number;
 }

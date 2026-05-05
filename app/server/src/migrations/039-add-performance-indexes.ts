@@ -7,7 +7,7 @@
  * 3. 为 milestones 表添加常用查询索引
  */
 
-import { databaseService } from '../services/DatabaseService.js';
+import { databaseService } from '../services/DatabaseService';
 
 const MIGRATION_VERSION = '039';
 const MIGRATION_NAME = 'add_performance_indexes';

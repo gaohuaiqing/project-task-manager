@@ -2,7 +2,7 @@
  * 系统审计日志页面
  */
 import { useState, useEffect, useCallback } from 'react';
-import { Search, Download, Loader2, X } from 'lucide-react';
+import { Search, Download, Loader2, X, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -17,6 +17,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { auditLogApi, type AuditLog, type AuditLogQueryParams } from '@/lib/api/analytics.api';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { format, subDays } from 'date-fns';
+import { formatIPAddress, isLocalIP } from '@/utils/ipFormat';
 
 // 分类标签
 const CATEGORY_LABELS: Record<string, string> = {
@@ -87,7 +88,21 @@ function safeFormatTime(time: string | Date | null | undefined): string {
  * 格式化日志详情 - 让内容更易读
  */
 function formatLogDetails(log: AuditLog): string {
-  // 1. 尝试解析 details
+  // 1. 根据操作类型生成特殊描述
+  const action = log.action;
+
+  // 登录/登出操作显示简化描述
+  if (action === 'LOGIN') {
+    return '登录系统';
+  }
+  if (action === 'LOGOUT') {
+    return '退出系统';
+  }
+  if (action === 'PASSWORD_CHANGE') {
+    return '修改密码';
+  }
+
+  // 2. 尝试解析 details
   let detailsObj: Record<string, unknown> | null = null;
 
   if (log.details) {
@@ -110,7 +125,7 @@ function formatLogDetails(log: AuditLog): string {
     }
   }
 
-  // 2. 如果解析出对象，提取关键字段
+  // 3. 如果解析出对象，提取关键字段
   if (detailsObj) {
     // 提取 message 字段
     if (detailsObj.message) {
@@ -130,12 +145,17 @@ function formatLogDetails(log: AuditLog): string {
     // 提取项目/任务名称
     if (detailsObj.name || detailsObj.projectName || detailsObj.taskName) {
       const name = detailsObj.name || detailsObj.projectName || detailsObj.taskName;
-      const action = ACTION_LABELS[log.action] || log.action;
-      return `${action} "${name}"`;
+      const actionLabel = ACTION_LABELS[log.action] || log.action;
+      return `${actionLabel} "${name}"`;
+    }
+
+    // 提取 code/name 组合（创建部门等操作）
+    if (detailsObj.code && detailsObj.name) {
+      return `创建部门 "${detailsObj.name}" (${detailsObj.code})`;
     }
   }
 
-  // 3. 根据 action 类型生成默认描述
+  // 4. 根据 action 类型生成默认描述
   const actionLabel = ACTION_LABELS[log.action] || log.action;
   const categoryLabel = CATEGORY_LABELS[log.category] || log.category;
 
@@ -144,18 +164,20 @@ function formatLogDetails(log: AuditLog): string {
     const tableNames: Record<string, string> = {
       projects: '项目',
       tasks: '任务',
+      wbs_tasks: '任务',
       users: '用户',
       departments: '部门',
       milestones: '里程碑',
       progress_records: '进度记录',
       capability_models: '能力模型',
       delay_records: '延期记录',
+      sessions: '会话',
     };
     const tableName = tableNames[log.tableName] || log.tableName;
     return `${actionLabel} ${tableName}`;
   }
 
-  // 4. 兜底：显示分类+操作
+  // 5. 兜底：显示分类+操作
   return `${categoryLabel} - ${actionLabel}`;
 }
 
@@ -342,7 +364,7 @@ export function AuditLogsSettings() {
           <div className="whitespace-nowrap w-[80px]">用户</div>
           <div className="whitespace-nowrap">操作</div>
           <div className="flex-1">操作内容</div>
-          <div className="whitespace-nowrap">IP地址</div>
+          <div className="whitespace-nowrap w-[120px]">来源</div>
         </div>
 
         {/* 数据行 */}
@@ -381,9 +403,14 @@ export function AuditLogsSettings() {
                 {formatLogDetails(log)}
               </div>
 
-              {/* IP地址（悬停显示） */}
-              <div className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                {log.ipAddress || '-'}
+              {/* IP地址 - 格式化显示 */}
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
+                {isLocalIP(log.ipAddress) ? (
+                  <Monitor className="h-3.5 w-3.5 text-green-500" />
+                ) : (
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                )}
+                <span>{formatIPAddress(log.ipAddress)}</span>
               </div>
             </div>
           ))

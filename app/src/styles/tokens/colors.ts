@@ -58,30 +58,30 @@ export const systemColors = {
  * 用于特定UI元素的预定义颜色
  */
 export const semanticColors = {
-  // 背景色
+  // 背景色（温暖灰白调，降低蓝色偏移）
   background: {
-    primary: 'hsl(0, 0%, 100%)',           // 主背景
-    secondary: 'hsl(0, 0%, 97%)',          // 次要背景
-    tertiary: 'hsl(0, 0%, 94%)',           // 第三背景
+    primary: 'hsl(220, 20%, 97%)',         // 主背景 — 温暖灰白
+    secondary: 'hsl(220, 14%, 96%)',       // 次要背景
+    tertiary: 'hsl(220, 14%, 94%)',        // 第三背景
     elevated: 'hsl(0, 0%, 100%)',          // 浮起元素背景
   },
-  // 文本色
+  // 文本色（深海军蓝，增加质感）
   text: {
-    primary: 'hsl(0, 0%, 13%)',            // 主要文本
-    secondary: 'hsl(0, 0%, 40%)',          // 次要文本
-    tertiary: 'hsl(0, 0%, 60%)',           // 辅助文本
+    primary: 'hsl(222, 47%, 11%)',         // 主要文本 — 深海军蓝
+    secondary: 'hsl(215, 16%, 47%)',       // 次要文本 — slate 系
+    tertiary: 'hsl(215, 16%, 60%)',        // 辅助文本
     inverse: 'hsl(0, 0%, 100%)',           // 反色文本
   },
-  // 边框色
+  // 边框色（柔和自然）
   border: {
-    default: 'hsl(0, 0%, 88%)',            // 默认边框
-    subtle: 'hsl(0, 0%, 92%)',             // 微妙边框
-    strong: 'hsl(0, 0%, 80%)',             // 强边框
+    default: 'hsl(220, 13%, 85%)',         // 默认边框
+    subtle: 'hsl(220, 13%, 90%)',          // 微妙边框
+    strong: 'hsl(220, 13%, 78%)',          // 强边框
   },
   // 分隔线
   divider: {
-    DEFAULT: 'hsl(0, 0%, 88%)',
-    subtle: 'hsl(0, 0%, 94%)',
+    DEFAULT: 'hsl(220, 13%, 85%)',
+    subtle: 'hsl(220, 13%, 92%)',
   },
   // 覆盖层
   overlay: {
@@ -108,25 +108,25 @@ export const functionalColors = {
  */
 export const darkColors = {
   background: {
-    primary: 'hsl(0, 0%, 13%)',            // 深色主背景
-    secondary: 'hsl(0, 0%, 16%)',          // 深色次要背景
-    tertiary: 'hsl(0, 0%, 19%)',           // 深色第三背景
-    elevated: 'hsl(0, 0%, 22%)',           // 深色浮起背景
+    primary: 'hsl(222, 47%, 8%)',          // 深色主背景 — 低饱和度，消除蓝色辉光
+    secondary: 'hsl(217, 25%, 13%)',       // 深色次要背景
+    tertiary: 'hsl(217, 25%, 16%)',        // 深色第三背景
+    elevated: 'hsl(217, 25%, 18%)',        // 深色浮起背景
   },
   text: {
     primary: 'hsl(0, 0%, 100%)',           // 深色主要文本
-    secondary: 'hsl(0, 0%, 75%)',          // 深色次要文本
-    tertiary: 'hsl(0, 0%, 55%)',           // 深色辅助文本
-    inverse: 'hsl(0, 0%, 13%)',            // 深色反色文本
+    secondary: 'hsl(215, 20%, 58%)',       // 深色次要文本 — 改善层级对比
+    tertiary: 'hsl(215, 20%, 45%)',        // 深色辅助文本
+    inverse: 'hsl(222, 47%, 8%)',          // 深色反色文本
   },
   border: {
-    default: 'hsl(0, 0%, 25%)',            // 深色默认边框
-    subtle: 'hsl(0, 0%, 20%)',             // 深色微妙边框
-    strong: 'hsl(0, 0%, 35%)',             // 深色强边框
+    default: 'hsl(215, 20%, 18%)',         // 深色默认边框 — 更柔和
+    subtle: 'hsl(215, 20%, 15%)',          // 深色微妙边框
+    strong: 'hsl(215, 20%, 25%)',          // 深色强边框
   },
   divider: {
-    DEFAULT: 'hsl(0, 0%, 25%)',
-    subtle: 'hsl(0, 0%, 20%)',
+    DEFAULT: 'hsl(215, 20%, 18%)',
+    subtle: 'hsl(215, 20%, 15%)',
   },
   overlay: {
     subtle: 'hsl(0, 0%, 0%, 0.4)',         // 深色微妙覆盖

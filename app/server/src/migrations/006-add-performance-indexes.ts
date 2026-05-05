@@ -333,20 +333,3 @@ async function showIndexStats(): Promise<void> {
   }
 }
 
-// ================================================================
-// 执行迁移
-// ================================================================
-
-if (require.main === module) {
-  (async () => {
-    try {
-      await databaseService.init();
-      await up();
-      console.log('[Migration 006] ✅ 迁移完成');
-      process.exit(0);
-    } catch (error) {
-      console.error('[Migration 006] ❌ 迁移失败:', error);
-      process.exit(1);
-    }
-  })();
-}

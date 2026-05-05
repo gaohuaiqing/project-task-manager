@@ -102,7 +102,7 @@ export function parseUserAgent(userAgent: string | null | undefined): DeviceInfo
 
 /**
  * 脱敏 IP 地址（隐藏最后一段）
- * @param ip IP 地址
+ * @param ip IP 地址（可能是后端已脱敏的值）
  * @returns 脱敏后的 IP 地址
  */
 export function maskIPAddress(ip: string | null | undefined): string {
@@ -110,8 +110,23 @@ export function maskIPAddress(ip: string | null | undefined): string {
     return '未知';
   }
 
+  // 后端已经处理过的本地 IP
+  if (ip === '本地' || ip === '本机') {
+    return ip;
+  }
+
+  // 后端已经脱敏过的地址（包含 *）
+  if (ip.includes('*')) {
+    return ip;
+  }
+
   // IPv6 本地地址
-  if (ip === '::1' || ip === '::ffff:127.0.0.1') {
+  if (ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('::ffff:127.')) {
+    return '本地';
+  }
+
+  // IPv4 本地地址
+  if (ip === '127.0.0.1' || ip.startsWith('127.')) {
     return '本地';
   }
 

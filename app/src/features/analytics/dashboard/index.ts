@@ -8,7 +8,7 @@
 export { DashboardPage } from './DashboardPage';
 export type { DashboardPageProps } from './DashboardPage';
 
-// 角色仪表板（新版本，支持 Mock 数据）
+// 角色仪表板
 export {
   AdminDashboard,
   DeptManagerDashboard,
@@ -21,19 +21,6 @@ export type {
   TechManagerDashboardProps,
   EngineerDashboardProps,
 } from './roles';
-
-// 角色仪表板（旧版本，保留向后兼容）
-export { AdminDashboard as AdminDashboardLegacy } from './AdminDashboard';
-export type { AdminDashboardProps as AdminDashboardLegacyProps } from './AdminDashboard';
-
-export { DeptManagerDashboard as DeptManagerDashboardLegacy } from './DeptManagerDashboard';
-export type { DeptManagerDashboardProps as DeptManagerDashboardLegacyProps } from './DeptManagerDashboard';
-
-export { TechManagerDashboard as TechManagerDashboardLegacy } from './TechManagerDashboard';
-export type { TechManagerDashboardProps as TechManagerDashboardLegacyProps } from './TechManagerDashboard';
-
-export { EngineerDashboard as EngineerDashboardLegacy } from './EngineerDashboard';
-export type { EngineerDashboardProps as EngineerDashboardLegacyProps } from './EngineerDashboard';
 
 // 共享组件
 export {
@@ -93,11 +80,6 @@ export {
   useDeptManagerDashboard,
   useTechManagerDashboard,
   useEngineerDashboard,
-  useAdminDashboardData,
-  useDeptManagerDashboardData,
-  useTechManagerDashboardData,
-  useEngineerDashboardData,
-  useDashboardData,
 } from './hooks';
 
 // 类型导出

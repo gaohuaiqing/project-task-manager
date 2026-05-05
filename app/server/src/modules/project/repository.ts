@@ -43,8 +43,10 @@ export class ProjectRepository {
       params.push(options.project_type);
     }
     if (options?.member_id) {
-      conditions.push('JSON_CONTAINS(p.member_ids, ?)');
-      params.push(JSON.stringify(options.member_id));
+      // 使用 project_members 表进行成员过滤，而非 JSON 字段
+      // 避免 JSON_CONTAINS 类型不匹配问题（数字 vs 字符串）
+      conditions.push('EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = ?)');
+      params.push(options.member_id);
     }
     if (options?.search) {
       conditions.push('(p.code LIKE ? OR p.name LIKE ?)');
@@ -69,9 +71,11 @@ export class ProjectRepository {
     const [rows] = await pool.execute<ProjectRow[]>(
       `SELECT p.*,
         COALESCE(JSON_LENGTH(p.member_ids), 0) as member_count_calc,
-        (SELECT COUNT(*) FROM milestones m WHERE m.project_id = p.id) as milestone_count_calc,
-        (SELECT COUNT(*) FROM timelines tl WHERE tl.project_id = p.id) as timeline_count_calc
+        COALESCE(m_cnt.milestone_count, 0) as milestone_count_calc,
+        COALESCE(t_cnt.timeline_count, 0) as timeline_count_calc
        FROM projects p
+       LEFT JOIN (SELECT project_id, COUNT(*) as milestone_count FROM milestones GROUP BY project_id) m_cnt ON m_cnt.project_id = p.id
+       LEFT JOIN (SELECT project_id, COUNT(*) as timeline_count FROM timelines GROUP BY project_id) t_cnt ON t_cnt.project_id = p.id
        ${whereClause}
        ORDER BY p.updated_at DESC
        LIMIT ${pageSize} OFFSET ${offset}`,
@@ -256,11 +260,34 @@ export class ProjectRepository {
 
   async deleteProject(id: string): Promise<boolean> {
     const pool = getPool();
-    const [result] = await pool.execute<ResultSetHeader>(
-      'DELETE FROM projects WHERE id = ?',
-      [id]
-    );
-    return result.affectedRows > 0;
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      // 删除关联的时间线
+      await connection.execute('DELETE FROM timelines WHERE project_id = ?', [id]);
+
+      // 删除关联的里程碑
+      await connection.execute('DELETE FROM milestones WHERE project_id = ?', [id]);
+
+      // 删除关联的项目成员
+      await connection.execute('DELETE FROM project_members WHERE project_id = ?', [id]);
+
+      // 删除项目本身
+      const [result] = await connection.execute<ResultSetHeader>(
+        'DELETE FROM projects WHERE id = ?',
+        [id]
+      );
+
+      await connection.commit();
+      return result.affectedRows > 0;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   async hasProjectTasks(projectId: string): Promise<boolean> {
@@ -295,9 +322,6 @@ export class ProjectRepository {
       'SELECT * FROM milestones WHERE project_id = ? ORDER BY target_date',
       [projectId]
     );
-    // DEBUG: 打印查询结果
-    console.log('[Repository.getMilestones] 项目ID:', projectId);
-    console.log('[Repository.getMilestones] 查询结果:', JSON.stringify(rows, null, 2));
     return rows;
   }
 
@@ -326,10 +350,6 @@ export class ProjectRepository {
     const fields: string[] = [];
     const values: (string | number | null)[] = [];
 
-    // DEBUG: 打印更新数据
-    console.log('[Repository.updateMilestone] 更新里程碑 ID:', id);
-    console.log('[Repository.updateMilestone] 更新数据:', JSON.stringify(data, null, 2));
-
     if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
     if (data.target_date !== undefined) { fields.push('target_date = ?'); values.push(data.target_date); }
     if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description); }
@@ -348,11 +368,8 @@ export class ProjectRepository {
 
     values.push(id);
     const sql = `UPDATE milestones SET ${fields.join(', ')} WHERE id = ?`;
-    console.log('[Repository.updateMilestone] SQL:', sql);
-    console.log('[Repository.updateMilestone] Values:', values);
 
     const [result] = await pool.execute<ResultSetHeader>(sql, values);
-    console.log('[Repository.updateMilestone] 影响行数:', result.affectedRows);
     return result.affectedRows > 0;
   }
 

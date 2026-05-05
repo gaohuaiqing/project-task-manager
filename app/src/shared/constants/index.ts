@@ -3,11 +3,10 @@
  * 与后端类型保持同步
  */
 
-// ==================== 任务状态 (9种) ====================
+// ==================== 任务状态 (8种) ====================
 
 export type TaskStatus =
   | 'pending_approval'   // 待审批
-  | 'rejected'           // 已驳回
   | 'not_started'        // 未开始
   | 'in_progress'        // 进行中
   | 'early_completed'    // 提前完成
@@ -27,12 +26,6 @@ export const TASK_STATUS_CONFIG: Record<TaskStatus, {
     color: 'purple',
     bgColor: 'bg-purple-100',
     textColor: 'text-purple-700',
-  },
-  rejected: {
-    label: '已驳回',
-    color: 'red',
-    bgColor: 'bg-red-100',
-    textColor: 'text-red-700',
   },
   not_started: {
     label: '未开始',
@@ -80,7 +73,6 @@ export const TASK_STATUS_CONFIG: Record<TaskStatus, {
 
 export const TASK_STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: 'pending_approval', label: '待审批' },
-  { value: 'rejected', label: '已驳回' },
   { value: 'not_started', label: '未开始' },
   { value: 'in_progress', label: '进行中' },
   { value: 'early_completed', label: '提前完成' },
@@ -246,7 +238,7 @@ export const TASK_TYPE_OPTIONS: { value: TaskType; label: string }[] = [
 
 // ==================== 项目状态 ====================
 
-export type ProjectStatus = 'planning' | 'in_progress' | 'completed' | 'delayed';
+export type ProjectStatus = 'planning' | 'in_progress' | 'completed' | 'delayed' | 'cancelled';
 
 export const PROJECT_STATUS_CONFIG: Record<ProjectStatus, {
   label: string;
@@ -278,6 +270,12 @@ export const PROJECT_STATUS_CONFIG: Record<ProjectStatus, {
     bgColor: 'bg-red-500',
     textColor: 'text-white',
   },
+  cancelled: {
+    label: '已取消',
+    color: 'gray',
+    bgColor: 'bg-gray-300',
+    textColor: 'text-gray-700',
+  },
 };
 
 export const PROJECT_STATUS_OPTIONS: { value: ProjectStatus; label: string }[] = [
@@ -285,6 +283,7 @@ export const PROJECT_STATUS_OPTIONS: { value: ProjectStatus; label: string }[] =
   { value: 'in_progress', label: '进行中' },
   { value: 'completed', label: '已完成' },
   { value: 'delayed', label: '已延期' },
+  { value: 'cancelled', label: '已取消' },
 ];
 
 // 项目状态标签映射
@@ -293,16 +292,18 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
   in_progress: '进行中',
   completed: '已完成',
   delayed: '已延期',
+  cancelled: '已取消',
 };
 
-// ==================== 项目类型 (4种) ====================
+// ==================== 项目类型 (5种) ====================
 // 与数据库实际存储值同步
 
 export type ProjectType =
   | 'product_dev'    // 产品开发
   | 'func_mgmt'      // 职能管理
   | 'material_sub'   // 物料改代
-  | 'quality_handle'; // 质量处理
+  | 'quality_handle' // 质量处理
+  | 'tech_research'; // 技术预研
 
 export const PROJECT_TYPE_CONFIG: Record<ProjectType, {
   label: string;
@@ -324,6 +325,10 @@ export const PROJECT_TYPE_CONFIG: Record<ProjectType, {
     label: '质量处理',
     description: '质量问题处理项目',
   },
+  tech_research: {
+    label: '技术预研',
+    description: '技术预研项目',
+  },
 };
 
 export const PROJECT_TYPE_OPTIONS: { value: ProjectType; label: string }[] = [
@@ -331,6 +336,7 @@ export const PROJECT_TYPE_OPTIONS: { value: ProjectType; label: string }[] = [
   { value: 'func_mgmt', label: '职能管理' },
   { value: 'material_sub', label: '物料改代' },
   { value: 'quality_handle', label: '质量处理' },
+  { value: 'tech_research', label: '技术预研' },
 ];
 
 // 项目类型标签映射
@@ -339,6 +345,7 @@ export const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
   func_mgmt: '职能管理',
   material_sub: '物料改代',
   quality_handle: '质量处理',
+  tech_research: '技术预研',
 };
 
 // ==================== 用户角色 ====================

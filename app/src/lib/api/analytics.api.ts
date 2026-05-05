@@ -113,6 +113,21 @@ export async function getReportTrend(params: {
   return response.data ?? [];
 }
 
+/**
+ * 获取优先级完成率趋势
+ */
+export async function getPriorityCompletionTrend(params: {
+  startDate?: string;
+  endDate?: string;
+  projectId?: string;
+}): Promise<Array<{ period: string; priority: string; completionRate: number; totalTasks: number; completedTasks: number }>> {
+  const response = await apiClient.get<ApiResponse<any>>(
+    `${BASE_PATH}/reports/priority-completion-trend`,
+    { params }
+  );
+  return response.data ?? [];
+}
+
 // ============ 仪表板 Detail API（按角色聚合） ============
 
 export interface AdminDashboardDetail {
@@ -175,36 +190,35 @@ export interface EngineerDashboardDetail {
   taskStatusDistribution: Array<{ status: string; count: number }>;
 }
 
-export async function getAdminDashboardDetail(signal?: AbortSignal): Promise<AdminDashboardDetail> {
+export async function getAdminDashboardDetail(projectId?: string, signal?: AbortSignal): Promise<AdminDashboardDetail> {
   const response = await apiClient.get<ApiResponse<AdminDashboardDetail>>(
     `${BASE_PATH}/dashboard/admin/detail`,
-    { signal }
+    { params: projectId ? { projectId } : {}, signal }
   );
   return response.data;
 }
 
-export async function getDeptManagerDashboardDetail(signal?: AbortSignal): Promise<DeptManagerDashboardDetail> {
+export async function getDeptManagerDashboardDetail(projectId?: string, signal?: AbortSignal): Promise<DeptManagerDashboardDetail> {
   const response = await apiClient.get<ApiResponse<DeptManagerDashboardDetail>>(
     `${BASE_PATH}/dashboard/dept-manager/detail`,
-    { signal }
+    { params: projectId ? { projectId } : {}, signal }
   );
   return response.data;
 }
 
-export async function getTechManagerDashboardDetail(groupId?: number, signal?: AbortSignal): Promise<TechManagerDashboardDetail> {
+export async function getTechManagerDashboardDetail(groupId?: number, projectId?: string, signal?: AbortSignal): Promise<TechManagerDashboardDetail> {
   const response = await apiClient.get<ApiResponse<TechManagerDashboardDetail>>(
     `${BASE_PATH}/dashboard/tech-manager/detail`,
-    { params: groupId ? { groupId } : {}, signal }
+    { params: { ...(groupId ? { groupId } : {}), ...(projectId ? { projectId } : {}) }, signal }
   );
   return response.data;
 }
 
-export async function getEngineerDashboardDetail(signal?: AbortSignal): Promise<EngineerDashboardDetail> {
+export async function getEngineerDashboardDetail(projectId?: string, signal?: AbortSignal): Promise<EngineerDashboardDetail> {
   const response = await apiClient.get<ApiResponse<EngineerDashboardDetail>>(
     `${BASE_PATH}/dashboard/engineer/detail`,
-    { signal }
+    { params: projectId ? { projectId } : {}, signal }
   );
-  return response.data;
 }
 
 export const analyticsApi = {
@@ -215,6 +229,7 @@ export const analyticsApi = {
   getDelayAnalysis,
   getDashboardTrends,
   getReportTrend,
+  getPriorityCompletionTrend,
   getAdminDashboardDetail,
   getDeptManagerDashboardDetail,
   getTechManagerDashboardDetail,

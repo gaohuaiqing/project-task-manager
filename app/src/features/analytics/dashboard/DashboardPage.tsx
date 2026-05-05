@@ -89,7 +89,6 @@ export function DashboardPage({ projectId }: DashboardPageProps) {
         </div>
       );
     case 'engineer':
-    default:
       return (
         <div data-testid="dashboard-container">
           <EngineerDashboard
@@ -97,6 +96,13 @@ export function DashboardPage({ projectId }: DashboardPageProps) {
             onAlertActionClick={handleAlertActionClick}
             onUpdateTask={handleUpdateTask}
           />
+        </div>
+      );
+    default:
+      // 未知角色显示提示信息
+      return (
+        <div className="flex items-center justify-center min-h-[400px]">
+          <p className="text-gray-500">当前角色无仪表板权限</p>
         </div>
       );
   }

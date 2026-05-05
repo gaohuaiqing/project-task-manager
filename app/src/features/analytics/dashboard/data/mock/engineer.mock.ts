@@ -212,6 +212,7 @@ export function generateProjectProgress(): ProjectProgress[] {
 export function getEngineerDashboardData(): EngineerDashboardData {
   return {
     alerts: generateEngineerAlerts(),
+    todoTasks: generateTodoTasks(),
     metrics: generateEngineerMetrics(),
     needUpdateTasks: generateNeedUpdateTasks(),
     trends: generateTaskTrends(),

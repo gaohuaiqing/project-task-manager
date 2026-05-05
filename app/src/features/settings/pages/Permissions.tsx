@@ -2,7 +2,7 @@
  * 权限管理设置页面
  */
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
@@ -98,10 +98,10 @@ export function PermissionsSettings() {
           <CardTitle className="flex items-center gap-2">
             <Shield className="h-5 w-5" />
             权限管理
+            <span className="text-xs text-muted-foreground font-normal">
+              （配置不同角色的权限范围）
+            </span>
           </CardTitle>
-          <CardDescription>
-            配置不同角色的权限范围
-          </CardDescription>
         </CardHeader>
         <CardContent>
           {/* 角色选择 */}
@@ -147,9 +147,11 @@ export function PermissionsSettings() {
                         className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors"
                       >
                         <div className="flex-1">
-                          <p className="font-medium">{permission.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {permission.description}
+                          <p className="font-medium">
+                            {permission.name}
+                            <span className="text-xs text-muted-foreground font-normal ml-1">
+                              （{permission.description}）
+                            </span>
                           </p>
                         </div>
                         <Switch
@@ -170,7 +172,7 @@ export function PermissionsSettings() {
 
           {/* 保存按钮 */}
           <div className="flex justify-end">
-            <Button onClick={handleSave} data-testid="permissions-btn-save">
+            <Button variant="outline" onClick={handleSave} data-testid="permissions-btn-save">
               保存配置
             </Button>
           </div>

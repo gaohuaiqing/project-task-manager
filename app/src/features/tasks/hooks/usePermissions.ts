@@ -59,6 +59,11 @@ export interface TaskPermissions {
   // 审批相关
   needsApprovalForPlanChanges: boolean; // 编辑计划字段是否需要审批
 
+  // 新增：是否可以编辑计划字段（包括通过审批流程）
+  // 工程师：可以编辑但需要审批 → canEditPlanFieldsWithApproval = true
+  // 经理：可以直接编辑无需审批 → canEditPlanFieldsWithApproval = true
+  canEditPlanFieldsWithApproval: boolean;
+
   // 字段分类
   planFields: readonly PlanField[];
   nonPlanFields: readonly NonPlanField[];
@@ -89,6 +94,9 @@ export function computeTaskPermissions(
   parentTask?: WBSTask
 ): TaskPermissions {
   if (!user) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[权限] 用户未登录，返回空权限');
+    }
     return createEmptyPermissions();
   }
 
@@ -101,10 +109,31 @@ export function computeTaskPermissions(
   // ========== 基础操作权限 ==========
 
   const canCreate = isManager;
-  const canCreateSubtask = isManager || (isEngineer && parentTask?.assignee_id === user.id);
-  const canEdit = isManager || (isEngineer && task?.assignee_id === user.id);
+  const canCreateSubtask = isManager || (isEngineer && parentTask?.assigneeId === user.id);
+
+  // 修复：确保 ID 比较时类型一致（都转为 number）
+  const taskAssigneeId = task?.assigneeId != null ? Number(task.assigneeId) : null;
+  const userId = Number(user.id);
+  const isAssignedToUser = taskAssigneeId === userId;
+
+  const canEdit = isManager || (isEngineer && isAssignedToUser);
   const canDelete = isManager;
   const canAssign = isManager;
+
+  // 调试日志：仅在开发环境输出
+  if (task && process.env.NODE_ENV === 'development') {
+    console.log('[权限调试] 编辑权限检查:', {
+      userId: userId,
+      userRole: user.role,
+      taskId: task.id,
+      taskAssigneeId: taskAssigneeId,
+      taskAssigneeIdRaw: task.assigneeId,
+      isManager,
+      isEngineer,
+      isAssignedToUser,
+      canEdit,
+    });
+  }
 
   // ========== 字段级权限 ==========
 
@@ -115,6 +144,9 @@ export function computeTaskPermissions(
   // ========== 审批相关 ==========
 
   const needsApprovalForPlanChanges = isEngineer;
+
+  // 工程师可以编辑计划字段（通过审批流程），经理可以直接编辑
+  const canEditPlanFieldsWithApproval = canEdit || (isEngineer && isAssignedToUser);
 
   // ========== 工具方法 ==========
 
@@ -152,6 +184,7 @@ export function computeTaskPermissions(
     canEditNonPlanFields,
     canEditAssignee,
     needsApprovalForPlanChanges,
+    canEditPlanFieldsWithApproval,
     planFields: PLAN_FIELDS,
     nonPlanFields: NON_PLAN_FIELDS,
     assignFields: ASSIGN_FIELDS,
@@ -185,6 +218,7 @@ function createEmptyPermissions(): TaskPermissions {
     canEditNonPlanFields: false,
     canEditAssignee: false,
     needsApprovalForPlanChanges: false,
+    canEditPlanFieldsWithApproval: false,
     planFields: PLAN_FIELDS,
     nonPlanFields: NON_PLAN_FIELDS,
     assignFields: ASSIGN_FIELDS,

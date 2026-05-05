@@ -1,7 +1,8 @@
 // app/server/src/core/types/project.types.ts
 
-export type ProjectStatus = 'planning' | 'active' | 'completed';
-export type ProjectType = 'product_dev' | 'func_mgmt' | 'material_sub' | 'quality_handle';
+// 项目状态：planning(计划中) | in_progress(进行中) | completed(已完成) | delayed(已延期) | cancelled(已取消)
+export type ProjectStatus = 'planning' | 'in_progress' | 'completed' | 'delayed' | 'cancelled';
+export type ProjectType = 'product_dev' | 'func_mgmt' | 'material_sub' | 'quality_handle' | 'tech_research';
 
 export interface Project {
   id: string;

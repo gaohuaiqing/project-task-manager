@@ -30,8 +30,36 @@ export interface ProjectProgressListProps {
 
 /**
  * 项目状态配置
+ * 覆盖项目全生命周期状态及风险标记状态
  */
-const PROJECT_STATUS_CONFIG = {
+const PROJECT_STATUS_CONFIG: Record<string, { label: string; color: string; progressColor: string }> = {
+  // 项目生命周期状态
+  planning: {
+    label: '规划中',
+    color: 'bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400',
+    progressColor: 'bg-blue-500',
+  },
+  in_progress: {
+    label: '进行中',
+    color: 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-400',
+    progressColor: 'bg-sky-500',
+  },
+  completed: {
+    label: '已完成',
+    color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400',
+    progressColor: 'bg-emerald-500',
+  },
+  on_hold: {
+    label: '已暂停',
+    color: 'bg-gray-100 text-gray-700 dark:bg-gray-950/50 dark:text-gray-400',
+    progressColor: 'bg-gray-500',
+  },
+  cancelled: {
+    label: '已取消',
+    color: 'bg-gray-100 text-gray-500 dark:bg-gray-950/50 dark:text-gray-500',
+    progressColor: 'bg-gray-400',
+  },
+  // 风险标记状态
   on_track: {
     label: '正常',
     color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400',
@@ -47,6 +75,15 @@ const PROJECT_STATUS_CONFIG = {
     color: 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400',
     progressColor: 'bg-red-500',
   },
+};
+
+/**
+ * 默认状态配置（兜底，防止未知状态导致崩溃）
+ */
+const DEFAULT_STATUS_CONFIG = {
+  label: '未知',
+  color: 'bg-gray-100 text-gray-700 dark:bg-gray-950/50 dark:text-gray-400',
+  progressColor: 'bg-gray-500',
 };
 
 /**
@@ -134,7 +171,7 @@ export function ProjectProgressList({
       </CardHeader>
       <CardContent data-testid="dashboard-list-project-progress" className="space-y-3">
         {displayProjects.map((project) => {
-          const statusConfig = PROJECT_STATUS_CONFIG[project.status];
+          const statusConfig = PROJECT_STATUS_CONFIG[project.status] || DEFAULT_STATUS_CONFIG;
 
           return (
             <div

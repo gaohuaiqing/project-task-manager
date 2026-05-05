@@ -1,10 +1,17 @@
 /**
  * WBS任务导入工具
  * 解析Excel文件并验证数据
+ *
+ * 列顺序与导出模板一致（28列）：
+ * A=1 WBS等级  B=2 WBS编码  C=3 任务描述  D=4 任务状态  E=5 Redmine链接
+ * F=6 负责人   G=7 任务类型 H=8 优先级    I=9 前置任务  J=10 提前/落后
+ * K=11 开始日期 L=12 工期   M=13 单休    N=14 结束日期 O=15 计划周期
+ * P=16 预警天数 Q=17 实际开始 R=18 实际结束 S=19 实际工期 T=20 全职比
+ * U=21 实际周期 V=22 项目编码 W=23 项目名称 X=24 延期次数 Y=25 延期历史
+ * Z=26 计划调整 AA=27 计划调整历史 AB=28 进展记录
  */
 import * as XLSX from 'xlsx';
 import type { WBSTaskListItem, TaskType, TaskPriority } from '../types';
-import { TASK_TYPE_LABELS, TASK_PRIORITY_LABELS } from '../types';
 import type { Member } from '@/features/org/types';
 import type { Project } from '@/features/projects/types';
 
@@ -52,10 +59,13 @@ export interface ParsedTaskData {
   actualEndDate?: string;
   fullTimeRatio?: number;
   redmineLink?: string;
+  delayHistory?: string;
+  planChangeHistory?: string;
+  progressRecords?: string;
   /** 是否为更新操作 */
   isUpdate?: boolean;
-  /** 项目ID（新建时使用） */
-  projectId?: string;
+  /** 项目编码（用于后端匹配项目UUID） */
+  projectCode?: string;
 }
 
 /** 验证错误 */
@@ -82,6 +92,7 @@ export interface ImportResult {
 
 /**
  * 解析Excel文件
+ * 以C列（任务描述）有值作为数据边界，C列为空即停止解析
  */
 export async function parseExcelFile(file: File): Promise<ParsedTaskData[]> {
   return new Promise((resolve, reject) => {
@@ -91,39 +102,57 @@ export async function parseExcelFile(file: File): Promise<ParsedTaskData[]> {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, {
-          header: 1,
-          defval: ''
-        });
+
+        // 获取sheet范围
+        const range = XLSX.utils.decode_range(firstSheet['!ref'] || 'A1');
+
+        // 读取表头行（第1行），建立列索引映射
+        const headerMap = buildColumnIndexMap(firstSheet, range);
 
         const tasks: ParsedTaskData[] = [];
-        jsonData.forEach((row, index) => {
-          // 跳过空行
-          if (!row['任务描述']) return;
+
+        // 从第2行开始遍历（第1行是表头），以C列（任务描述）有值作为数据结束边界
+        for (let r = range.s.r + 1; r <= range.e.r; r++) {
+          // C列 = 任务描述（第3列，索引2）
+          const cellC = firstSheet[XLSX.utils.encode_cell({ r, c: 2 })];
+          const descriptionRaw = cellC ? String(cellC.v).trim() : '';
+
+          // C列为空 → 数据结束，停止解析
+          if (!descriptionRaw) break;
+
+          const getCell = (colName: string): unknown => {
+            const colIdx = headerMap.get(colName);
+            if (colIdx === undefined) return '';
+            const cell = firstSheet[XLSX.utils.encode_cell({ r, c: colIdx })];
+            return cell ? cell.v : '';
+          };
 
           const task: ParsedTaskData = {
-            rowNumber: index + 2, // Excel行号(从2开始，1是表头)
-            id: row['ID'] as string || undefined,
-            wbsCode: row['WBS编码'] as string,
-            wbsLevel: parseNumber(row['WBS等级']),
-            description: row['任务描述'] as string,
-            taskType: TASK_TYPE_VALUES[row['任务类型'] as string],
-            priority: TASK_PRIORITY_VALUES[row['优先级'] as string] || 'medium',
-            assigneeName: row['负责人'] as string,
-            predecessorWbs: row['前置任务WBS'] as string,
-            lagDays: parseNumber(row['提前/落后天数']),
-            startDate: parseDate(row['开始日期']),
-            duration: parseNumber(row['工期(天)']),
-            isSixDayWeek: row['单休'] === '是',
-            warningDays: parseNumber(row['预警天数']) || 3,
-            actualStartDate: parseDate(row['实际开始']),
-            actualEndDate: parseDate(row['实际结束']),
-            fullTimeRatio: parseNumber(row['全职比(%)']) || 100,
-            redmineLink: row['Redmine链接'] as string,
+            rowNumber: r + 1, // Excel行号（1-based）
+            wbsLevel: parseNumber(getCell('WBS等级')),
+            wbsCode: String(getCell('WBS编码') || '').trim(),
+            description: descriptionRaw,
+            redmineLink: String(getCell('Redmine链接') || '').trim(),
+            assigneeName: String(getCell('负责人') || '').trim(),
+            taskType: parseTaskType(getCell('任务类型')),
+            priority: parsePriority(getCell('优先级')),
+            predecessorWbs: String(getCell('前置任务') || '').trim(),
+            lagDays: parseNumber(getCell('提前/落后')),
+            startDate: parseDate(getCell('开始日期')),
+            duration: parseNumber(getCell('工期')),
+            isSixDayWeek: parseBoolean(getCell('单休')),
+            warningDays: parseNumber(getCell('预警天数')) || 3,
+            actualStartDate: parseDate(getCell('实际开始')),
+            actualEndDate: parseDate(getCell('实际结束')),
+            fullTimeRatio: parseNumber(getCell('全职比(%)')) || 100,
+            projectCode: String(getCell('项目编码') || '').trim(),
+            delayHistory: String(getCell('延期历史') || '').trim(),
+            planChangeHistory: String(getCell('计划调整历史') || '').trim(),
+            progressRecords: String(getCell('进展记录') || '').trim(),
           };
 
           tasks.push(task);
-        });
+        }
 
         resolve(tasks);
       } catch (error) {
@@ -133,6 +162,20 @@ export async function parseExcelFile(file: File): Promise<ParsedTaskData[]> {
     reader.onerror = reject;
     reader.readAsArrayBuffer(file);
   });
+}
+
+/**
+ * 读取表头行，建立列名→列索引的映射
+ */
+function buildColumnIndexMap(sheet: XLSX.WorkSheet, range: XLSX.Range): Map<string, number> {
+  const map = new Map<string, number>();
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const cell = sheet[XLSX.utils.encode_cell({ r: range.s.r, c })];
+    if (cell && cell.v) {
+      map.set(String(cell.v).trim(), c);
+    }
+  }
+  return map;
 }
 
 /**
@@ -213,22 +256,13 @@ export function validateParsedTasks(
       }
     }
 
-    // 任务类型验证
-    if (task.taskType && !Object.values(TASK_TYPE_VALUES).includes(task.taskType)) {
-      rowErrors.push({
-        rowNumber: task.rowNumber,
-        field: '任务类型',
-        message: `无效的任务类型`
-      });
-    }
-
     // 前置任务验证
     if (task.predecessorWbs) {
       const predecessor = wbsCodeMap.get(task.predecessorWbs);
       if (!predecessor) {
         rowErrors.push({
           rowNumber: task.rowNumber,
-          field: '前置任务WBS',
+          field: '前置任务',
           message: `前置任务 "${task.predecessorWbs}" 不存在`
         });
       }
@@ -276,8 +310,8 @@ export function detectCircularDependency(
 
   // 添加现有任务的依赖
   existingTasks.forEach(task => {
-    if (task.predecessorWbs) {
-      dependencyMap.set(task.wbsCode, task.predecessorWbs);
+    if (task.predecessorCode) {
+      dependencyMap.set(task.wbsCode, task.predecessorCode);
     }
   });
 
@@ -307,7 +341,8 @@ export function detectCircularDependency(
   return errors;
 }
 
-// 辅助函数
+// ============ 辅助函数 ============
+
 function parseNumber(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   const num = Number(value);
@@ -323,11 +358,27 @@ function parseDate(value: unknown): string | undefined {
   }
   // 尝试解析 Excel 日期序列号
   const num = Number(str);
-  if (!isNaN(num) && num > 0) {
+  if (!isNaN(num) && num > 0 && num < 100000) {
     const date = new Date((num - 25569) * 86400 * 1000);
     return date.toISOString().split('T')[0];
   }
   return undefined;
+}
+
+function parseBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  const str = String(value).trim();
+  return str === '是' || str === 'true' || str === '1' || str === 'TRUE';
+}
+
+function parseTaskType(value: unknown): TaskType | undefined {
+  if (!value) return undefined;
+  return TASK_TYPE_VALUES[String(value).trim()];
+}
+
+function parsePriority(value: unknown): TaskPriority | undefined {
+  if (!value) return undefined;
+  return TASK_PRIORITY_VALUES[String(value).trim()] || 'medium';
 }
 
 function isValidDate(dateStr: string): boolean {

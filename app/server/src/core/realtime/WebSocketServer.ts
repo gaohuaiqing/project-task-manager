@@ -212,3 +212,26 @@ export function isUserOnline(userId: number): boolean {
   const connections = userConnections.get(userId);
   return !!connections && connections.size > 0;
 }
+
+/**
+ * 向项目所有成员推送数据变更事件
+ */
+export async function sendToProjectMembers(
+  projectId: string,
+  type: string,
+  data: unknown
+): Promise<void> {
+  try {
+    const { getPool } = await import('../db');
+    const pool = getPool();
+    const [members] = await pool.execute(
+      'SELECT user_id FROM project_members WHERE project_id = ?',
+      [projectId]
+    );
+    for (const member of (members as any[])) {
+      sendToUser(member.user_id, type, data);
+    }
+  } catch {
+    // 广播失败不应阻塞业务逻辑
+  }
+}

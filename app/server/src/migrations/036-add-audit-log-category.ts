@@ -6,7 +6,8 @@
  * 2. 添加索引优化查询性能
  */
 
-import { databaseService } from '../services/DatabaseService.js';
+import { getPool } from '../core/db';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const MIGRATION_VERSION = '036';
 const MIGRATION_NAME = 'add_audit_log_category';
@@ -27,10 +28,11 @@ function log(step: string, status: 'success' | 'warning' | 'error', message: str
 
 async function checkMigrationExecuted(): Promise<boolean> {
   try {
-    const result = await databaseService.query(
+    const pool = getPool();
+    const [result] = await pool.execute<RowDataPacket[]>(
       'SELECT 1 FROM migrations WHERE version = ?',
       [MIGRATION_VERSION]
-    ) as any[];
+    );
     return result && result.length > 0;
   } catch {
     return false;
@@ -38,31 +40,34 @@ async function checkMigrationExecuted(): Promise<boolean> {
 }
 
 async function recordMigration(): Promise<void> {
-  await databaseService.query(
+  const pool = getPool();
+  await pool.execute<ResultSetHeader>(
     'INSERT INTO migrations (name, version, executed_at) VALUES (?, ?, NOW())',
     [MIGRATION_NAME, MIGRATION_VERSION]
   );
 }
 
 async function checkFieldExists(tableName: string, fieldName: string): Promise<boolean> {
-  const columns = await databaseService.query(`
+  const pool = getPool();
+  const [columns] = await pool.execute<RowDataPacket[]>(`
     SELECT COLUMN_NAME
     FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE()
       AND TABLE_NAME = ?
       AND COLUMN_NAME = ?
-  `, [tableName, fieldName]) as any[];
+  `, [tableName, fieldName]);
   return columns.length > 0;
 }
 
 async function checkIndexExists(tableName: string, indexName: string): Promise<boolean> {
-  const indexes = await databaseService.query(`
+  const pool = getPool();
+  const [indexes] = await pool.execute<RowDataPacket[]>(`
     SELECT INDEX_NAME
     FROM information_schema.STATISTICS
     WHERE TABLE_SCHEMA = DATABASE()
       AND TABLE_NAME = ?
       AND INDEX_NAME = ?
-  `, [tableName, indexName]) as any[];
+  `, [tableName, indexName]);
   return indexes.length > 0;
 }
 
@@ -74,7 +79,8 @@ async function addCategoryField(): Promise<boolean> {
       return true;
     }
 
-    await databaseService.query(`
+    const pool = getPool();
+    await pool.execute(`
       ALTER TABLE audit_logs
       ADD COLUMN category VARCHAR(20) NULL DEFAULT 'task'
       COMMENT '日志分类: security/project/task/org/config'
@@ -91,10 +97,11 @@ async function addCategoryField(): Promise<boolean> {
 
 async function addIndexes(): Promise<boolean> {
   try {
+    const pool = getPool();
     // 索引1: category + created_at
     const hasCategoryIndex = await checkIndexExists('audit_logs', 'idx_audit_category_time');
     if (!hasCategoryIndex) {
-      await databaseService.query(`
+      await pool.execute(`
         CREATE INDEX idx_audit_category_time ON audit_logs (category, created_at DESC)
       `);
       log('Step 2', 'success', 'idx_audit_category_time 索引添加成功');
@@ -105,7 +112,7 @@ async function addIndexes(): Promise<boolean> {
     // 索引2: actor_user_id + created_at
     const hasUserIndex = await checkIndexExists('audit_logs', 'idx_audit_user_time');
     if (!hasUserIndex) {
-      await databaseService.query(`
+      await pool.execute(`
         CREATE INDEX idx_audit_user_time ON audit_logs (actor_user_id, created_at DESC)
       `);
       log('Step 3', 'success', 'idx_audit_user_time 索引添加成功');
@@ -123,6 +130,7 @@ async function addIndexes(): Promise<boolean> {
 
 async function updateExistingData(): Promise<boolean> {
   try {
+    const pool = getPool();
     // 根据表名更新现有数据的 category
     const updates: Array<{ tables: string[]; category: string }> = [
       { tables: ['users', 'sessions'], category: 'security' },
@@ -134,7 +142,7 @@ async function updateExistingData(): Promise<boolean> {
 
     for (const update of updates) {
       for (const table of update.tables) {
-        await databaseService.query(
+        await pool.execute(
           'UPDATE audit_logs SET category = ? WHERE table_name = ? AND category = ?',
           [update.category, table, 'task']
         );

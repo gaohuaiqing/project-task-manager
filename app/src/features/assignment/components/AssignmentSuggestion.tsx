@@ -183,7 +183,7 @@ function CandidateCard({
             </div>
           </div>
         </div>
-        <Button size="sm" onClick={onAssign}>
+        <Button variant="outline" size="sm" onClick={onAssign}>
           分配
         </Button>
       </div>

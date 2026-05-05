@@ -29,7 +29,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
-import { DatePickerField } from '@/components/ui/date-picker';
+import { DateInput } from '@/components/ui/date-input';
 import { PROJECT_TYPE_OPTIONS, PROJECT_TYPE_CONFIG } from '@/shared/constants';
 import { MemberTreeSelector } from '@/components/member-tree-selector';
 import type { Project, CreateProjectRequest, UpdateProjectRequest, ProjectType, Milestone } from '../types';
@@ -62,6 +62,24 @@ interface ProjectFormData {
 
 // 空数组常量，避免每次渲染创建新引用
 const EMPTY_MILESTONES: Milestone[] = [];
+
+/**
+ * 将日期转换为 HTML date input 所需的格式 (YYYY-MM-DD)
+ * 使用本地时间避免时区问题
+ */
+function formatDateForInput(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  } catch {
+    return '';
+  }
+}
 
 interface ProjectFormProps {
   open: boolean;
@@ -285,7 +303,11 @@ export function ProjectForm({
     // 日期验证
     const dateError = validateDates(data);
     if (dateError) {
-      alert(dateError);
+      toast({
+        title: '日期验证失败',
+        description: dateError,
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -465,26 +487,24 @@ export function ProjectForm({
             <h3 className="text-sm font-medium text-muted-foreground">时间规划</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>开始日期 *</Label>
-                <DatePickerField
+                <Label htmlFor="startDate">开始日期 *</Label>
+                <DateInput
                   data-testid="project-input-start-date"
                   id="startDate"
-                  placeholder="选择开始日期"
-                  value={watch('startDate')}
-                  onChange={(value) => setValue('startDate', value, { shouldValidate: true })}
+                  {...register('startDate', { required: '请选择开始日期' })}
+                  value={formatDateForInput(watch('startDate'))}
                 />
                 {errors.startDate && (
                   <p className="text-xs text-destructive">{errors.startDate.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label>截止日期 *</Label>
-                <DatePickerField
+                <Label htmlFor="deadline">截止日期 *</Label>
+                <DateInput
                   data-testid="project-input-deadline"
                   id="deadline"
-                  placeholder="选择截止日期"
-                  value={watch('deadline')}
-                  onChange={(value) => setValue('deadline', value, { shouldValidate: true })}
+                  {...register('deadline', { required: '请选择截止日期' })}
+                  value={formatDateForInput(watch('deadline'))}
                 />
                 {errors.deadline && (
                   <p className="text-xs text-destructive">{errors.deadline.message}</p>
@@ -560,15 +580,20 @@ export function ProjectForm({
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs">目标日期 *</Label>
-                          <DatePickerField
+                          <DateInput
                             data-testid="project-input-milestone-date"
                             id={`milestone-${index}-date`}
-                            placeholder="选择日期"
-                            value={watch(`milestones.${index}.targetDate`)}
-                            onChange={(value) =>
-                              setValue(`milestones.${index}.targetDate`, value || '')
-                            }
+                            {...register(`milestones.${index}.targetDate`, {
+                              required: '请选择目标日期',
+                            })}
+                            value={formatDateForInput(watch(`milestones.${index}.targetDate`))}
+                            className="h-8"
                           />
+                          {errors.milestones?.[index]?.targetDate && (
+                            <p className="text-xs text-destructive">
+                              {errors.milestones[index]?.targetDate?.message}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <Button
@@ -628,7 +653,7 @@ export function ProjectForm({
             >
               取消
             </Button>
-            <Button data-testid="project-btn-submit" type="submit" disabled={isLoading}>
+            <Button variant="outline" data-testid="project-btn-submit" type="submit" disabled={isLoading}>
               {isLoading ? '保存中...' : isEdit ? '保存' : '创建'}
             </Button>
           </DialogFooter>

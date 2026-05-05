@@ -117,7 +117,7 @@ export class CollabRepository {
     const pool = getPool();
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT id, username, real_name, role, department_id, email, phone, is_active FROM users WHERE id IN (${placeholders})`,
+      `SELECT id, username, real_name, role, gender, department_id, email, phone, is_active FROM users WHERE id IN (${placeholders})`,
       ids
     );
     return rows;

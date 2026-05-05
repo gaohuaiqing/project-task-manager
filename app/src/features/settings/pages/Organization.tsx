@@ -2,7 +2,7 @@
  * 组织架构设置页面
  * 单页面双栏布局：左侧组织架构树，右侧详情面板
  */
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -74,13 +74,16 @@ import { useMemberCapabilities } from '@/features/assignment/hooks/useCapabiliti
 import { useToast } from '@/hooks/use-toast';
 import { MemberCapabilities } from '@/features/assignment/components/MemberCapabilities';
 import { MemberCapabilityDialog } from '@/features/settings/components/MemberCapabilityDialog';
+
 import { downloadOrganizationTemplate, exportOrganization, importOrganization } from '@/lib/api/org.api';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Department, Member, MemberDeletionCheck } from '@/lib/api/org.api';
 import { getAvatarUrl } from '@/utils/avatar';
 
 interface DepartmentFormData {
   name: string;
   managerId: number | null;
+  coManagerId: number | null;
 }
 
 interface MemberFormData {
@@ -197,6 +200,7 @@ function buildDepartmentTree(departments: Department[]): Department[] {
 
 export function OrganizationSettings() {
   const { toast } = useToast();
+  const { user: authUser } = useAuth();
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -205,7 +209,7 @@ export function OrganizationSettings() {
   const [capabilityDialogOpen, setCapabilityDialogOpen] = useState(false);
   const [selectedParentId, setSelectedParentId] = useState<number | null>(null);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
-  const [formData, setFormData] = useState<DepartmentFormData>({ name: '', managerId: null });
+  const [formData, setFormData] = useState<DepartmentFormData>({ name: '', managerId: null, coManagerId: null });
 
   // 选中的节点（用于右侧详情面板）
   const [selection, setSelection] = useState<Selection>({ type: 'none' });
@@ -300,33 +304,69 @@ export function OrganizationSettings() {
     return calculate;
   }, [membersByDepartment, departmentMapWithChildren]);
 
-  // 过滤树节点（搜索）
-  const filterTree = (nodes: Department[], query: string): Department[] => {
-    if (!query) return nodes;
-    return nodes.reduce((acc: Department[], node) => {
-      const nameMatch = node.name.toLowerCase().includes(query.toLowerCase());
+  // 性能优化：filterTree使用useMemo缓存，避免每次渲染重新计算
+  // 辅助函数：递归过滤并收集匹配节点ID
+  const getMatchedIds = (nodes: Department[], query: string): number[] => {
+    if (!query) return [];
+    const matchedIds: number[] = [];
+    nodes.forEach(node => {
       const members = membersByDepartment.get(node.id) || [];
+      const nameMatch = node.name.toLowerCase().includes(query.toLowerCase());
       const memberMatch = members.some(m =>
         m.name.toLowerCase().includes(query.toLowerCase()) ||
         m.email?.toLowerCase().includes(query.toLowerCase())
       );
-      const filteredChildren = filterTree(node.children || [], query);
-
-      if (nameMatch || memberMatch || filteredChildren.length > 0) {
-        acc.push({
-          ...node,
-          children: filteredChildren,
-        });
-        // 自动展开匹配的节点
-        if (nameMatch || memberMatch) {
-          setExpandedIds(prev => new Set(prev).add(node.id));
-        }
+      if (nameMatch || memberMatch) {
+        matchedIds.push(node.id);
       }
-      return acc;
-    }, []);
+      if (node.children) {
+        matchedIds.push(...getMatchedIds(node.children, query));
+      }
+    });
+    return matchedIds;
   };
 
-  const filteredTree = searchQuery ? filterTree(departmentTree, searchQuery) : departmentTree;
+  // 纯函数filterTree，不包含副作用
+  const filterTree = useMemo(() => {
+    return (nodes: Department[], query: string): Department[] => {
+      if (!query) return nodes;
+      return nodes.reduce((acc: Department[], node) => {
+        const nameMatch = node.name.toLowerCase().includes(query.toLowerCase());
+        const members = membersByDepartment.get(node.id) || [];
+        const memberMatch = members.some(m =>
+          m.name.toLowerCase().includes(query.toLowerCase()) ||
+          m.email?.toLowerCase().includes(query.toLowerCase())
+        );
+        const filteredChildren = filterTree(node.children || [], query);
+
+        if (nameMatch || memberMatch || filteredChildren.length > 0) {
+          acc.push({
+            ...node,
+            children: filteredChildren,
+          });
+        }
+        return acc;
+      }, []);
+    };
+  }, [membersByDepartment]);
+
+  const filteredTree = useMemo(() => {
+    return searchQuery ? filterTree(departmentTree, searchQuery) : departmentTree;
+  }, [searchQuery, filterTree, departmentTree]);
+
+  // 性能优化：将展开匹配节点的逻辑移到useEffect，避免渲染中setState
+  useEffect(() => {
+    if (searchQuery) {
+      const matchedIds = getMatchedIds(departmentTree, searchQuery);
+      if (matchedIds.length > 0) {
+        setExpandedIds(prev => {
+          const newSet = new Set(prev);
+          matchedIds.forEach(id => newSet.add(id));
+          return newSet;
+        });
+      }
+    }
+  }, [searchQuery, departmentTree]);
 
   const toggleExpand = (id: number) => {
     setExpandedIds((prev) => {
@@ -350,13 +390,13 @@ export function OrganizationSettings() {
 
   const handleCreate = (parentId: number | null = null) => {
     setSelectedParentId(parentId);
-    setFormData({ name: '', managerId: null });
+    setFormData({ name: '', managerId: null, coManagerId: null });
     setCreateDialogOpen(true);
   };
 
   const handleEdit = (dept: Department) => {
     setSelectedDept(dept);
-    setFormData({ name: dept.name, managerId: dept.managerId });
+    setFormData({ name: dept.name, managerId: dept.managerId, coManagerId: dept.coManagerId ?? null });
     setEditDialogOpen(true);
   };
 
@@ -376,6 +416,7 @@ export function OrganizationSettings() {
         name: formData.name.trim(),
         parentId: selectedParentId,
         managerId: formData.managerId,
+        coManagerId: formData.coManagerId,
       });
       toast({ title: '成功', description: '部门创建成功' });
       setCreateDialogOpen(false);
@@ -394,6 +435,7 @@ export function OrganizationSettings() {
       await updateMutation.mutateAsync({
         name: formData.name.trim(),
         managerId: formData.managerId,
+        coManagerId: formData.coManagerId,
       });
       toast({ title: '成功', description: '部门更新成功' });
       setEditDialogOpen(false);
@@ -401,7 +443,7 @@ export function OrganizationSettings() {
       if (selection.type === 'department' && selection.department?.id === selectedDept.id) {
         setSelection({
           type: 'department',
-          department: { ...selectedDept, name: formData.name, managerId: formData.managerId }
+          department: { ...selectedDept, name: formData.name, managerId: formData.managerId, coManagerId: formData.coManagerId }
         });
       }
     } catch (error: any) {
@@ -897,6 +939,7 @@ export function OrganizationSettings() {
       const dept = selection.department!;
       const deptMembers = membersByDepartment.get(dept.id) || [];
       const manager = dept.managerId ? memberMap.get(dept.managerId) : null;
+      const coManager = dept.coManagerId ? memberMap.get(dept.coManagerId) : null;
       const totalMemberCount = getDepartmentTotalCount(dept.id);
       const directMemberCount = deptMembers.length;
       const childMemberCount = totalMemberCount - directMemberCount;
@@ -948,6 +991,12 @@ export function OrganizationSettings() {
                     {manager ? manager.name : '未指定'}
                   </p>
                 </div>
+                <div>
+                  <span className="text-muted-foreground">副经理</span>
+                  <p className="font-medium">
+                    {coManager ? coManager.name : '未指定'}
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -955,27 +1004,32 @@ export function OrganizationSettings() {
           {/* 成员列表 */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">成员列表</CardTitle>
+              <div className="flex items-center justify-between gap-6">
                 <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      setMemberFormData({
-                        ...defaultMemberFormData,
-                        departmentId: dept.id,
-                      });
-                      setInitialPassword(null);
-                      setPasswordCopied(false);
-                      setAddMemberDialogOpen(true);
-                    }}
-                    data-testid="org-btn-add-member"
-                  >
-                    <UserPlus className="h-4 w-4 mr-1" />
-                    添加成员
-                  </Button>
-                  <Badge variant="outline">{deptMembers.length} 人</Badge>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Users className="h-5 w-5" />
+                    成员列表
+                  </CardTitle>
+                  <Badge variant="outline" className="text-xs">{deptMembers.length} 人</Badge>
                 </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs px-2.5"
+                  onClick={() => {
+                    setMemberFormData({
+                      ...defaultMemberFormData,
+                      departmentId: dept.id,
+                    });
+                    setInitialPassword(null);
+                    setPasswordCopied(false);
+                    setAddMemberDialogOpen(true);
+                  }}
+                  data-testid="org-btn-add-member"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  添加成员
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
@@ -1129,11 +1183,16 @@ export function OrganizationSettings() {
 
           {/* 能力档案 */}
           <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-4">
                 <CardTitle className="text-base">能力档案</CardTitle>
-                <Button size="sm" onClick={() => setCapabilityDialogOpen(true)}>
-                  <Plus className="h-4 w-4 mr-1" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs px-2.5"
+                  onClick={() => setCapabilityDialogOpen(true)}
+                >
+                  <Plus className="h-3.5 w-3.5" />
                   添加评定
                 </Button>
               </div>
@@ -1186,17 +1245,26 @@ export function OrganizationSettings() {
       {/* 左侧：组织架构树 */}
       <Card className="w-[340px] shrink-0 flex flex-col border-r-0 rounded-r-none" data-testid="org-tree-container">
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
             <CardTitle className="text-base flex items-center gap-2">
               <Building2 className="h-5 w-5" />
               组织架构
             </CardTitle>
-            <Button size="sm" onClick={() => handleCreate(null)} data-testid="org-btn-add-department">
-              <Plus className="h-4 w-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs px-2.5"
+              onClick={() => handleCreate(null)}
+              data-testid="org-btn-add-department"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              添加部门
             </Button>
           </div>
-          {/* 搜索框 */}
-          <div className="relative mt-2">
+        </CardHeader>
+        {/* 搜索工具栏 */}
+        <div className="px-4 pb-2">
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="搜索部门或成员..."
@@ -1205,7 +1273,7 @@ export function OrganizationSettings() {
               className="pl-9 h-8 text-sm"
             />
           </div>
-        </CardHeader>
+        </div>
         <CardContent className="flex-1 overflow-hidden p-0">
           <ScrollArea className="h-full px-4 pb-4">
             {filteredTree.length === 0 ? (
@@ -1327,16 +1395,41 @@ export function OrganizationSettings() {
               </Select>
               {allMembers.length === 0 && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  💡 提示：创建部门后，可在「成员管理」中添加成员，然后再指定部门负责人
+                  提示：创建部门后，可在「成员管理」中添加成员，然后再指定部门负责人
                 </p>
               )}
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>副经理</Label>
+                <span className="text-xs text-muted-foreground">（可选）</span>
+              </div>
+              <Select
+                value={formData.coManagerId?.toString() || 'none'}
+                onValueChange={(val) => setFormData({ ...formData, coManagerId: val === 'none' ? null : parseInt(val) })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="请选择副经理" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">不指定</SelectItem>
+                  {allMembers
+                    .filter(member => member.departmentId !== null)
+                    .filter(member => member.id !== formData.managerId)
+                    .map((member) => (
+                      <SelectItem key={member.id} value={member.id.toString()}>
+                        {member.name} ({member.departmentName || '未知部门'})
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
               取消
             </Button>
-            <Button onClick={submitCreate} disabled={createMutation.isPending}>
+            <Button variant="outline" onClick={submitCreate} disabled={createMutation.isPending}>
               {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               确认创建
             </Button>
@@ -1365,7 +1458,11 @@ export function OrganizationSettings() {
               <Label htmlFor="editManager">部门负责人</Label>
               <Select
                 value={formData.managerId?.toString() || 'none'}
-                onValueChange={(val) => setFormData({ ...formData, managerId: val === 'none' ? null : parseInt(val) })}
+                onValueChange={(val) => {
+                  const newManagerId = val === 'none' ? null : parseInt(val);
+                  // 如果副经理和新主经理相同，清除副经理
+                  setFormData({ ...formData, managerId: newManagerId, coManagerId: formData.coManagerId === newManagerId ? null : formData.coManagerId });
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="请选择负责人" />
@@ -1380,12 +1477,36 @@ export function OrganizationSettings() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>副经理</Label>
+                <span className="text-xs text-muted-foreground">（可选）</span>
+              </div>
+              <Select
+                value={formData.coManagerId?.toString() || 'none'}
+                onValueChange={(val) => setFormData({ ...formData, coManagerId: val === 'none' ? null : parseInt(val) })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="请选择副经理" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">不指定</SelectItem>
+                  {allMembers
+                    .filter(member => member.id !== formData.managerId)
+                    .map((member) => (
+                      <SelectItem key={member.id} value={member.id.toString()}>
+                        {member.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
               取消
             </Button>
-            <Button onClick={submitEdit} disabled={updateMutation.isPending}>
+            <Button variant="outline" onClick={submitEdit} disabled={updateMutation.isPending}>
               {updateMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               保存
             </Button>
@@ -1472,7 +1593,7 @@ export function OrganizationSettings() {
                 </div>
               </div>
               <DialogFooter>
-                <Button onClick={closeAddMemberDialog}>我已保存密码</Button>
+                <Button variant="outline" onClick={closeAddMemberDialog}>我已保存密码</Button>
               </DialogFooter>
             </>
           ) : (
@@ -1596,7 +1717,7 @@ export function OrganizationSettings() {
                 <Button variant="outline" onClick={closeAddMemberDialog}>
                   取消
                 </Button>
-                <Button onClick={submitCreateMember} disabled={createMemberMutation.isPending}>
+                <Button variant="outline" onClick={submitCreateMember} disabled={createMemberMutation.isPending}>
                   {createMemberMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                   确认添加
                 </Button>
@@ -1723,7 +1844,7 @@ export function OrganizationSettings() {
             <Button variant="outline" onClick={() => setEditMemberDialogOpen(false)}>
               取消
             </Button>
-            <Button onClick={submitEditMember} disabled={updateMemberMutation.isPending}>
+            <Button variant="outline" onClick={submitEditMember} disabled={updateMemberMutation.isPending}>
               {updateMemberMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               保存
             </Button>

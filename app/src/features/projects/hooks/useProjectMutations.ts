@@ -4,6 +4,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectApi } from '@/lib/api/project.api';
 import { queryKeys } from '@/lib/api/query-keys';
+import { invalidationBatcher } from '@/lib/utils/invalidationBatcher';
 import type {
   CreateProjectRequest,
   UpdateProjectRequest,
@@ -34,8 +35,8 @@ export function useUpdateProject(id: string) {
     onSuccess: () => {
       // 使用 project.all 失效所有项目相关查询（包括带参数的列表查询）
       queryClient.invalidateQueries({ queryKey: queryKeys.project.all });
-      // 失效任务缓存：任务中的 projectName 是 JOIN 查询返回的
-      queryClient.invalidateQueries({ queryKey: queryKeys.task.all });
+      // 失效任务列表缓存：任务中的 projectName 是 JOIN 查询返回的
+      invalidationBatcher.invalidate(queryKeys.task.lists());
     },
   });
 }

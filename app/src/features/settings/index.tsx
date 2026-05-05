@@ -15,6 +15,7 @@ import { CapabilityModelsSettings } from './pages/CapabilityModels';
 import { HolidaysSettings } from './pages/Holidays';
 import { AuditLogsSettings } from './pages/AuditLogs';
 import { ApprovalsSettings } from './pages/Approvals';
+import { DataBackupSettings } from './pages/DataBackup';
 
 // Tab配置
 const ALL_TABS = [
@@ -27,6 +28,7 @@ const ALL_TABS = [
   { value: 'holidays', label: '节假日', path: '/settings/holidays' },
   { value: 'approvals', label: '审批管理', path: '/settings/approvals' },
   { value: 'audit-logs', label: '系统日志', path: '/settings/audit-logs' },
+  { value: 'data-backup', label: '数据备份', path: '/settings/data-backup' },
 ] as const;
 
 // 角色可见性配置（根据需求文档 REQ_01 L187-198）
@@ -40,6 +42,7 @@ const TAB_VISIBILITY: Record<string, string[]> = {
   'holidays': ['admin', 'dept_manager'],
   'approvals': ['admin', 'dept_manager', 'tech_manager'],
   'audit-logs': ['admin', 'dept_manager'],
+  'data-backup': ['admin'],
 };
 
 export default function SettingsPage() {
@@ -146,6 +149,12 @@ export default function SettingsPage() {
             <AuditLogsSettings />
           </TabsContent>
         )}
+
+        {activeTab === 'data-backup' && visibleTabs.some(t => t.value === 'data-backup') && (
+          <TabsContent value="data-backup" className="mt-0">
+            <DataBackupSettings />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
@@ -161,3 +170,4 @@ export { CapabilityModelsSettings } from './pages/CapabilityModels';
 export { HolidaysSettings } from './pages/Holidays';
 export { ApprovalsSettings } from './pages/Approvals';
 export { AuditLogsSettings } from './pages/AuditLogs';
+export { DataBackupSettings } from './pages/DataBackup';

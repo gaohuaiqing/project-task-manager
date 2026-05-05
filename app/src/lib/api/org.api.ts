@@ -140,12 +140,14 @@ export async function getMember(id: number): Promise<Member> {
 interface BackendDepartment {
   id: number;
   name: string;
-  parentId: number | null;  // 拦截器已转换 parent_id -> parentId
-  managerId: number | null;  // 拦截器已转换 manager_id -> managerId
-  createdAt: string;  // 拦截器已转换 created_at -> createdAt
-  updatedAt: string;  // 拦截器已转换 updated_at -> updatedAt
+  parentId: number | null;
+  managerId: number | null;
+  coManagerId: number | null;     // 副经理ID
+  coManagerName: string | null;   // 副经理姓名
+  createdAt: string;
+  updatedAt: string;
   children?: BackendDepartment[];
-  memberCount?: number;  // 拦截器已转换 member_count -> memberCount
+  memberCount?: number;
 }
 
 export interface Department {
@@ -154,6 +156,8 @@ export interface Department {
   parentId: number | null;
   managerId: number | null;
   managerName: string | null;
+  coManagerId: number | null;     // 副经理ID
+  coManagerName: string | null;   // 副经理姓名
   memberCount: number;
   createdAt: string;
   children?: Department[];
@@ -161,7 +165,6 @@ export interface Department {
 
 /**
  * 将后端部门数据转换为前端格式（递归处理children）
- * 注：axios 拦截器已将 snake_case 转换为 camelCase
  */
 function transformDepartment(backend: BackendDepartment): Department {
   return {
@@ -169,7 +172,9 @@ function transformDepartment(backend: BackendDepartment): Department {
     name: backend.name,
     parentId: backend.parentId,
     managerId: backend.managerId,
-    managerName: null, // 后端暂未返回此字段
+    managerName: null,
+    coManagerId: backend.coManagerId ?? null,
+    coManagerName: backend.coManagerName ?? null,
     memberCount: backend.memberCount || 0,
     createdAt: backend.createdAt,
     children: backend.children?.map(transformDepartment) || [],
@@ -216,6 +221,7 @@ export interface CreateDepartmentRequest {
   name: string;
   parentId?: number | null;
   managerId?: number | null;
+  coManagerId?: number | null;
   description?: string;
 }
 
@@ -223,15 +229,16 @@ export interface UpdateDepartmentRequest {
   name?: string;
   parentId?: number | null;
   managerId?: number | null;
+  coManagerId?: number | null;
   description?: string;
 }
 
 export async function createDepartment(data: CreateDepartmentRequest): Promise<{ id: number }> {
-  // 拦截器会自动转换 camelCase -> snake_case
   const payload = {
     name: data.name,
-    parentId: data.parentId ?? null,    // 拦截器会转换为 parent_id
-    managerId: data.managerId ?? null,  // 拦截器会转换为 manager_id
+    parentId: data.parentId ?? null,
+    managerId: data.managerId ?? null,
+    coManagerId: data.coManagerId ?? null,
     description: data.description,
   };
   const response = await apiClient.post<ApiResponse<{ id: number }>>(`${BASE_PATH}/departments`, payload);
@@ -239,20 +246,12 @@ export async function createDepartment(data: CreateDepartmentRequest): Promise<{
 }
 
 export async function updateDepartment(id: number, data: UpdateDepartmentRequest): Promise<void> {
-  // 拦截器会自动转换 camelCase -> snake_case
   const payload: Record<string, unknown> = {};
-  if (data.name !== undefined) {
-    payload.name = data.name;
-  }
-  if (data.parentId !== undefined) {
-    payload.parentId = data.parentId;  // 拦截器会转换为 parent_id
-  }
-  if (data.managerId !== undefined) {
-    payload.managerId = data.managerId;  // 拦截器会转换为 manager_id
-  }
-  if (data.description !== undefined) {
-    payload.description = data.description;
-  }
+  if (data.name !== undefined) payload.name = data.name;
+  if (data.parentId !== undefined) payload.parentId = data.parentId;
+  if (data.managerId !== undefined) payload.managerId = data.managerId;
+  if (data.coManagerId !== undefined) payload.coManagerId = data.coManagerId;
+  if (data.description !== undefined) payload.description = data.description;
   await apiClient.put<ApiResponse<void>>(`${BASE_PATH}/departments/${id}`, payload);
 }
 
@@ -605,6 +604,64 @@ export async function deleteTaskTypeMapping(id: number): Promise<void> {
   await apiClient.delete<ApiResponse<void>>(`${BASE_PATH}/task-type-mappings/${id}`);
 }
 
+// ========== 任务类型配置 CRUD ==========
+
+export interface TaskTypeConfig {
+  id: number;
+  code: string;
+  name: string;
+  color: string;
+  description: string | null;
+  groupName: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateTaskTypeRequest {
+  code: string;
+  name: string;
+  color?: string;
+  description?: string;
+  groupName?: string;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+export interface UpdateTaskTypeRequest {
+  name?: string;
+  color?: string;
+  description?: string;
+  groupName?: string;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+export async function getTaskTypes(): Promise<TaskTypeConfig[]> {
+  const response = await apiClient.get<ApiResponse<TaskTypeConfig[]>>(`${BASE_PATH}/task-types`);
+  return response.data;
+}
+
+export async function getTaskType(id: number): Promise<TaskTypeConfig> {
+  const response = await apiClient.get<ApiResponse<TaskTypeConfig>>(`${BASE_PATH}/task-types/${id}`);
+  return response.data;
+}
+
+export async function createTaskType(data: CreateTaskTypeRequest): Promise<{ id: number }> {
+  const response = await apiClient.post<ApiResponse<{ id: number }>>(`${BASE_PATH}/task-types`, data);
+  return response.data;
+}
+
+export async function updateTaskType(id: number, data: UpdateTaskTypeRequest): Promise<void> {
+  await apiClient.put<ApiResponse<void>>(`${BASE_PATH}/task-types/${id}`, data);
+}
+
+export async function deleteTaskType(id: number): Promise<{ affectedTasks: number }> {
+  const response = await apiClient.delete<ApiResponse<{ affectedTasks: number }>>(`${BASE_PATH}/task-types/${id}`);
+  return response.data;
+}
+
 // ========== 智能推荐 ==========
 // 注：响应拦截器会自动转换 snake_case -> camelCase
 
@@ -716,6 +773,12 @@ export const orgApi = {
   createCapabilityModel,
   updateCapabilityModel,
   deleteCapabilityModel,
+  // 任务类型配置 CRUD
+  getTaskTypes,
+  getTaskType,
+  createTaskType,
+  updateTaskType,
+  deleteTaskType,
   // 任务类型映射 CRUD
   getTaskTypeMappings,
   getTaskTypeMapping,

@@ -10,6 +10,9 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { AlertTriangle } from 'lucide-react';
 
+// 共享常量
+import { DEFAULT_CHART_COLORS } from '../../shared/constants';
+
 // 共享组件
 import { StatsCard, TrendChart, TaskTypeChart, ScatterChart } from '../../shared/components';
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner';
@@ -26,6 +29,7 @@ import {
 
 // 数据 Hook
 import { useDeptManagerDashboard } from '../hooks';
+import { buildDynamicSeries } from '../hooks/useDashboardData';
 
 // 类型
 import type {
@@ -95,12 +99,16 @@ export function DeptManagerDashboard({
     status: group.status,
   })) || [];
 
-  // 成员负载分布数据（散点图）
-  const memberLoadData = data.memberStatus?.map((member) => ({
-    name: member.name,
-    x: member.inProgress + member.completed,
-    y: member.loadRate,
-  })) || [];
+  // 成员负载分布数据（散点图，X轴: 任务数, Y轴: 完成率）
+  const memberLoadData = data.memberStatus?.map((member) => {
+    const totalTasks = member.inProgress + member.completed + member.delayed;
+    const completionRate = totalTasks > 0 ? Math.round((member.completed / totalTasks) * 100) : 0;
+    return {
+      name: member.name,
+      x: totalTasks,
+      y: completionRate,
+    };
+  }) || [];
 
   return (
     <div data-testid="dept-manager-dashboard-container" className={cn('space-y-6', className)}>
@@ -110,12 +118,10 @@ export function DeptManagerDashboard({
         icon={<AlertTriangle className="h-4 w-4 text-amber-500" />}
         data-testid="alert-section"
       >
-        {data.alerts && data.alerts.length > 0 && (
-          <AlertCardsRow
-            alerts={data.alerts}
-            onActionClick={onAlertActionClick}
-          />
-        )}
+        <AlertCardsRow
+          alerts={data.alerts || []}
+          onActionClick={onAlertActionClick}
+        />
       </DashboardSection>
 
       {/* 部门核心指标卡片（4x2网格） */}
@@ -146,9 +152,9 @@ export function DeptManagerDashboard({
                   data={data.trends || []}
                   height={280}
                   series={[
-                    { dataKey: 'created', name: '新建', color: '#0EA5E9' },
-                    { dataKey: 'completed', name: '完成', color: '#10B981' },
-                    { dataKey: 'delayed', name: '延期', color: '#EF4444' },
+                    { dataKey: 'created', name: '新建', color: DEFAULT_CHART_COLORS[0] },
+                    { dataKey: 'completed', name: '完成', color: DEFAULT_CHART_COLORS[1] },
+                    { dataKey: 'delayed', name: '延期', color: DEFAULT_CHART_COLORS[3] },
                   ]}
                 />
               ),
@@ -164,22 +170,22 @@ export function DeptManagerDashboard({
             },
             {
               title: '成员负载分布',
-              subtitle: 'X轴: 任务数 | Y轴: 负载率',
+              subtitle: 'X轴: 任务数 | Y轴: 完成率',
               chart: (
                 <ScatterChart
                   data={memberLoadData}
                   height={280}
-                  xAxisConfig={{ key: 'x', label: '任务数', domain: [0, 120] }}
-                  yAxisConfig={{ key: 'y', label: '负载率', domain: [0, 150] }}
+                  xAxisConfig={{ key: 'x', label: '任务数', domain: [0, 'auto'] }}
+                  yAxisConfig={{ key: 'y', label: '完成率', domain: [0, 100] }}
                   showQuadrant
                   quadrantConfig={{
                     centerX: 50,
-                    centerY: 100,
+                    centerY: 70,
                     quadrantLabels: {
-                      topLeft: '低任务高负载',
-                      topRight: '高任务高负载',
-                      bottomLeft: '低任务低负载',
-                      bottomRight: '高任务低负载',
+                      topLeft: '低任务高完成率',
+                      topRight: '高任务高完成率',
+                      bottomLeft: '低任务低完成率',
+                      bottomRight: '高任务低完成率',
                     },
                   }}
                 />
@@ -191,11 +197,7 @@ export function DeptManagerDashboard({
                 <TrendChart
                   data={data.groupActivityTrends || []}
                   height={280}
-                  series={[
-                    { dataKey: '前端组', name: '前端组', color: '#0EA5E9' },
-                    { dataKey: '后端组', name: '后端组', color: '#10B981' },
-                    { dataKey: '测试组', name: '测试组', color: '#F59E0B' },
-                  ]}
+                  series={buildDynamicSeries(data.groupActivityTrends || [])}
                 />
               ),
             },

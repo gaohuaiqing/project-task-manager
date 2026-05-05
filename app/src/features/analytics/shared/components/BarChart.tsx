@@ -119,6 +119,11 @@ export function BarChart({
 }: BarChartProps) {
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null);
 
+  // 确保 dataKeys 是有效数组
+  const safeDataKeys = dataKeys && Array.isArray(dataKeys) && dataKeys.length > 0
+    ? dataKeys
+    : DEFAULT_DATA_KEYS;
+
   // 自定义 Tooltip
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -225,7 +230,7 @@ export function BarChart({
             onMouseLeave={() => setActiveIndex(null)}
           >
             <defs>
-              {dataKeys.map((dataKey, index) => {
+              {safeDataKeys.map((dataKey, index) => {
                 const baseColor = dataKey.color || DEFAULT_CHART_COLORS[index];
                 const [startColor, endColor] = getGradientPair(baseColor, index);
                 return (
@@ -258,9 +263,10 @@ export function BarChart({
               type={isVertical ? 'number' : 'category'}
               dataKey={isVertical ? undefined : xAxisKey}
               tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-              stroke="none"
-              tickLine={false}
-              axisLine={false}
+              stroke="hsl(var(--border))"
+              tickLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+              tickSize={4}
+              axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
               domain={isVertical ? [0, maxValue] : undefined}
               interval={isVertical ? undefined : 'preserveStartEnd'}
               label={xAxisLabel ? {
@@ -273,9 +279,10 @@ export function BarChart({
             <YAxis
               {...(isVertical ? { type: 'category' as const, dataKey: xAxisKey, width: 72 } : {})}
               tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-              stroke="none"
-              tickLine={false}
-              axisLine={false}
+              stroke="hsl(var(--border))"
+              tickLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+              tickSize={4}
+              axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
               domain={!isVertical && maxValue != null ? [0, maxValue] : undefined}
               label={yAxisLabel ? {
                 value: yAxisLabel,
@@ -308,7 +315,7 @@ export function BarChart({
               />
             )}
             {/* 多系列时显示 Legend 说明每个系列含义，单系列无需图例（X轴标签已说明） */}
-            {showLegend && dataKeys.length > 1 && (
+            {showLegend && safeDataKeys.length > 1 && (
               <Legend
                 wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }}
                 iconType="circle"
@@ -318,7 +325,7 @@ export function BarChart({
                 )}
               />
             )}
-            {dataKeys.map((dataKey, index) => (
+            {safeDataKeys.map((dataKey, index) => (
               <Bar
                 key={dataKey.key}
                 dataKey={dataKey.key}

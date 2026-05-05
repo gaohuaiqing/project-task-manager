@@ -7,7 +7,7 @@
  * 3. 更新现有数据的 wbs_order 值
  */
 
-import { databaseService } from '../services/DatabaseService.js';
+import { databaseService } from '../services/DatabaseService';
 
 const MIGRATION_VERSION = '043';
 const MIGRATION_NAME = 'add_wbs_order_column';
@@ -149,16 +149,3 @@ export async function runPendingMigrations(): Promise<void> {
   await runMigration043();
 }
 
-// 直接执行
-if (require.main === module) {
-  (async () => {
-    try {
-      await databaseService.init();
-      await runMigration043();
-      process.exit(0);
-    } catch (error) {
-      console.error('❌ 迁移执行失败:', error);
-      process.exit(1);
-    }
-  })();
-}

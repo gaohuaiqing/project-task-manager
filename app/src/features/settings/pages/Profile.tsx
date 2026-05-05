@@ -82,8 +82,8 @@ export function ProfileSettings() {
 
           <Separator />
 
-          {/* 基本信息 */}
-          <div className="grid gap-4">
+          {/* 基本信息 - 两列布局 */}
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="username">
                 用户名 <span className="text-xs text-muted-foreground font-normal">（系统唯一标识）</span>
@@ -136,7 +136,7 @@ export function ProfileSettings() {
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 md:col-span-2">
               <Label>
                 角色 <span className="text-xs text-muted-foreground font-normal">（当前系统权限身份）</span>
               </Label>

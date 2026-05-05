@@ -10,8 +10,11 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { AlertTriangle } from 'lucide-react';
 
+// 共享常量
+import { DEFAULT_CHART_COLORS } from '../../shared/constants';
+
 // 共享组件
-import { StatsCard, TrendChart, TaskTypeChart, PieChart } from '../../shared/components';
+import { StatsCard, TrendChart, PieChart, BarChart } from '../../shared/components';
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner';
 
 // 仪表板组件
@@ -29,6 +32,7 @@ import { MemberStatusTable } from '../components/MemberStatusTable';
 
 // 数据 Hook
 import { useTechManagerDashboard } from '../hooks';
+import { buildDynamicSeries } from '../hooks/useDashboardData';
 
 // 类型
 import type {
@@ -104,12 +108,10 @@ export function TechManagerDashboard({
         }
         data-testid="alert-section"
       >
-        {data.alerts && data.alerts.length > 0 && (
-          <AlertCardsRow
-            alerts={data.alerts}
-            onActionClick={onAlertActionClick}
-          />
-        )}
+        <AlertCardsRow
+          alerts={data.alerts || []}
+          onActionClick={onAlertActionClick}
+        />
       </DashboardSection>
 
       {/* 组内核心指标卡片（4x2网格） */}
@@ -122,7 +124,7 @@ export function TechManagerDashboard({
       {/* 成员任务状态表格 */}
       {data.memberStatus && data.memberStatus.length > 0 && (
         <DashboardSection title="成员任务状态一览" data-testid="member-section">
-          <MemberStatusTable members={data.memberStatus} />
+          <MemberStatusTable members={data.memberStatus} title="" />
         </DashboardSection>
       )}
 
@@ -137,9 +139,9 @@ export function TechManagerDashboard({
                   data={data.trends || []}
                   height={280}
                   series={[
-                    { dataKey: 'created', name: '新建', color: '#0EA5E9' },
-                    { dataKey: 'completed', name: '完成', color: '#10B981' },
-                    { dataKey: 'delayed', name: '延期', color: '#EF4444' },
+                    { dataKey: 'created', name: '新建', color: DEFAULT_CHART_COLORS[0] },
+                    { dataKey: 'completed', name: '完成', color: DEFAULT_CHART_COLORS[1] },
+                    { dataKey: 'delayed', name: '延期', color: DEFAULT_CHART_COLORS[3] },
                   ]}
                 />
               ),
@@ -149,6 +151,7 @@ export function TechManagerDashboard({
               chart: (
                 <PieChart
                   data={data.taskTypeDistribution || []}
+                  title=""
                   height={280}
                 />
               ),
@@ -156,14 +159,28 @@ export function TechManagerDashboard({
             {
               title: '成员任务分布',
               chart: (
-                <TaskTypeChart
-                  data={data.memberStatus?.map((m) => ({
-                    name: m.name,
-                    value: m.inProgress + m.completed,
-                    color: m.status === 'healthy' ? '#10B981' :
-                           m.status === 'warning' ? '#F59E0B' : '#EF4444',
-                  })) || []}
+                <BarChart
+                  data={(data.memberStatus || [])
+                    .filter(m => {
+                      const total = Number(m.inProgress) + Number(m.completed) + Number(m.delayed);
+                      return total > 0;
+                    })
+                    .map((m) => ({
+                      name: m.name || '未知',
+                      inProgress: Number(m.inProgress),
+                      completed: Number(m.completed),
+                      delayed: Number(m.delayed),
+                    }))}
+                  dataKeys={[
+                    { key: 'inProgress', name: '进行中', color: DEFAULT_CHART_COLORS[0] },
+                    { key: 'completed', name: '已完成', color: DEFAULT_CHART_COLORS[1] },
+                    { key: 'delayed', name: '延期', color: DEFAULT_CHART_COLORS[3] },
+                  ]}
+                  stacked={true}
+                  showLegend={true}
+                  showGrid={true}
                   height={280}
+                  title=""
                 />
               ),
             },
@@ -173,12 +190,7 @@ export function TechManagerDashboard({
                 <TrendChart
                   data={data.memberActivityTrends || []}
                   height={280}
-                  series={[
-                    { dataKey: '张三', name: '张三', color: '#0EA5E9' },
-                    { dataKey: '李四', name: '李四', color: '#10B981' },
-                    { dataKey: '王五', name: '王五', color: '#F59E0B' },
-                    { dataKey: '赵六', name: '赵六', color: '#EF4444' },
-                  ]}
+                  series={buildDynamicSeries(data.memberActivityTrends || [])}
                 />
               ),
             },

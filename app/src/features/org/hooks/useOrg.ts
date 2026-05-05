@@ -27,6 +27,11 @@ import {
   createTaskTypeMapping,
   updateTaskTypeMapping,
   deleteTaskTypeMapping,
+  getTaskTypes,
+  getTaskType,
+  createTaskType,
+  updateTaskType,
+  deleteTaskType,
   type MemberListParams,
   type CreateDepartmentRequest,
   type UpdateDepartmentRequest,
@@ -37,8 +42,11 @@ import {
   type UpdateCapabilityModelRequest,
   type CreateTaskTypeMappingRequest,
   type UpdateTaskTypeMappingRequest,
+  type CreateTaskTypeRequest,
+  type UpdateTaskTypeRequest,
 } from '@/lib/api/org.api';
 import { queryKeys } from '@/lib/api/query-keys';
+import { invalidationBatcher } from '@/lib/utils/invalidationBatcher';
 
 // ========== 部门查询 ==========
 
@@ -180,8 +188,8 @@ export function useUpdateMember(id: number) {
       queryClient.invalidateQueries({ queryKey: queryKeys.org.member(id) });
       // 使用前缀匹配，失效所有成员相关查询
       queryClient.invalidateQueries({ queryKey: ['org', 'members'] });
-      // 失效任务缓存：任务中的 assigneeName 是 JOIN 查询返回的
-      queryClient.invalidateQueries({ queryKey: queryKeys.task.all });
+      // 失效任务列表缓存：任务中的 assigneeName 是 JOIN 查询返回的
+      invalidationBatcher.invalidate(queryKeys.task.lists());
     },
   });
 }
@@ -387,4 +395,94 @@ export function useDeleteTaskTypeMapping() {
       queryClient.invalidateQueries({ queryKey: ['org', 'task-type-mappings'] });
     },
   });
+}
+
+// ========== 任务类型配置查询 ==========
+
+/**
+ * 获取任务类型列表
+ */
+export function useTaskTypes() {
+  return useQuery({
+    queryKey: ['org', 'task-types'],
+    queryFn: () => getTaskTypes(),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * 获取任务类型详情
+ */
+export function useTaskType(id: number | undefined) {
+  return useQuery({
+    queryKey: ['org', 'task-type', id],
+    queryFn: () => getTaskType(id!),
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// ========== 任务类型配置变更 ==========
+
+/**
+ * 创建任务类型
+ */
+export function useCreateTaskType() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: CreateTaskTypeRequest) => createTaskType(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org', 'task-types'] });
+    },
+  });
+}
+
+/**
+ * 更新任务类型
+ */
+export function useUpdateTaskType(id: number) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: UpdateTaskTypeRequest) => updateTaskType(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org', 'task-type', id] });
+      queryClient.invalidateQueries({ queryKey: ['org', 'task-types'] });
+    },
+  });
+}
+
+/**
+ * 删除任务类型
+ */
+export function useDeleteTaskType() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: number) => deleteTaskType(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org', 'task-types'] });
+    },
+  });
+}
+
+/**
+ * 获取任务类型选项（用于下拉选择器）
+ * 优先从 API 获取，后备使用常量
+ */
+export function useTaskTypeOptions() {
+  const { data: taskTypes, isLoading, error } = useTaskTypes();
+
+  // 如果 API 数据可用，转换为选项格式
+  const options = taskTypes
+    ?.filter(t => t.isActive)
+    .map(t => ({ value: t.code, label: t.name })) || [];
+
+  return {
+    options,
+    isLoading,
+    error,
+    hasApiData: (taskTypes?.length ?? 0) > 0,
+  };
 }

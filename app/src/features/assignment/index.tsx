@@ -3,6 +3,7 @@
  */
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { AlertTriangle } from 'lucide-react';
 import { CapabilityMatrix } from './components/CapabilityMatrix';
 import { AssignmentSuggestion } from './components/AssignmentSuggestion';
 import { MemberCapabilities } from './components/MemberCapabilities';
@@ -33,6 +34,22 @@ export default function AssignmentPage() {
 
   return (
     <div data-testid="assignment-page-container" className="space-y-6 animate-fade-in">
+      {/* 功能开发中提示 */}
+      <div className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-200 dark:border-amber-800 rounded-xl p-8 text-center">
+        <div className="flex items-center justify-center gap-4 mb-4">
+          <AlertTriangle className="w-12 h-12 text-amber-500" />
+          <h2 className="text-3xl font-bold text-amber-700 dark:text-amber-400">
+            功能开发中
+          </h2>
+          <AlertTriangle className="w-12 h-12 text-amber-500" />
+        </div>
+        <p className="text-xl text-amber-600 dark:text-amber-300 mb-2">
+          智能分配模块正在完善中，暂时不开放使用
+        </p>
+        <p className="text-base text-amber-500 dark:text-amber-400">
+          敬请期待后续版本更新
+        </p>
+      </div>
       {/* 标签页 */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

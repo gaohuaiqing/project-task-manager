@@ -1,7 +1,9 @@
 // app/server/src/modules/project/service.ts
 import { v4 as uuidv4 } from 'uuid';
 import { ProjectRepository } from './repository';
+import { WorkflowRepository } from '../workflow/repository';
 import { ValidationError, ForbiddenError } from '../../core/errors';
+import { sanitizeString } from '../../core/utils/sanitize';
 import { audit } from '../../core/audit';
 import type { User } from '../../core/types';
 import type {
@@ -15,6 +17,7 @@ import type {
 
 export class ProjectService {
   private repo = new ProjectRepository();
+  private workflowRepo = new WorkflowRepository();
 
   // ========== 项目管理 ==========
 
@@ -43,9 +46,14 @@ export class ProjectService {
   }
 
   async createProject(data: CreateProjectRequest, currentUser: User): Promise<string> {
-    // 验证权限
-    if (currentUser.role !== 'admin' && currentUser.role !== 'tech_manager') {
-      throw new ForbiddenError('只有管理员或技术经理可以创建项目');
+    // 验证权限：admin、dept_manager、tech_manager 都可以创建项目
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager' && currentUser.role !== 'tech_manager') {
+      throw new ForbiddenError('只有管理员、部门经理或技术经理可以创建项目');
+    }
+
+    // 验证必填字段
+    if (!data.code || !data.name || !data.project_type || !data.planned_start_date || !data.planned_end_date) {
+      throw new ValidationError('缺少必填字段: code, name, project_type, planned_start_date, planned_end_date');
     }
 
     // 验证日期
@@ -59,12 +67,19 @@ export class ProjectService {
       throw new ValidationError('项目代号已存在');
     }
 
-    // 使用事务同时创建项目和添加成员，确保数据一致性
-    const memberIds = data.member_ids || [];
-    const { projectId } = await this.repo.createProjectWithMembers(data, memberIds);
+    // XSS 防护：创建消毒后的数据副本
+    const sanitizedData = {
+      ...data,
+      name: sanitizeString(data.name),
+      description: data.description ? sanitizeString(data.description) : data.description,
+    };
 
-    // 记录审计日志
-    audit.log({
+    // 使用事务同时创建项目和添加成员，确保数据一致性
+    const memberIds = sanitizedData.member_ids || [];
+    const { projectId } = await this.repo.createProjectWithMembers(sanitizedData, memberIds);
+
+    // 记录审计日志（同步写入，确保关键操作被记录）
+    audit.logSync({
       userId: currentUser.id,
       username: currentUser.real_name,
       userRole: currentUser.role,
@@ -72,7 +87,7 @@ export class ProjectService {
       action: 'CREATE',
       tableName: 'projects',
       recordId: String(projectId),
-      details: `创建项目: ${data.name} (${data.code})`,
+      details: `创建项目: ${sanitizedData.name} (${sanitizedData.code})`,
     });
 
     return String(projectId);
@@ -106,16 +121,25 @@ export class ProjectService {
       throw new ValidationError('结束日期不能早于开始日期');
     }
 
-    const result = await this.repo.updateProject(id, { ...data, version: data.version || project.version });
-
-    // 如果更新成功且包含成员数据，同步更新项目成员表
-    if (result.updated && data.member_ids !== undefined) {
-      await this.syncProjectMembers(id, data.member_ids);
+    // XSS 防护：创建消毒后的数据副本
+    const sanitizedData = { ...data };
+    if (data.name !== undefined) {
+      sanitizedData.name = sanitizeString(data.name);
+    }
+    if (data.description !== undefined) {
+      sanitizedData.description = data.description ? sanitizeString(data.description) : data.description;
     }
 
-    // 记录审计日志
+    const result = await this.repo.updateProject(id, { ...sanitizedData, version: data.version || project.version });
+
+    // 如果更新成功且包含成员数据，同步更新项目成员表
+    if (result.updated && sanitizedData.member_ids !== undefined) {
+      await this.syncProjectMembers(id, sanitizedData.member_ids);
+    }
+
+    // 记录审计日志（同步写入，确保关键操作被记录）
     if (result.updated) {
-      audit.log({
+      await audit.logSync({
         userId: currentUser.id,
         username: currentUser.real_name,
         userRole: currentUser.role,
@@ -125,7 +149,7 @@ export class ProjectService {
         recordId: id,
         details: `更新项目: ${project.name}`,
         beforeData: { name: project.name, status: project.status },
-        afterData: data as unknown as Record<string, unknown>,
+        afterData: sanitizedData as unknown as Record<string, unknown>,
       });
     }
 
@@ -158,15 +182,24 @@ export class ProjectService {
   }
 
   async deleteProject(id: string, currentUser: User): Promise<void> {
-    // 验证权限
-    if (currentUser.role !== 'admin') {
-      throw new ForbiddenError('只有管理员可以删除项目');
-    }
-
     // 验证项目存在
     const project = await this.repo.getProjectById(id);
     if (!project) {
       throw new ValidationError('项目不存在');
+    }
+
+    // 验证权限：engineer 不能删除项目
+    if (currentUser.role === 'engineer') {
+      throw new ForbiddenError('工程师无权限删除项目');
+    }
+
+    // admin 可以删除任何项目
+    // dept_manager/tech_manager 只能删除自己参与的项目
+    if (currentUser.role !== 'admin') {
+      const isMember = await this.repo.isProjectMember(id, currentUser.id);
+      if (!isMember) {
+        throw new ForbiddenError('无权限删除此项目');
+      }
     }
 
     // 检查是否有任务
@@ -180,8 +213,8 @@ export class ProjectService {
       throw new ValidationError('删除项目失败');
     }
 
-    // 记录审计日志
-    audit.log({
+    // 记录审计日志（同步写入，确保删除操作被记录）
+    await audit.logSync({
       userId: currentUser.id,
       username: currentUser.real_name,
       userRole: currentUser.role,
@@ -191,6 +224,47 @@ export class ProjectService {
       recordId: id,
       details: `删除项目: ${project.name} (${project.code})`,
     });
+  }
+
+  /**
+   * 批量删除项目（admin/dept_manager）
+   */
+  async batchDeleteProjects(
+    ids: string[],
+    currentUser: User
+  ): Promise<{ success: number; failed: number; errors: Array<{ id: string; name: string; error: string }> }> {
+    // 权限检查
+    if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
+      throw new ForbiddenError('无权限批量删除项目');
+    }
+
+    const errors: Array<{ id: string; name: string; error: string }> = [];
+    let successCount = 0;
+
+    for (const id of ids) {
+      try {
+        await this.deleteProject(id, currentUser);
+        successCount++;
+      } catch (error) {
+        const projectName = await this.getProjectNameSafe(id);
+        errors.push({
+          id,
+          name: projectName,
+          error: error instanceof Error ? error.message : '删除失败',
+        });
+      }
+    }
+
+    return { success: successCount, failed: errors.length, errors };
+  }
+
+  private async getProjectNameSafe(id: string): Promise<string> {
+    try {
+      const project = await this.repo.getProjectById(id);
+      return project?.name ?? '未知项目';
+    } catch {
+      return '未知项目';
+    }
   }
 
   // ========== 里程碑管理 ==========
@@ -212,8 +286,15 @@ export class ProjectService {
       throw new ForbiddenError('无权限操作此项目');
     }
 
+    // XSS 防护：创建消毒后的数据副本
+    const sanitizedData = {
+      ...data,
+      name: sanitizeString(data.name),
+      description: data.description ? sanitizeString(data.description) : data.description,
+    };
+
     const id = uuidv4();
-    await this.repo.createMilestone({ ...data, id, project_id: projectId });
+    await this.repo.createMilestone({ ...sanitizedData, id, project_id: projectId });
 
     // 更新项目进度（基于里程碑完成百分比平均值）
     await this.repo.updateProjectStats(projectId);
@@ -233,7 +314,16 @@ export class ProjectService {
       throw new ForbiddenError('无权限操作此项目');
     }
 
-    const updated = await this.repo.updateMilestone(id, data);
+    // XSS 防护：创建消毒后的数据副本
+    const sanitizedData = { ...data };
+    if (data.name !== undefined) {
+      sanitizedData.name = sanitizeString(data.name);
+    }
+    if (data.description !== undefined) {
+      sanitizedData.description = data.description ? sanitizeString(data.description) : data.description;
+    }
+
+    const updated = await this.repo.updateMilestone(id, sanitizedData);
 
     // 更新项目进度（基于里程碑完成百分比平均值）
     if (updated) {
@@ -283,18 +373,57 @@ export class ProjectService {
       throw new ForbiddenError('无权限操作此项目');
     }
 
+    // 验证日期：结束日期不能早于开始日期
+    if (new Date(data.end_date) < new Date(data.start_date)) {
+      throw new ValidationError('结束日期不能早于开始日期');
+    }
+
+    // XSS 防护：创建消毒后的数据副本
+    const sanitizedData = {
+      ...data,
+      name: sanitizeString(data.name),
+    };
+
     const id = uuidv4();
-    await this.repo.createTimeline({ ...data, id, project_id: projectId });
+    await this.repo.createTimeline({ ...sanitizedData, id, project_id: projectId });
     return id;
   }
 
   async updateTimeline(id: string, data: UpdateTimelineRequest, currentUser: User): Promise<boolean> {
-    // 验证权限（需要查询时间线所属项目）
-    // 这里简化处理，实际应该查询时间线所属项目
-    return this.repo.updateTimeline(id, data);
+    // 获取时间线以验证项目权限
+    const timeline = await this.repo.getTimelineById(id);
+    if (!timeline) {
+      throw new ValidationError('时间线不存在');
+    }
+
+    // 验证权限
+    const isMember = await this.repo.isProjectMember(timeline.project_id, currentUser.id);
+    if (currentUser.role !== 'admin' && !isMember) {
+      throw new ForbiddenError('无权限操作此项目');
+    }
+
+    // XSS 防护：创建消毒后的数据副本
+    const sanitizedData = { ...data };
+    if (data.name !== undefined) {
+      sanitizedData.name = sanitizeString(data.name);
+    }
+
+    return this.repo.updateTimeline(id, sanitizedData);
   }
 
   async deleteTimeline(id: string, currentUser: User): Promise<void> {
+    // 获取时间线以验证项目权限
+    const timeline = await this.repo.getTimelineById(id);
+    if (!timeline) {
+      throw new ValidationError('时间线不存在');
+    }
+
+    // 验证权限
+    const isMember = await this.repo.isProjectMember(timeline.project_id, currentUser.id);
+    if (currentUser.role !== 'admin' && !isMember) {
+      throw new ForbiddenError('无权限操作此项目');
+    }
+
     const deleted = await this.repo.deleteTimeline(id);
     if (!deleted) {
       throw new ValidationError('删除时间线失败');
@@ -336,6 +465,9 @@ export class ProjectService {
     if (!removed) {
       throw new ValidationError('移除成员失败');
     }
+
+    // 清理该用户关于此项目的所有通知
+    await this.workflowRepo.deleteNotificationsByProjectAndUser(projectId, userId);
   }
 
   async isProjectMember(projectId: string, userId: number): Promise<boolean> {

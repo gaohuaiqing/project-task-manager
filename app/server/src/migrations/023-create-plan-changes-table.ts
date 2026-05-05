@@ -68,4 +68,7 @@ export async function down(): Promise<void> {
 export const runMigration023 = migration.runMigration.bind(migration, up);
 
 // 直接执行迁移
-migration.runDirect(up);
+// 注意：已禁用，由 run-migration.ts 中的 runMigration023 统一管理
+// 原因：此文件定义的 id 为 INT 类型，与代码使用的 UUID 不兼容
+// 修复由迁移 048 负责
+// migration.runDirect(up);

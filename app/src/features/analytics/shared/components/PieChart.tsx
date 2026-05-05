@@ -87,10 +87,14 @@ export function PieChart({
 }: PieChartProps) {
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null);
 
+  // 安全数据处理
+  const safeData = data && Array.isArray(data) ? data : [];
+  const safeColors = colors && Array.isArray(colors) ? colors : DEFAULT_CHART_COLORS;
+
   // 计算总值
   const total = React.useMemo(() => {
-    return data.reduce((sum, item) => sum + item.value, 0);
-  }, [data]);
+    return safeData.reduce((sum, item) => sum + (item.value || 0), 0);
+  }, [safeData]);
 
   // 自定义 Tooltip
   const CustomTooltip = ({ active, payload }: any) => {
@@ -110,7 +114,7 @@ export function PieChart({
           <div className="flex items-center gap-2 mb-1.5">
             <span
               className="inline-block w-2.5 h-2.5 rounded-[3px] shrink-0 shadow-sm"
-              style={{ backgroundColor: item.color || colors[data.indexOf(item) % colors.length] }}
+              style={{ backgroundColor: item.color || safeColors[safeData.indexOf(item) % safeColors.length] }}
             />
             <span className="font-semibold text-foreground text-xs">{item.name}</span>
           </div>
@@ -152,7 +156,7 @@ export function PieChart({
   }
 
   // 空数据
-  if (!data || data.length === 0 || total === 0) {
+  if (safeData.length === 0 || total === 0) {
     return (
       <Card className={cn('rounded-xl border-border/40 shadow-none', className)}>
         {title && (
@@ -181,16 +185,16 @@ export function PieChart({
         <ResponsiveContainer width="100%" height={height}>
           <RechartsPieChart>
             <Pie
-              data={data}
+              data={safeData}
               cx="50%"
               cy="50%"
               innerRadius={donut ? innerRadius : 0}
               outerRadius={outerRadius}
               paddingAngle={2}
               dataKey="value"
-              label={showLabels ? renderLabel(data, total, showPercentage) : undefined}
+              label={showLabels ? renderLabel(safeData, total, showPercentage) : undefined}
               labelLine={showLabels}
-              onClick={(_, idx) => onSliceClick?.(data[idx])}
+              onClick={(_, idx) => onSliceClick?.(safeData[idx])}
               cursor={onSliceClick ? 'pointer' : 'default'}
               onMouseEnter={(_, idx) => setActiveIndex(idx)}
               onMouseLeave={() => setActiveIndex(null)}
@@ -198,10 +202,10 @@ export function PieChart({
               animationDuration={700}
               animationEasing="ease-out"
             >
-              {data.map((entry, index) => {
+              {safeData.map((entry, index) => {
                 const isActive = activeIndex === null || activeIndex === index;
                 const isHovered = activeIndex === index;
-                const baseColor = entry.color || colors[index % colors.length];
+                const baseColor = entry.color || safeColors[index % safeColors.length];
                 return (
                   <Cell
                     key={`cell-${index}`}

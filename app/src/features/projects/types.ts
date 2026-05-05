@@ -5,14 +5,15 @@
 import type { MilestoneDisplayStatus } from '@/shared/constants';
 
 // 项目状态
-export type ProjectStatus = 'planning' | 'in_progress' | 'completed' | 'delayed';
+export type ProjectStatus = 'planning' | 'in_progress' | 'completed' | 'delayed' | 'cancelled';
 
-// 项目类型 - 与数据库实际存储值同步 (4种)
+// 项目类型 - 与数据库实际存储值同步 (5种)
 export type ProjectType =
   | 'product_dev'    // 产品开发
   | 'func_mgmt'      // 职能管理
   | 'material_sub'   // 物料改代
-  | 'quality_handle'; // 质量处理
+  | 'quality_handle' // 质量处理
+  | 'tech_research'; // 技术预研
 
 // 项目成员角色
 export type ProjectMemberRole = 'pm' | 'tech_lead' | 'member' | 'owner' | 'manager' | 'viewer';
@@ -24,21 +25,19 @@ export interface ProjectMemberSummary {
   avatar?: string;
 }
 
-// 项目成员详情（从后端返回）
+// 项目成员详情（从后端返回，响应拦截器已转换为 camelCase）
 export interface ProjectMember {
   id: number;
-  project_id: string;
-  user_id: number;
+  projectId?: string;     // 响应拦截器转换后的字段
+  userId: number;         // 响应拦截器转换后的字段
   role: 'owner' | 'manager' | 'member' | 'viewer' | 'pm' | 'tech_lead';
-  joined_at: string;
-  // 关联信息（从 JOIN 查询获取）
+  joinedAt: string;       // 响应拦截器转换后的字段
+  // 关联信息（从 JOIN 查询获取，已转换为 camelCase）
   username?: string;
-  real_name?: string;
-  department_name?: string;
-  // 兼容旧字段（前端可能使用）
+  realName?: string;      // 响应拦截器转换后的字段
+  departmentName?: string; // 响应拦截器转换后的字段
+  // 兼容旧字段
   name?: string;
-  userId?: number;
-  joinedAt?: string;
 }
 export interface Project {
   id: string;
@@ -101,10 +100,10 @@ export interface ProjectDetail extends Project {
   stats?: ProjectStats;
 }
 
-// 项目查询参数
+// 项目查询参数（请求拦截器会自动转换为 snake_case）
 export interface ProjectQueryParams {
   status?: ProjectStatus;
-  project_type?: ProjectType;
+  projectType?: ProjectType;  // camelCase，拦截器会转换为 project_type
   search?: string;
   page?: number;
   pageSize?: number;

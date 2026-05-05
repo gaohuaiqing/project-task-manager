@@ -6,11 +6,16 @@
  * - 任务更新
  * - 任务删除
  * - 状态更新
+ * - 批量操作（带并发控制）
  */
 
 import { useState, useCallback } from 'react';
 import type { WbsTask } from '@/types/wbs';
 import { wbsTaskApiService } from '@/services/WbsTaskApiService';
+import { concurrentMap } from '@/shared/utils/concurrent';
+
+/** 批量操作最大并发数 */
+const BATCH_CONCURRENCY = 5;
 
 export function useTaskCrud() {
   const [isLoading, setIsLoading] = useState(false);
@@ -63,12 +68,16 @@ export function useTaskCrud() {
     }
   }, []);
 
-  // 批量删除任务
+  // 批量删除任务（并发控制，最多 5 个同时请求）
   const batchDeleteTasks = useCallback(async (taskIds: string[]) => {
     setIsLoading(true);
     setError(null);
     try {
-      await Promise.all(taskIds.map(id => wbsTaskApiService.deleteTask(id)));
+      await concurrentMap(
+        taskIds,
+        (id) => wbsTaskApiService.deleteTask(id),
+        BATCH_CONCURRENCY,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : '批量删除失败';
       setError(message);
@@ -83,13 +92,15 @@ export function useTaskCrud() {
     return updateTask(taskId, { status });
   }, [updateTask]);
 
-  // 批量更新状态
+  // 批量更新状态（并发控制）
   const batchUpdateStatus = useCallback(async (taskIds: string[], status: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      await Promise.all(
-        taskIds.map(id => wbsTaskApiService.updateTask(id, { status }))
+      await concurrentMap(
+        taskIds,
+        (id) => wbsTaskApiService.updateTask(id, { status }),
+        BATCH_CONCURRENCY,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : '批量更新失败';
@@ -100,13 +111,15 @@ export function useTaskCrud() {
     }
   }, []);
 
-  // 批量分配
+  // 批量分配（并发控制）
   const batchAssign = useCallback(async (taskIds: string[], assigneeId: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      await Promise.all(
-        taskIds.map(id => wbsTaskApiService.updateTask(id, { assigneeId }))
+      await concurrentMap(
+        taskIds,
+        (id) => wbsTaskApiService.updateTask(id, { assigneeId }),
+        BATCH_CONCURRENCY,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : '批量分配失败';

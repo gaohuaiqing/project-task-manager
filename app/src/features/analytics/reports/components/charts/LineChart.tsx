@@ -40,22 +40,36 @@ export function LineChart({
   xAxisLabel,
   yAxisLabel,
 }: LineChartProps) {
-  const chartData = data.labels.map((label, index) => {
+  // 安全数据处理
+  const safeData = data || { labels: [], datasets: [] };
+  const labels = safeData.labels || [];
+  const datasets = safeData.datasets || [];
+
+  const chartData = labels.map((label, index) => {
     const item: Record<string, string | number> = { name: label };
-    data.datasets.forEach((dataset) => {
-      item[dataset.label] = dataset.values[index];
+    datasets.forEach((dataset) => {
+      item[dataset.label] = dataset.values?.[index] ?? 0;
     });
     return item;
   });
 
   // 根据数据量动态调整X轴标签显示
-  const labelCount = data.labels.length;
+  const labelCount = labels.length;
   const interval = labelCount > 10 ? Math.floor(labelCount / 6) : 'preserveStartEnd';
   const needRotate = labelCount > 7;
 
   // 根据是否有标签调整margin
   const marginBottom = xAxisLabel ? (needRotate ? 55 : 40) : (needRotate ? 40 : 25);
   const marginLeft = yAxisLabel ? 55 : 35;
+
+  // 空数据处理
+  if (labels.length === 0 || datasets.length === 0) {
+    return (
+      <div className="flex items-center justify-center text-muted-foreground text-sm" style={{ height }}>
+        暂无数据
+      </div>
+    );
+  }
 
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -95,7 +109,7 @@ export function LineChart({
           }}
         />
         {showLegend && <Legend wrapperStyle={{ fontSize: '10px' }} iconType="circle" />}
-        {data.datasets.map((dataset, index) => (
+        {datasets.map((dataset, index) => (
           <Line
             key={dataset.label}
             type="monotone"
