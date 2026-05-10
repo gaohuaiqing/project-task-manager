@@ -230,7 +230,8 @@ interface WbsTableProps {
   onChangeLevel?: (taskId: string, targetLevel: number) => Promise<void>;
   /** 拖拽排序回调 */
   onReorderTask?: (taskId: string, afterTaskId: string | null) => Promise<void>;
-  onBatchDelete?: (taskIds: string[]) => void;
+  /** 批量删除回调，taskIds 为根任务ID，totalCount 为用户选中的任务总数（包括子任务） */
+  onBatchDelete?: (taskIds: string[], totalCount: number) => void;
   totalCount?: number;
 }
 
@@ -519,6 +520,24 @@ export const WbsTable = React.memo(function WbsTable({
       collectChildren(task.children as TaskRowWithUI[]);
     }
     return ids;
+  }, [taskMap]);
+
+  /**
+   * 过滤掉有祖先被选中的任务ID
+   * 原因：后端删除任务时会级联删除所有子任务，如果同时传递父任务和子任务ID，
+   * 子任务会因为已被删除而报错"任务不存在"
+   */
+  const filterRootTaskIds = useCallback((ids: Set<string>): string[] => {
+    const result: string[] = [];
+    ids.forEach(id => {
+      const task = taskMap.get(id);
+      // 如果任务有父任务且父任务也在选中列表中，则跳过
+      if (task?.parentId && ids.has(task.parentId)) {
+        return;
+      }
+      result.push(id);
+    });
+    return result;
   }, [taskMap]);
 
   // 性能优化：预计算所有渲染任务的权限，避免在循环中重复计算
@@ -1258,15 +1277,25 @@ export const WbsTable = React.memo(function WbsTable({
             </label>
           )}
           {canBatchDelete && selectedTaskIds.size > 0 && (
-            <Button
-              data-testid="task-btn-batch-delete"
-              variant="destructive"
-              size="sm"
-              onClick={() => onBatchDelete!(Array.from(selectedTaskIds))}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              删除选中 ({selectedTaskIds.size})
-            </Button>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                已选中 {selectedTaskIds.size} 个任务（含 {filterRootTaskIds(selectedTaskIds).length} 个根任务）
+              </span>
+              <Button
+                data-testid="task-btn-batch-delete"
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  // 过滤掉有祖先被选中的任务，只传递根任务ID
+                  const rootTaskIds = filterRootTaskIds(selectedTaskIds);
+                  // 传递根任务ID和用户选中的任务总数（包括子任务）
+                  onBatchDelete!(rootTaskIds, selectedTaskIds.size);
+                }}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                删除选中
+              </Button>
+            </div>
           )}
           <Button data-testid="task-btn-create-task" variant="outline" size="sm" onClick={() => onCreateTask()}>
             <Plus className="h-4 w-4 mr-2" />

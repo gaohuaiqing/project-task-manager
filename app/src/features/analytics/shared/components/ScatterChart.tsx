@@ -142,13 +142,17 @@ export function ScatterChart({
             <div className="flex items-center gap-2 text-xs">
               <span className="text-muted-foreground">{xAxisConfig.label}:</span>
               <span className="font-mono font-bold text-foreground">
-                {(point as any)[xAxisConfig.key]?.toFixed(1)}
+                {typeof (point as any)[xAxisConfig.key] === 'number'
+                  ? ((point as any)[xAxisConfig.key] as number).toFixed(1)
+                  : Number((point as any)[xAxisConfig.key] || 0).toFixed(1)}
               </span>
             </div>
             <div className="flex items-center gap-2 text-xs">
               <span className="text-muted-foreground">{yAxisConfig.label}:</span>
               <span className="font-mono font-bold text-foreground">
-                {(point as any)[yAxisConfig.key]?.toFixed(1)}
+                {typeof (point as any)[yAxisConfig.key] === 'number'
+                  ? ((point as any)[yAxisConfig.key] as number).toFixed(1)
+                  : Number((point as any)[yAxisConfig.key] || 0).toFixed(1)}
               </span>
             </div>
             {showSize && (point as any)[sizeKey] !== undefined && (

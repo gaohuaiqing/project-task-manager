@@ -23,7 +23,6 @@ import {
   Loader2,
 } from 'lucide-react';
 import type { ParsedTaskData, ValidationError } from '../utils/taskImporter';
-import { taskApi } from '@/lib/api/task.api';
 import * as XLSX from 'xlsx';
 
 export interface ImportResult {
@@ -84,51 +83,6 @@ export function ImportPreviewDialog({
     }
   }, [open]);
 
-  // 分批导入函数
-  const handleBatchImport = async (
-    tasks: ParsedTaskData[]
-  ): Promise<ImportResult> => {
-    // 使用大批次大小（500），避免跨批次查找父任务的问题
-    // WBS 任务导入需要保证父任务在同一个批次中
-    const BATCH_SIZE = 500;
-    const batches: ParsedTaskData[][] = [];
-
-    // 分批
-    for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
-      batches.push(tasks.slice(i, i + BATCH_SIZE));
-    }
-
-    setTotalCount(tasks.length);
-    setImportProgress(0);
-    setProcessedCount(0);
-
-    const allResults: ImportResult['results'] = [];
-    let successCount = 0;
-    let failedCount = 0;
-
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
-      const result = await taskApi.importTasks(batch);
-
-      // 汇总结果
-      allResults.push(...result.results);
-      successCount += result.success;
-      failedCount += result.failed;
-
-      // 更新进度
-      const processed = Math.min((i + 1) * BATCH_SIZE, tasks.length);
-      setProcessedCount(processed);
-      setImportProgress(Math.round((processed / tasks.length) * 100));
-    }
-
-    return {
-      total: tasks.length,
-      success: successCount,
-      failed: failedCount,
-      results: allResults,
-    };
-  };
-
   // 导出错误报告
   const exportErrorReport = (result: ImportResult) => {
     const errors: ImportErrorItem[] = result.results
@@ -167,21 +121,36 @@ export function ImportPreviewDialog({
   };
 
   const handleConfirm = async () => {
+    if (!onConfirm) return;
+
     setImporting(true);
     setImportProgress(0);
+    setTotalCount(parsedData.length);
+    setProcessedCount(0);
 
     try {
-      console.log('[ImportPreviewDialog] 开始分批导入, 总数:', parsedData.length);
+      console.log('[ImportPreviewDialog] 开始导入, 总数:', parsedData.length);
 
-      // 调用分批导入（项目编码由后端自动匹配项目UUID）
-      const result = await handleBatchImport(parsedData);
+      // 调用父组件的导入函数（包含刷新逻辑）
+      const result = await onConfirm();
 
       console.log('[ImportPreviewDialog] 导入完成:', result);
-      setImportResult(result);
 
-      // 导入成功时刷新列表（通过 onOpenChange 关闭时触发外部刷新）
-      if (result.success > 0 && result.failed === 0) {
-        // 全部成功，延迟关闭让用户看到结果
+      // 设置导入结果
+      if (result && typeof result === 'object' && 'success' in result) {
+        setImportResult(result as ImportResult);
+      } else {
+        // 如果没有返回结果，假设成功
+        setImportResult({
+          total: parsedData.length,
+          success: parsedData.length,
+          failed: 0,
+          results: [],
+        });
+      }
+
+      // 全部成功，延迟关闭让用户看到结果
+      if (result && typeof result === 'object' && 'failed' in result && (result as ImportResult).failed === 0) {
         setTimeout(() => {
           onOpenChange(false);
         }, 1500);

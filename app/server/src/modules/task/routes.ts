@@ -116,147 +116,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// 获取任务详情
-router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    const task = await taskService.getTaskById(req.params.id);
-    if (!task) {
-      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '任务不存在' } });
-    }
-
-    // 数据隔离检查
-    if (!await checkTaskAccess(currentUser, task)) {
-      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权访问此任务' } });
-    }
-
-    res.json({ success: true, data: task });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// 创建任务
-router.post('/', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    const id = await taskService.createTask(req.body as CreateTaskRequest, currentUser);
-    res.status(201).json({ success: true, data: { id } });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// 更新任务
-router.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    const result = await taskService.updateTask(req.params.id, req.body as UpdateTaskRequest, currentUser);
-
-    if (result.conflict) {
-      return res.status(409).json({ success: false, error: { code: 'VERSION_CONFLICT', message: '数据已被修改，请刷新后重试' } });
-    }
-
-    res.json({ success: true, data: result });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// P5: 删除预览接口 - 显示将被删除的任务及其子任务
-router.get('/:id/delete-preview', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    const task = await taskService.getTaskById(req.params.id);
-    if (!task) {
-      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '任务不存在' } });
-    }
-
-    // 数据隔离检查
-    if (!await checkTaskAccess(currentUser, task)) {
-      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权访问此任务' } });
-    }
-
-    // 获取所有将被删除的后代任务
-    const descendants = await taskService.getTaskWithDescendants(req.params.id);
-    const descendantCount = descendants.length - 1; // 排除任务自身
-
-    res.json({
-      success: true,
-      data: {
-        task,
-        descendantCount,
-        descendants: descendants.slice(1, 11).map(t => ({
-          id: t.id,
-          wbs_code: t.wbs_code,
-          description: t.description,
-          assignee_id: t.assignee_id,
-        })),
-        hasMore: descendants.length > 11,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// 删除任务
-router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    await taskService.deleteTask(req.params.id, currentUser);
-    res.json({ success: true });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// ========== 进度记录 ==========
-
-// 获取进度记录
-router.get('/:id/progress', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    const task = await taskService.getTaskById(req.params.id);
-    if (!task) {
-      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '任务不存在' } });
-    }
-
-    // 数据隔离检查
-    if (!await checkTaskAccess(currentUser, task)) {
-      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权访问此任务' } });
-    }
-
-    const records = await taskService.getProgressRecords(req.params.id);
-    res.json({ success: true, data: records });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// 添加进度记录
-router.post('/:id/progress', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const currentUser = requireUser(req);
-    const task = await taskService.getTaskById(req.params.id);
-    if (!task) {
-      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '任务不存在' } });
-    }
-
-    // 数据隔离检查
-    if (!await checkTaskAccess(currentUser, task)) {
-      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权访问此任务' } });
-    }
-
-    const { content } = req.body;
-    const id = await taskService.addProgressRecord(req.params.id, content, currentUser.id);
-    res.status(201).json({ success: true, data: { id } });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// ========== 批量操作 ==========
+// ========== 导入导出功能（必须在 :id 路由之前） ==========
 
 // 导出任务列表
 router.get('/export', async (req: Request, res: Response, next: NextFunction) => {
@@ -444,6 +304,14 @@ router.post('/batch-delete', async (req: Request, res: Response, next: NextFunct
       return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: '请提供要删除的任务ID列表' } });
     }
 
+    // 限制单次批量删除数量（防止大量删除影响性能）
+    if (ids.length > 50) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'BAD_REQUEST', message: '单次最多删除50个任务' }
+      });
+    }
+
     // 权限检查：admin/dept_manager 可以批量删除
     if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权限批量删除任务' } });
@@ -451,6 +319,148 @@ router.post('/batch-delete', async (req: Request, res: Response, next: NextFunct
 
     const results = await taskService.batchDeleteTasks(ids, currentUser);
     res.json({ success: true, data: results });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 任务详情路由 ==========
+
+// 获取任务详情
+router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const task = await taskService.getTaskById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '任务不存在' } });
+    }
+
+    // 数据隔离检查
+    if (!await checkTaskAccess(currentUser, task)) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权访问此任务' } });
+    }
+
+    res.json({ success: true, data: task });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 创建任务
+router.post('/', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const id = await taskService.createTask(req.body as CreateTaskRequest, currentUser);
+    res.status(201).json({ success: true, data: { id } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 更新任务
+router.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const result = await taskService.updateTask(req.params.id, req.body as UpdateTaskRequest, currentUser);
+
+    if (result.conflict) {
+      return res.status(409).json({ success: false, error: { code: 'VERSION_CONFLICT', message: '数据已被修改，请刷新后重试' } });
+    }
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// P5: 删除预览接口 - 显示将被删除的任务及其子任务
+router.get('/:id/delete-preview', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const task = await taskService.getTaskById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '任务不存在' } });
+    }
+
+    // 数据隔离检查
+    if (!await checkTaskAccess(currentUser, task)) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权访问此任务' } });
+    }
+
+    // 获取所有将被删除的后代任务
+    const descendants = await taskService.getTaskWithDescendants(req.params.id);
+    const descendantCount = descendants.length - 1; // 排除任务自身
+
+    res.json({
+      success: true,
+      data: {
+        task,
+        descendantCount,
+        descendants: descendants.slice(1, 11).map(t => ({
+          id: t.id,
+          wbs_code: t.wbs_code,
+          description: t.description,
+          assignee_id: t.assignee_id,
+        })),
+        hasMore: descendants.length > 11,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 删除任务
+router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    await taskService.deleteTask(req.params.id, currentUser);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== 进度记录 ==========
+
+// 获取进度记录
+router.get('/:id/progress', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const task = await taskService.getTaskById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '任务不存在' } });
+    }
+
+    // 数据隔离检查
+    if (!await checkTaskAccess(currentUser, task)) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权访问此任务' } });
+    }
+
+    const records = await taskService.getProgressRecords(req.params.id);
+    res.json({ success: true, data: records });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 添加进度记录
+router.post('/:id/progress', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const task = await taskService.getTaskById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '任务不存在' } });
+    }
+
+    // 数据隔离检查
+    if (!await checkTaskAccess(currentUser, task)) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权访问此任务' } });
+    }
+
+    const { content } = req.body;
+    const id = await taskService.addProgressRecord(req.params.id, content, currentUser.id);
+    res.status(201).json({ success: true, data: { id } });
   } catch (error) {
     next(error);
   }

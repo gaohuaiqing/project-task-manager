@@ -97,8 +97,8 @@ export function PredecessorSelector({
     setSearchError(null);
   };
 
-  // 处理WBS编码输入（直接输入后失焦时查询）
-  const handleBlur = async () => {
+  // 处理 WBS 编码输入确认（Enter 键或失焦）
+  const handleWbsCodeConfirm = async () => {
     if (!inputValue || (selectedTask && selectedTask.wbsCode === inputValue)) {
       return;
     }
@@ -117,6 +117,7 @@ export function PredecessorSelector({
         }
         setSelectedTask(task);
         onChange(task.id, task);
+        setOpen(false);
       } else {
         setSearchError(`未找到WBS编码为 "${inputValue}" 的任务`);
       }
@@ -125,6 +126,22 @@ export function PredecessorSelector({
     } finally {
       setIsSearching(false);
     }
+  };
+
+  // 处理输入框键盘事件
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleWbsCodeConfirm();
+    }
+  };
+
+  // 处理WBS编码输入（直接输入后失焦时查询）
+  const handleBlur = async () => {
+    // 延迟执行，避免点击下拉列表项时立即触发
+    setTimeout(() => {
+      handleWbsCodeConfirm();
+    }, 200);
   };
 
   return (
@@ -158,10 +175,11 @@ export function PredecessorSelector({
         <PopoverContent className="w-[400px] p-0" align="start">
           <Command shouldFilter={false} disablePointerSelection>
             <CommandInput
-              placeholder="输入WBS编码搜索..."
+              placeholder="输入WBS编码搜索...（Enter确认）"
               value={inputValue}
               onValueChange={setInputValue}
               onBlur={handleBlur}
+              onKeyDown={handleKeyDown}
             />
             <CommandList>
               {isSearching ? (

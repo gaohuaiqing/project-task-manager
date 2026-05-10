@@ -1,7 +1,7 @@
 // app/server/src/modules/analytics/repository.ts
 import { getPool } from '../../core/db';
 import { sanitizeString } from '../../core/utils/sanitize';
-import { wbsCodeRegistry } from '../../core/wbs';
+import { wbsCodeCache } from '../../core/wbs';
 import type { RowDataPacket } from 'mysql2/promise';
 import type {
   DashboardStats, ProjectProgressReport, TaskStatisticsReport,
@@ -28,6 +28,74 @@ import type { User } from '../../core/types';
 import CacheService from '../../services/CacheService';
 
 export class AnalyticsRepository {
+  /**
+   * 获取任务的 WBS 编码映射
+   * 从缓存获取，若缓存不存在则触发计算并填充缓存
+   *
+   * 设计原则：
+   * - WBS 编码统一计算，确保全局一致性
+   * - 优先使用缓存，缓存不存在时自动填充
+   * - 任务变更时由任务管理模块更新缓存
+   *
+   * @param user 当前用户（用于权限过滤和缓存键）
+   * @returns taskId -> wbsCode 映射
+   */
+  private async getWbsCodesFromCache(user: User): Promise<Map<string, string>> {
+    // 尝试从缓存获取
+    const cached = await wbsCodeCache.get(user.id, 'global');
+    if (cached && cached.codeMap.size > 0) {
+      return cached.codeMap;
+    }
+
+    // 缓存不存在，需要计算并填充
+    // 获取用户可访问的项目ID列表（与任务管理模块保持一致）
+    // admin 返回 undefined 表示不过滤（查询所有任务）
+    const { TaskService } = await import('../task/service');
+    const taskService = new TaskService();
+    const accessibleProjectIds = await taskService.getAccessibleProjectIds(user);
+
+    // 查询任务数据用于计算 WBS 编码
+    const pool = getPool();
+    let tasksForCalculation: Array<{
+      id: string;
+      parent_id: string | null;
+      wbs_level: number;
+      sort_order: number | null;
+      created_at: Date;
+      project_id: string;
+    }> = [];
+
+    if (accessibleProjectIds === undefined) {
+      // admin 用户：查询所有任务
+      const [taskRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT t.id, t.parent_id, t.wbs_level, t.sort_order, t.created_at, t.project_id
+         FROM wbs_tasks t
+         ORDER BY t.project_id, t.sort_order ASC, t.created_at ASC`
+      );
+      tasksForCalculation = taskRows as typeof tasksForCalculation;
+    } else if (accessibleProjectIds.length > 0) {
+      // 非 admin 用户：查询可访问项目的任务
+      const placeholders = accessibleProjectIds.map(() => '?').join(',');
+      const [taskRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT t.id, t.parent_id, t.wbs_level, t.sort_order, t.created_at, t.project_id
+         FROM wbs_tasks t
+         WHERE t.project_id IN (${placeholders})
+         ORDER BY t.project_id, t.sort_order ASC, t.created_at ASC`,
+        accessibleProjectIds
+      );
+      tasksForCalculation = taskRows as typeof tasksForCalculation;
+    }
+
+    // 计算 WBS 编码
+    const { WbsCodeService } = await import('../../core/wbs/WbsCodeService');
+    const wbsCodeService = new WbsCodeService();
+    const { codeMap } = wbsCodeService.calculateCodes(tasksForCalculation);
+
+    // 填充缓存
+    await wbsCodeCache.set(user.id, 'global', { codeMap, idMap: new Map() });
+
+    return codeMap;
+  }
   // ========== 仪表板统计（优化版：角色感知数据隔离 + 缓存）==========
 
   async getDashboardStats(user: User): Promise<DashboardStats> {
@@ -670,9 +738,10 @@ export class AnalyticsRepository {
 
     // 获取任务明细列表（需求文档要求：任务统计明细表格）
     // 包含：WBS编码（从全局注册表获取）、延期天数计算、活跃度计算
+    // 排序：与任务管理模块 WBS 表保持一致（按项目 + sort_order + 创建时间）
     // 延期天数统一逻辑：仅真正延期（已过期或超期完成）才计算正值，预警任务返回0
     const [taskListRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, t.project_id,
+      `SELECT t.id, t.description, t.project_id, t.sort_order,
               p.name as project_name, u.real_name as assignee_name,
               t.status, t.progress, t.priority, t.end_date as planned_end_date, t.task_type,
               CASE
@@ -692,15 +761,13 @@ export class AnalyticsRepository {
        JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
        ${whereClause}
-       ORDER BY t.priority DESC, t.end_date ASC
+       ORDER BY t.sort_order ASC, t.created_at ASC
        LIMIT ${QUERY_LIMITS.TASK_STATISTICS}`,
       params
     );
 
-    // 从 WBS 编码全局注册表获取编码
-    // 注册表由任务管理模块维护，保证所有模块看到的编码一致
-    const taskIds = taskListRows.map(t => t.id);
-    const wbsCodeMap = wbsCodeRegistry.getCodes(taskIds);
+    // 从缓存获取 WBS 编码（由任务管理模块维护）
+    const wbsCodeMap = await this.getWbsCodesFromCache(user);
 
     // 获取任务类型分布（基于根任务）
     const [taskTypeRows] = await pool.execute<RowDataPacket[]>(
@@ -923,8 +990,9 @@ export class AnalyticsRepository {
 
     // 获取延期任务列表：使用 CASE 表达式实时计算延期类型
     // WBS 编码从全局注册表获取
+    // 排序与任务管理模块保持一致：sort_order ASC, created_at ASC
     const [delayedTaskRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, t.project_id,
+      `SELECT t.id, t.description, t.project_id, t.sort_order, t.created_at,
               p.name as project_name, u.real_name as assignee_name,
               ${delayTypeCase} as delay_type,
               t.end_date as planned_end_date,
@@ -943,14 +1011,13 @@ export class AnalyticsRepository {
        JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
        ${whereClause}
-       ORDER BY delay_days DESC
+       ORDER BY t.sort_order ASC, t.created_at ASC
        LIMIT ${QUERY_LIMITS.DELAY_TASKS}`,
       params
     );
 
-    // 从 WBS 编码全局注册表获取编码
-    const delayedTaskIds = delayedTaskRows.map(t => t.id);
-    const delayedWbsCodeMap = wbsCodeRegistry.getCodes(delayedTaskIds);
+    // 从缓存获取 WBS 编码（自动填充缓存）
+    const delayedWbsCodeMap = await this.getWbsCodesFromCache(user);
 
     // 获取延期趋势数据：基于日期条件的累计延期/解决统计
     const trendDays = TIME_INTERVALS.MONTH_DAYS;

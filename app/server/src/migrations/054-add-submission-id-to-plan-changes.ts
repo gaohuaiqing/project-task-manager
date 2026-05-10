@@ -54,12 +54,13 @@ export async function up(): Promise<void> {
 
   const pool = getPool();
 
-  // 1. 检查并添加 submission_id 列
+  // 1. 检查并添加 submission_id 列（不使用默认值）
   if (!await columnExists('plan_changes', 'submission_id')) {
     console.log(`[Migration ${MIGRATION_VERSION}] 添加 submission_id 列...`);
+    // 不使用 DEFAULT(UUID())，避免 binlog 不安全错误
     await pool.execute(`
       ALTER TABLE plan_changes
-      ADD COLUMN submission_id CHAR(36) NOT NULL DEFAULT(UUID()) COMMENT '提交批次ID，用于分组同一批次的变更'
+      ADD COLUMN submission_id CHAR(36) COMMENT '提交批次ID，用于分组同一批次的变更'
       AFTER id
     `);
     console.log(`[Migration ${MIGRATION_VERSION}] submission_id 列添加成功`);

@@ -636,12 +636,12 @@ export class TaskService {
     const id = uuidv4();
     const status: TaskStatus = 'not_started';
 
-    // 计算新任务的 sort_order（排在同级末尾）
+    // 计算新任务的 sort_order（排在同级最前面，方便用户继续添加子任务）
     const siblings = await this.repo.getSiblings(data.project_id, data.parent_id || null);
-    const maxSortOrder = siblings.length > 0
-      ? Math.max(...siblings.map(s => s.sort_order ?? 0))
-      : 0;
-    const sortOrder = maxSortOrder + 100; // 间隔 100，便于后续插入
+    const minSortOrder = siblings.length > 0
+      ? Math.min(...siblings.map(s => s.sort_order ?? 100))
+      : 100;
+    const sortOrder = minSortOrder - 100; // 比最小的还小，排在最前面
 
     // P10修复：使用事务包裹创建任务、进度记录、计数器递增，保证原子性
     const pool = (await import('../../core/db')).getPool();

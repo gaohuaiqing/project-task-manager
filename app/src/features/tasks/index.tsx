@@ -24,7 +24,7 @@ import {
 import { useProjects } from '@/features/projects/hooks/useProjects';
 import { getMembers } from '@/lib/api/org.api';
 import { taskApi, batchDeleteTasks } from '@/lib/api/task.api';
-import type { BatchDeleteTaskResult } from '@/lib/api/task.api';
+import type { BatchDeleteTaskResult, ImportResult } from '@/lib/api/task.api';
 import { queryKeys } from '@/lib/api/query-keys';
 import { invalidationBatcher } from '@/lib/utils/invalidationBatcher';
 import { useAuth } from '@/features/auth';
@@ -181,8 +181,12 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   // 批量删除任务
   const canBatchDelete = user?.role === 'admin' || user?.role === 'dept_manager';
 
-  const handleBatchDelete = useCallback((taskIds: string[]) => {
+  // 批量删除时记录用户选中的任务总数（包括子任务）
+  const [batchDeleteTotalCount, setBatchDeleteTotalCount] = useState(0);
+
+  const handleBatchDelete = useCallback((taskIds: string[], totalCount: number) => {
     setSelectedTaskIds(taskIds);
+    setBatchDeleteTotalCount(totalCount);
     setBatchDeleteOpen(true);
   }, []);
 
@@ -200,7 +204,8 @@ export default function TasksPage({ projectId }: TasksPageProps) {
         // 简化错误提示，只显示失败数量
         toast.error(`删除完成：成功 ${result.success} 个，失败 ${result.failed} 个`);
       } else {
-        toast.success(`已删除 ${result.success} 个任务`);
+        // 显示用户实际选中的任务总数（包括级联删除的子任务）
+        toast.success(`删除成功！已移除 ${batchDeleteTotalCount} 个任务`);
       }
     } catch (error: any) {
       const msg = error?.message || (error instanceof Error ? error.message : '批量删除失败');
@@ -231,19 +236,42 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     setDetailOpen(true);
   };
 
-  // 导入任务处理 - 返回导入结果给对话框显示
+  // 导入任务处理 - 支持分批导入并自动刷新
   // 项目编码由后端自动匹配项目UUID
   const handleImportTasks = useCallback(async (tasks: Array<Record<string, unknown>>) => {
+    // 分批导入，每批500条（避免跨批次查找父任务的问题）
+    const BATCH_SIZE = 500;
+    const batches: Array<Array<Record<string, unknown>>> = [];
+
+    for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
+      batches.push(tasks.slice(i, i + BATCH_SIZE));
+    }
+
+    const allResults: ImportResult['results'] = [];
+    let successCount = 0;
+    let failedCount = 0;
+
     try {
-      const result = await taskApi.importTasks(tasks);
-      if (result.success > 0) {
-        // 强制刷新任务列表（导入任务后需要重新计算 WBS 编码）
+      for (const batch of batches) {
+        const result = await taskApi.importTasks(batch);
+        allResults.push(...result.results);
+        successCount += result.success;
+        failedCount += result.failed;
+      }
+
+      // 导入成功后强制刷新任务列表
+      if (successCount > 0) {
         await queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
         await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
         invalidationBatcher.invalidate(queryKeys.analytics.all);
       }
-      // 返回完整结果，由对话框显示详细错误
-      return result;
+
+      return {
+        total: tasks.length,
+        success: successCount,
+        failed: failedCount,
+        results: allResults,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       toast.error(`导入失败: ${errorMessage}`);
@@ -513,11 +541,11 @@ export default function TasksPage({ projectId }: TasksPageProps) {
           setBatchDeleteOpen(open);
           if (!open) setSelectedTaskIds([]);
         }}
-        title="批量删除任务"
+        title={`删除 ${selectedTaskIds.length} 个任务`}
         description={
-          `确定要删除选中的 ${selectedTaskIds.length} 个任务吗？删除任务将同时删除其所有子任务，此操作不可撤销。`
+          `删除后，这些任务及其子任务将被永久移除，无法恢复。确定要继续吗？`
         }
-        confirmText={`删除 ${selectedTaskIds.length} 个任务`}
+        confirmText="确认删除"
         onConfirm={handleConfirmBatchDelete}
         loading={batchDeleteLoading}
         variant="destructive"
