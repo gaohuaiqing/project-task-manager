@@ -8,6 +8,7 @@
 
 import type { User } from '../../../core/types';
 import type { DataScope, UserRole } from '../shared-types/shared';
+import { buildTaskScopeFilter, buildProjectScopeFilter, buildUserDepartmentScopeFilter } from '../query-builder';
 
 /**
  * 数据范围过滤服务
@@ -59,123 +60,67 @@ export class ScopeService {
 
   /**
    * 构建项目过滤条件
-   * 返回可直接用于 SQL WHERE 子句的条件
+   * 委托给 query-builder 的 buildProjectScopeFilter
    */
-  static buildProjectFilter(user: User): {
+  static async buildProjectFilter(user: User): Promise<{
     whereClause: string;
     params: Record<string, unknown>;
-  } {
-    const scope = this.getDataScope(user);
+  }> {
+    const scope = await buildProjectScopeFilter(user, 'p');
+    // 将数组参数转换为命名参数格式
     const params: Record<string, unknown> = {};
-    let whereClause = '1=1';
-
-    switch (scope.projects) {
-      case 'all':
-        // 无额外过滤
-        break;
-
-      case 'dept_projects':
-        whereClause = 'p.department_id = :departmentId';
-        params.departmentId = user.department_id;
-        break;
-
-      case 'group_projects':
-        // 技术组参与的项目（通过任务分配关联）
-        // 注意：User 类型中没有 tech_group_id，需要通过其他方式获取
-        whereClause = `
-          EXISTS (
-            SELECT 1 FROM wbs_tasks wt
-            JOIN users u ON wt.assignee_id = u.id
-            WHERE wt.project_id = p.id
-            AND u.id = :userId
-          )
-        `;
-        params.userId = user.id;
-        break;
-
-      case 'my_projects':
-        // 用户参与的项目（通过任务分配关联）
-        whereClause = `
-          EXISTS (
-            SELECT 1 FROM wbs_tasks wt
-            WHERE wt.project_id = p.id
-            AND wt.assignee_id = :userId
-          )
-        `;
-        params.userId = user.id;
-        break;
-    }
-
+    scope.params.forEach((p, i) => {
+      params[`param${i}`] = p;
+    });
+    // 替换占位符为命名参数
+    let whereClause = scope.clause;
+    scope.params.forEach((_, i) => {
+      whereClause = whereClause.replace('?', `:param${i}`);
+    });
     return { whereClause, params };
   }
 
   /**
    * 构建任务过滤条件
+   * 委托给 query-builder 的 buildTaskScopeFilter
    */
-  static buildTaskFilter(user: User): {
+  static async buildTaskFilter(user: User): Promise<{
     whereClause: string;
     params: Record<string, unknown>;
-  } {
-    const scope = this.getDataScope(user);
+  }> {
+    const scope = await buildTaskScopeFilter(user, 't', true);
+    // 将数组参数转换为命名参数格式
     const params: Record<string, unknown> = {};
-    let whereClause = '1=1';
-
-    switch (scope.users) {
-      case 'all':
-        // 无额外过滤
-        break;
-
-      case 'dept_members':
-        whereClause = 'u.department_id = :departmentId';
-        params.departmentId = user.department_id;
-        break;
-
-      case 'group_members':
-        // 注意：User 类型中没有 tech_group_id
-        whereClause = 't.assignee_id = :userId';
-        params.userId = user.id;
-        break;
-
-      case 'self':
-        whereClause = 't.assignee_id = :userId';
-        params.userId = user.id;
-        break;
-    }
-
+    scope.params.forEach((p, i) => {
+      params[`param${i}`] = p;
+    });
+    // 替换占位符为命名参数
+    let whereClause = scope.clause;
+    scope.params.forEach((_, i) => {
+      whereClause = whereClause.replace('?', `:param${i}`);
+    });
     return { whereClause, params };
   }
 
   /**
    * 构建用户过滤条件
+   * 委托给 query-builder 的 buildUserDepartmentScopeFilter
    */
-  static buildUserFilter(user: User): {
+  static async buildUserFilter(user: User): Promise<{
     whereClause: string;
     params: Record<string, unknown>;
-  } {
-    const scope = this.getDataScope(user);
+  }> {
+    const scope = await buildUserDepartmentScopeFilter(user);
+    // 将数组参数转换为命名参数格式
     const params: Record<string, unknown> = {};
-    let whereClause = '1=1';
-
-    switch (scope.users) {
-      case 'all':
-        break;
-
-      case 'dept_members':
-        whereClause = 'u.department_id = :departmentId';
-        params.departmentId = user.department_id;
-        break;
-
-      case 'group_members':
-        whereClause = 'u.id = :userId';
-        params.userId = user.id;
-        break;
-
-      case 'self':
-        whereClause = 'u.id = :userId';
-        params.userId = user.id;
-        break;
-    }
-
+    scope.params.forEach((p, i) => {
+      params[`param${i}`] = p;
+    });
+    // 替换占位符为命名参数
+    let whereClause = scope.clause;
+    scope.params.forEach((_, i) => {
+      whereClause = whereClause.replace('?', `:param${i}`);
+    });
     return { whereClause, params };
   }
 
@@ -196,21 +141,13 @@ export class ScopeService {
       return false;
     }
 
-    switch (scope.projects) {
-      case 'dept_projects':
-        return project.department_id === user.department_id;
-
-      case 'group_projects':
-      case 'my_projects':
-        // 检查用户是否参与该项目
-        const myTask = await db('wbs_tasks')
-          .where({ project_id: projectId, assignee_id: user.id })
-          .first();
-        return !!myTask;
-
-      default:
-        return false;
-    }
+    // 使用统一的权限过滤逻辑
+    const projectScope = await buildProjectScopeFilter(user, 'p');
+    const [result] = await db.raw(
+      `SELECT 1 FROM projects p WHERE p.id = ? AND ${projectScope.clause}`,
+      [projectId, ...projectScope.params]
+    );
+    return result.length > 0;
   }
 
   /**
@@ -235,17 +172,13 @@ export class ScopeService {
       return false;
     }
 
-    switch (scope.users) {
-      case 'dept_members':
-        return targetMember.department_id === user.department_id;
-
-      case 'group_members':
-      case 'self':
-        return memberId === user.id;
-
-      default:
-        return false;
-    }
+    // 使用统一的权限过滤逻辑
+    const userScope = await buildUserDepartmentScopeFilter(user);
+    const [result] = await db.raw(
+      `SELECT 1 FROM users u WHERE u.id = ? AND ${userScope.clause}`,
+      [memberId, ...userScope.params]
+    );
+    return result.length > 0;
   }
 
   /**
