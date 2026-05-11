@@ -10,6 +10,7 @@ import { audit } from '../../core/audit';
 import { sendToUser } from '../../core/realtime';
 import { logger } from '../../core/logger';
 import { wbsCodeService, wbsCodeCache, wbsCodeRegistry } from '../../core/wbs';
+import { getTechManagerGroupIds } from '../analytics/query-builder';
 
 /**
  * 将 Date 对象格式化为本地日期字符串 YYYY-MM-DD
@@ -402,7 +403,7 @@ export class TaskService {
    * 获取用户可访问的项目ID列表
    * admin: 所有项目（返回 undefined 表示不过滤）
    * dept_manager: 自己部门及子部门成员参与的项目
-   * tech_manager: 自己部门成员参与的项目
+   * tech_manager: 技术组成员参与的项目
    * engineer: 自己作为成员参与的项目
    */
   async getAccessibleProjectIds(user: User): Promise<string[] | undefined> {
@@ -413,7 +414,12 @@ export class TaskService {
       return this.getDeptManagerAccessibleProjects(user);
     }
 
-    // 其他角色：自己作为成员参与的项目
+    // 技术经理：获取技术组成员参与的项目
+    if (user.role === 'tech_manager') {
+      return this.getTechManagerAccessibleProjects(user);
+    }
+
+    // 工程师：自己作为成员参与的项目
     return this.projectRepo.getProjectIdsByMember(user.id);
   }
 
@@ -439,6 +445,35 @@ export class TaskService {
       SELECT pm2.project_id
       FROM project_members pm2 WHERE pm2.user_id = ?`,
       [user.id, user.id]
+    );
+
+    return (rows as any[]).map(r => String(r.project_id));
+  }
+
+  /**
+   * 获取技术经理可访问的项目ID列表
+   * 使用递归 CTE 查询技术组及所有后代部门，然后查询这些部门成员参与的项目
+   */
+  private async getTechManagerAccessibleProjects(user: User): Promise<string[]> {
+    const pool = (await import('../../core/db')).getPool();
+
+    // 使用递归 CTE 获取管理的技术组及所有后代
+    const groupIds = await getTechManagerGroupIds(user.id, user.department_id!);
+
+    if (groupIds.length === 0) return [];
+
+    // 查询技术组成员参与的项目 + 自己参与的项目
+    const placeholders = groupIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT pm.project_id
+       FROM users u
+       JOIN project_members pm ON pm.user_id = u.id
+       WHERE u.department_id IN (${placeholders})
+       AND u.is_active = 1
+       UNION
+       SELECT pm2.project_id
+       FROM project_members pm2 WHERE pm2.user_id = ?`,
+      [...groupIds, user.id]
     );
 
     return (rows as any[]).map(r => String(r.project_id));
