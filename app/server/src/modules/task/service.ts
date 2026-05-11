@@ -455,10 +455,15 @@ export class TaskService {
    * 使用递归 CTE 查询技术组及所有后代部门，然后查询这些部门成员参与的项目
    */
   private async getTechManagerAccessibleProjects(user: User): Promise<string[]> {
+    // 防御性检查：无部门信息时仅返回自己参与的项目
+    if (!user.department_id) {
+      return this.projectRepo.getProjectIdsByMember(user.id);
+    }
+
     const pool = (await import('../../core/db')).getPool();
 
     // 使用递归 CTE 获取管理的技术组及所有后代
-    const groupIds = await getTechManagerGroupIds(user.id, user.department_id!);
+    const groupIds = await getTechManagerGroupIds(user.id, user.department_id);
 
     if (groupIds.length === 0) return [];
 
