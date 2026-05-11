@@ -219,6 +219,7 @@ export async function getEngineerDashboardDetail(projectId?: string, signal?: Ab
     `${BASE_PATH}/dashboard/engineer/detail`,
     { params: projectId ? { projectId } : {}, signal }
   );
+  return response.data;
 }
 
 export const analyticsApi = {

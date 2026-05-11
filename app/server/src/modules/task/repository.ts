@@ -6,6 +6,21 @@ import type { WBSTask, WBSTaskListItem, TaskStatus, ProgressRecord, CreateTaskRe
 interface TaskRow extends RowDataPacket, WBSTask {}
 interface ProgressRecordRow extends RowDataPacket, ProgressRecord {}
 
+/**
+ * 允许用于 SQL 条件中的字段名白名单
+ * 防止 SQL 注入攻击
+ */
+const ALLOWED_FILTER_FIELDS = [
+  't.project_id',
+  't.status',
+  't.task_type',
+  't.priority',
+  't.assignee_id',
+  't.parent_id',
+] as const;
+
+type AllowedFilterField = typeof ALLOWED_FILTER_FIELDS[number];
+
 export class TaskRepository {
   // ========== 任务 CRUD ==========
 
@@ -15,8 +30,13 @@ export class TaskRepository {
     const params: (string | number | null)[] = [];
 
     // 辅助函数：添加条件（支持单值或数组）
-    const addCondition = (field: string, value: string | number | (string | number)[] | undefined) => {
+    // 安全修复：字段名必须来自白名单，防止 SQL 注入
+    const addCondition = (field: AllowedFilterField, value: string | number | (string | number)[] | undefined) => {
       if (!value) return;
+      // 验证字段名是否在白名单中
+      if (!ALLOWED_FILTER_FIELDS.includes(field)) {
+        throw new Error(`Invalid filter field: ${field}`);
+      }
       if (Array.isArray(value)) {
         if (value.length === 0) return;
         if (value.length === 1) {

@@ -114,8 +114,16 @@ export class AnalyticsService {
     }
 
     // 数据范围验证：检查当前用户是否有权查看该成员数据
-    // 简化实现：仅允许查看自己或同部门成员
-    // TODO: 使用 ScopeService.canAccessMember 实现更完整的权限检查
+    const pool = getPool();
+    const canAccess = await ScopeService.canAccessMember(currentUser, memberId, {
+      execute: async (sql: string, params: any[]) => {
+        const [rows] = await pool.execute(sql, params);
+        return rows;
+      },
+    });
+    if (!canAccess) {
+      throw new ForbiddenError('无权限查看该成员的数据');
+    }
 
     return this.repo.getMemberAnalysisReport(memberId, currentUser);
   }
@@ -239,7 +247,33 @@ export class AnalyticsService {
 
   // ========== 导入导出 ==========
 
+  /**
+   * 导出数据
+   * H14修复：添加超时控制和内存限制
+   */
   async exportData(domain: string, format: 'xlsx' | 'csv' | 'json', user: User, filters?: ReportQueryOptions): Promise<Buffer> {
+    // H14修复：设置超时时间（30秒）
+    const EXPORT_TIMEOUT_MS = 30000;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('导出超时，请减少数据量或联系管理员')), EXPORT_TIMEOUT_MS);
+    });
+
+    // 执行导出（带超时）
+    const exportPromise = this._executeExport(domain, format, user, filters);
+    return Promise.race([exportPromise, timeoutPromise]);
+  }
+
+  /**
+   * 实际执行导出逻辑（内部方法）
+   */
+  private async _executeExport(domain: string, format: 'xlsx' | 'csv' | 'json', user: User, filters?: ReportQueryOptions): Promise<Buffer> {
+    // H14修复：导出前检查内存使用
+    const memBefore = process.memoryUsage();
+    const MEM_LIMIT_MB = 500; // 内存限制 500MB
+    if (memBefore.heapUsed > MEM_LIMIT_MB * 1024 * 1024) {
+      throw new ValidationError(`系统内存不足（当前使用 ${Math.round(memBefore.heapUsed / 1024 / 1024)}MB），请稍后重试`);
+    }
+
     // 获取报表数据
     let data: Record<string, unknown>;
     switch (domain) {
@@ -277,6 +311,14 @@ export class AnalyticsService {
       }
       default:
         throw new ValidationError(`不支持的导出类型: ${domain}`);
+    }
+
+    // H14修复：检查数据量，防止内存溢出
+    const dataStr = JSON.stringify(data);
+    const dataSizeMB = Buffer.byteLength(dataStr, 'utf8') / 1024 / 1024;
+    const MAX_EXPORT_SIZE_MB = 50; // 单次导出最大 50MB
+    if (dataSizeMB > MAX_EXPORT_SIZE_MB) {
+      throw new ValidationError(`导出数据量过大（${Math.round(dataSizeMB)}MB），请添加筛选条件减少数据量`);
     }
 
     // JSON 格式直接返回
@@ -337,9 +379,10 @@ export class AnalyticsService {
         worksheet.getRow(1).eachCell((cell: Cell) => {
           cell.style = headerStyle;
         });
-        taskList.forEach((task) => {
-          worksheet.addRow(task);
-        });
+        // 性能优化：使用 addRows 批量添加
+        if (taskList.length > 0) {
+          worksheet.addRows(taskList);
+        }
         break;
       }
 
@@ -359,9 +402,10 @@ export class AnalyticsService {
         worksheet.getRow(1).eachCell((cell: Cell) => {
           cell.style = headerStyle;
         });
-        delayedTasks.forEach((task) => {
-          worksheet.addRow(task);
-        });
+        // 性能优化：使用 addRows 批量添加
+        if (delayedTasks.length > 0) {
+          worksheet.addRows(delayedTasks);
+        }
         break;
       }
 
@@ -379,9 +423,10 @@ export class AnalyticsService {
         worksheet.getRow(1).eachCell((cell: Cell) => {
           cell.style = headerStyle;
         });
-        milestones.forEach((ms) => {
-          worksheet.addRow(ms);
-        });
+        // 性能优化：使用 addRows 批量添加
+        if (milestones.length > 0) {
+          worksheet.addRows(milestones);
+        }
         // Sheet 2: 状态分布
         const sheet2 = workbook.addWorksheet('任务状态分布');
         sheet2.columns = [
@@ -391,9 +436,9 @@ export class AnalyticsService {
         sheet2.getRow(1).eachCell((cell: Cell) => {
           cell.style = headerStyle;
         });
-        statusDist.forEach((item) => {
-          sheet2.addRow(item);
-        });
+        if (statusDist.length > 0) {
+          sheet2.addRows(statusDist);
+        }
         break;
       }
 
@@ -412,9 +457,10 @@ export class AnalyticsService {
         worksheet.getRow(1).eachCell((cell: Cell) => {
           cell.style = headerStyle;
         });
-        membersSummary.forEach((member) => {
-          worksheet.addRow(member);
-        });
+        // 性能优化：使用 addRows 批量添加
+        if (membersSummary.length > 0) {
+          worksheet.addRows(membersSummary);
+        }
         // Sheet 2: 预估准确性分布
         const estimationDist = (data.estimation_distribution || []) as Array<Record<string, unknown>>;
         const sheet2 = workbook.addWorksheet('预估准确性分布');
@@ -425,9 +471,9 @@ export class AnalyticsService {
         sheet2.getRow(1).eachCell((cell: Cell) => {
           cell.style = headerStyle;
         });
-        estimationDist.forEach((item) => {
-          sheet2.addRow(item);
-        });
+        if (estimationDist.length > 0) {
+          sheet2.addRows(estimationDist);
+        }
         // Sheet 3: 分配建议
         const suggestions = (data.suggestions || []) as Array<Record<string, unknown>>;
         const sheet3 = workbook.addWorksheet('分配建议');
@@ -440,9 +486,9 @@ export class AnalyticsService {
         sheet3.getRow(1).eachCell((cell: Cell) => {
           cell.style = headerStyle;
         });
-        suggestions.forEach((item) => {
-          sheet3.addRow(item);
-        });
+        if (suggestions.length > 0) {
+          sheet3.addRows(suggestions);
+        }
         break;
       }
 
@@ -462,9 +508,10 @@ export class AnalyticsService {
         worksheet.getRow(1).eachCell((cell: Cell) => {
           cell.style = headerStyle;
         });
-        efficiencyList.forEach((item) => {
-          worksheet.addRow(item);
-        });
+        // 性能优化：使用 addRows 批量添加
+        if (efficiencyList.length > 0) {
+          worksheet.addRows(efficiencyList);
+        }
         // Sheet 2: 团队效能对比
         const teamComparison = (data.team_efficiency_comparison || []) as Array<Record<string, unknown>>;
         const sheet2 = workbook.addWorksheet('团队效能对比');
@@ -479,9 +526,9 @@ export class AnalyticsService {
         sheet2.getRow(1).eachCell((cell: Cell) => {
           cell.style = headerStyle;
         });
-        teamComparison.forEach((item) => {
-          sheet2.addRow(item);
-        });
+        if (teamComparison.length > 0) {
+          sheet2.addRows(teamComparison);
+        }
         // Sheet 3: 产能趋势
         const trendData = (data.productivity_trend || []) as Array<Record<string, unknown>>;
         const sheet3 = workbook.addWorksheet('产能趋势');
@@ -493,9 +540,10 @@ export class AnalyticsService {
         sheet3.getRow(1).eachCell((cell: Cell) => {
           cell.style = headerStyle;
         });
-        trendData.forEach((item) => {
-          sheet3.addRow(item);
-        });
+        // 性能优化：使用 addRows 批量添加
+        if (trendData.length > 0) {
+          sheet3.addRows(trendData);
+        }
         break;
       }
 

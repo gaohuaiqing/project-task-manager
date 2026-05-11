@@ -345,14 +345,26 @@ export class WorkflowRepository {
   /**
    * 获取用户待审批的计划变更列表（基于审批链）
    *
-   * 审批链规则：
-   * 1. 管理员(admin)：仅作为最终兜底，查看无直接主管、技术经理、部门经理的待审批
-   * 2. 技术经理(tech_manager)：仅查看本技术组下成员的待审批
-   * 3. 部门经理(dept_manager)：仅在技术组无技术经理时查看待审批（兜底）
+   * 简化审批链规则：
+   * 1. 找到申请人所在部门的直接经理（第1级主管）
+   * 2. 如果没有直接经理，向上查找父部门的经理（第2级主管）
+   * 3. 继续向上直到找到有经理的部门
+   * 4. admin 作为最终兜底
    */
   async getPendingApprovalsForUser(userId: number): Promise<PlanChange[]> {
     const pool = getPool();
-    const [rows] = await pool.execute<PlanChangeRow[]>(
+
+    // 获取当前用户信息
+    const [userRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, role, department_id FROM users WHERE id = ?`,
+      [userId]
+    );
+    if (userRows.length === 0) return [];
+
+    const user = userRows[0] as { id: number; role: string; department_id: number | null };
+
+    // 获取所有待审批的变更
+    const [allPending] = await pool.execute<PlanChangeRow[]>(
       `SELECT pc.*,
               t.description as task_description,
               p.name as project_name,
@@ -362,94 +374,79 @@ export class WorkflowRepository {
        LEFT JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON pc.user_id = u.id
        WHERE pc.status = 'pending'
-       AND (
-         -- 规则1: 管理员仅作为最终兜底查看待审批（申请人无直接主管、技术经理、部门经理时）
-         (
-           EXISTS (SELECT 1 FROM users approver WHERE approver.id = ? AND approver.role = 'admin')
-           AND NOT EXISTS (
-             -- 排除：申请人有直接主管
-             SELECT 1 FROM users applicant_user
-             JOIN departments applicant_dept ON applicant_user.department_id = applicant_dept.id
-             JOIN users supervisor ON supervisor.id = applicant_dept.manager_id AND supervisor.is_active = 1
-             WHERE applicant_user.id = pc.user_id
-             AND supervisor.id != applicant_user.id
-           )
-           AND NOT EXISTS (
-             -- 排除：申请人有技术经理
-             SELECT 1 FROM users applicant_user
-             JOIN departments user_dept ON applicant_user.department_id = user_dept.id
-             JOIN departments tech_group ON user_dept.parent_id = tech_group.id
-             JOIN users tech_mgr ON tech_mgr.id = tech_group.manager_id AND tech_mgr.is_active = 1 AND tech_mgr.role = 'tech_manager'
-             WHERE applicant_user.id = pc.user_id
-           )
-           AND NOT EXISTS (
-             -- 排除：申请人有部门经理
-             SELECT 1 FROM departments root_dept
-             JOIN users dept_mgr ON dept_mgr.id = root_dept.manager_id AND dept_mgr.is_active = 1 AND dept_mgr.role = 'dept_manager'
-             WHERE root_dept.parent_id IS NULL
-             AND EXISTS (
-               SELECT 1 FROM users applicant_user
-               JOIN departments user_dept ON applicant_user.department_id = user_dept.id
-               WHERE applicant_user.id = pc.user_id
-               AND (
-                 user_dept.id = root_dept.id
-                 OR user_dept.parent_id = root_dept.id
-                 OR EXISTS (
-                   SELECT 1 FROM departments sub_dept
-                   WHERE sub_dept.parent_id = root_dept.id
-                   AND user_dept.parent_id = sub_dept.id
-                 )
-               )
-             )
-           )
-         )
-         OR
-         -- 规则2: 技术经理仅查看本技术组下成员的待审批
-         (
-           EXISTS (SELECT 1 FROM users approver WHERE approver.id = ? AND approver.role = 'tech_manager')
-           AND EXISTS (
-             SELECT 1 FROM users applicant
-             JOIN departments applicant_dept ON applicant.department_id = applicant_dept.id
-             WHERE applicant.id = pc.user_id
-             AND (
-	               -- 2a: 技术经理所在部门是申请人部门的父部门（跨层级）
-	               applicant_dept.parent_id = (SELECT department_id FROM users WHERE id = ?)
-	               OR
-	               -- 2b: 技术经理是申请人所在部门的直接管理者（同一部门）
-	               (applicant_dept.id = (SELECT department_id FROM users WHERE id = ?)
-	                AND ? = applicant_dept.manager_id)
-	             )
-           )
-         )
-         OR
-         -- 规则3: 部门经理仅在技术组无技术经理时查看待审批（兜底）
-         (
-           EXISTS (SELECT 1 FROM users approver WHERE approver.id = ? AND approver.role = 'dept_manager')
-           AND EXISTS (
-             SELECT 1 FROM users applicant
-             JOIN departments applicant_dept ON applicant.department_id = applicant_dept.id
-             LEFT JOIN departments tech_group ON applicant_dept.parent_id = tech_group.id
-             LEFT JOIN users tech_mgr ON tech_mgr.department_id = tech_group.id AND tech_mgr.role = 'tech_manager' AND tech_mgr.is_active = 1
-             WHERE applicant.id = pc.user_id
-             AND tech_mgr.id IS NULL
-             AND EXISTS (
-               SELECT 1 FROM departments root
-               WHERE root.parent_id IS NULL
-               AND root.manager_id = ?
-               AND (
-                 applicant_dept.parent_id = root.id
-                 OR applicant_dept.id = root.id
-                 OR tech_group.parent_id = root.id
-                 OR tech_group.id = root.id
-               )
-             )
-           )
-         )
-       )
        ORDER BY pc.created_at ASC`,
-      [userId, userId, userId, userId, userId, userId]
+      []
     );
-    return rows;
+
+    // 筛选当前用户需要审批的变更
+    const result: PlanChange[] = [];
+    for (const change of allPending) {
+      const needsApproval = await this.checkIfUserNeedsToApproveSimple(pool, user, change.user_id);
+      if (needsApproval) {
+        result.push(change);
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * 简化的审批检查逻辑
+   * 规则：找到申请人的直接上级主管，如果是当前用户则需要审批
+   */
+  private async checkIfUserNeedsToApproveSimple(
+    pool: ReturnType<typeof getPool>,
+    approver: { id: number; role: string; department_id: number | null },
+    applicantUserId: number
+  ): Promise<boolean> {
+    // 获取申请人的部门信息
+    const [applicantRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT u.id, u.department_id, d.parent_id
+       FROM users u
+       JOIN departments d ON u.department_id = d.id
+       WHERE u.id = ?`,
+      [applicantUserId]
+    );
+
+    if (applicantRows.length === 0) return false;
+    const applicant = applicantRows[0];
+
+    // 逐级向上查找主管
+    let currentDeptId: number | null = applicant.department_id;
+    const visitedDepts = new Set<number>();
+
+    while (currentDeptId && !visitedDepts.has(currentDeptId)) {
+      visitedDepts.add(currentDeptId);
+
+      // 获取当前部门的经理
+      const [deptRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT d.id, d.manager_id, d.parent_id, u.role as manager_role
+         FROM departments d
+         LEFT JOIN users u ON d.manager_id = u.id
+         WHERE d.id = ?`,
+        [currentDeptId]
+      );
+
+      if (deptRows.length === 0) break;
+
+      const dept = deptRows[0];
+
+      // 如果部门有经理，且经理不是申请人自己
+      if (dept.manager_id && dept.manager_id !== applicantUserId) {
+        // 检查经理是否是当前审批人
+        if (dept.manager_id === approver.id) {
+          return true;
+        }
+        // 找到了经理，但不是当前审批人，不需要审批
+        return false;
+      }
+
+      // 没有经理，向上查找父部门
+      currentDeptId = dept.parent_id;
+    }
+
+    // 没有找到任何主管，admin 作为兜底
+    return approver.role === 'admin';
   }
 
   /**
@@ -478,145 +475,16 @@ export class WorkflowRepository {
 
     if (pendingChanges.length === 0) return 0;
 
-    // 3. 根据用户角色筛选需要审批的申请
+    // 3. 筛选需要审批的申请
     let count = 0;
 
     for (const change of pendingChanges) {
-      const typedChange = change as { user_id: number; applicant_role: string; applicant_dept_id: number | null };
-      const needsApproval = await this.checkIfUserNeedsToApprove(pool, user, typedChange);
+      const typedChange = change as { user_id: number };
+      const needsApproval = await this.checkIfUserNeedsToApproveSimple(pool, user, typedChange.user_id);
       if (needsApproval) count++;
     }
 
     return count;
-  }
-
-  /**
-   * 检查用户是否需要审批该变更申请
-   */
-  private async checkIfUserNeedsToApprove(
-    pool: ReturnType<typeof getPool>,
-    approver: { id: number; role: string; department_id: number | null },
-    applicant: { user_id: number; applicant_role: string; applicant_dept_id: number | null }
-  ): Promise<boolean> {
-    // 管理员：仅作为最终兜底，当没有其他审批人时才需要审批
-    if (approver.role === 'admin') {
-      // 检查申请人是否有直属上级（部门经理）
-      const [deptMgrRows] = await pool.execute<RowDataPacket[]>(
-        `SELECT d.manager_id
-         FROM users u
-         JOIN departments d ON u.department_id = d.id
-         WHERE u.id = ? AND d.manager_id IS NOT NULL AND d.manager_id != u.id`,
-        [applicant.user_id]
-      );
-      if (deptMgrRows.length > 0) return false; // 有部门经理，管理员不需要审批
-
-      // 检查申请人所在部门是否有技术经理
-      const [techMgrRows] = await pool.execute<RowDataPacket[]>(
-        `SELECT tm.id
-         FROM users u
-         JOIN departments user_dept ON u.department_id = user_dept.id
-         JOIN departments tech_group ON user_dept.parent_id = tech_group.id
-         JOIN users tm ON tm.department_id = tech_group.id AND tm.role = 'tech_manager' AND tm.is_active = 1
-         WHERE u.id = ?`,
-        [applicant.user_id]
-      );
-      if (techMgrRows.length > 0) return false; // 有技术经理，管理员不需要审批
-
-      // 检查是否有根部门经理
-      const [rootMgrRows] = await pool.execute<RowDataPacket[]>(
-        `SELECT dm.id
-         FROM departments root
-         JOIN users dm ON dm.id = root.manager_id AND dm.role = 'dept_manager' AND dm.is_active = 1
-         WHERE root.parent_id IS NULL`,
-        []
-      );
-      if (rootMgrRows.length > 0) return false; // 有根部门经理，管理员不需要审批
-
-      return true; // 没有其他审批人，管理员需要审批
-    }
-
-    // 技术经理：审批本技术组成员的申请
-    if (approver.role === 'tech_manager') {
-      // 获取技术经理管理的技术组
-      const [techGroupRows] = await pool.execute<RowDataPacket[]>(
-        `SELECT d.id FROM departments d WHERE d.manager_id = ? AND d.parent_id IS NOT NULL`,
-        [approver.id]
-      );
-      if (techGroupRows.length === 0) return false;
-
-      const techGroupId = techGroupRows[0].id;
-
-      // 检查申请人是否在本技术组
-      const [applicantInGroup] = await pool.execute<RowDataPacket[]>(
-        `SELECT 1 FROM users u
-         JOIN departments d ON u.department_id = d.id
-         WHERE u.id = ? AND (d.id = ? OR d.parent_id = ?)`,
-        [applicant.user_id, techGroupId, techGroupId]
-      );
-      return applicantInGroup.length > 0;
-    }
-
-    // 部门经理：审批本部门成员的申请（仅当没有技术经理时）
-    if (approver.role === 'dept_manager') {
-      // 获取部门经理管理的根部门
-      const [rootDeptRows] = await pool.execute<RowDataPacket[]>(
-        `SELECT d.id FROM departments d WHERE d.manager_id = ? AND d.parent_id IS NULL`,
-        [approver.id]
-      );
-      if (rootDeptRows.length === 0) return false;
-
-      const rootDeptId = rootDeptRows[0].id;
-
-      // 检查申请人是否在本部门或下属部门
-      const [applicantInDept] = await pool.execute<RowDataPacket[]>(
-        `SELECT u.department_id, d.parent_id
-         FROM users u
-         JOIN departments d ON u.department_id = d.id
-         WHERE u.id = ?`,
-        [applicant.user_id]
-      );
-      if (applicantInDept.length === 0) return false;
-
-      const applicantDept = applicantInDept[0];
-
-      // 检查是否在根部门或下属部门
-      const isUnderRootDept = applicantDept.department_id === rootDeptId ||
-        applicantDept.parent_id === rootDeptId ||
-        (applicantDept.parent_id !== null && await this.isDepartmentUnderRoot(pool, applicantDept.parent_id, rootDeptId));
-
-      if (!isUnderRootDept) return false;
-
-      // 检查是否有技术经理
-      const [techMgrForApplicant] = await pool.execute<RowDataPacket[]>(
-        `SELECT tm.id
-         FROM users u
-         JOIN departments user_dept ON u.department_id = user_dept.id
-         LEFT JOIN departments tech_group ON user_dept.parent_id = tech_group.id
-         LEFT JOIN users tm ON tm.department_id = tech_group.id AND tm.role = 'tech_manager' AND tm.is_active = 1
-         WHERE u.id = ?`,
-        [applicant.user_id]
-      );
-
-      // 如果有技术经理，部门经理不需要审批
-      return techMgrForApplicant.length === 0 || techMgrForApplicant[0].id === null;
-    }
-
-    return false;
-  }
-
-  /**
-   * 检查部门是否在根部门下
-   */
-  private async isDepartmentUnderRoot(
-    pool: ReturnType<typeof getPool>,
-    deptId: number,
-    rootDeptId: number
-  ): Promise<boolean> {
-    const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT 1 FROM departments WHERE id = ? AND parent_id = ?`,
-      [deptId, rootDeptId]
-    );
-    return rows.length > 0;
   }
 
   // ========== 延期记录 ==========

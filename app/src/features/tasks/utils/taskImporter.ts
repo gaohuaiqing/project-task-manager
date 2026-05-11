@@ -357,10 +357,20 @@ function parseDate(value: unknown): string | undefined {
     return str;
   }
   // 尝试解析 Excel 日期序列号
+  // H5修复：使用本地时间而非 UTC，避免日期偏移
   const num = Number(str);
   if (!isNaN(num) && num > 0 && num < 100000) {
-    const date = new Date((num - 25569) * 86400 * 1000);
-    return date.toISOString().split('T')[0];
+    // Excel 日期序列号：从 1900-01-01 开始的天数
+    // 25569 是 1970-01-01 对应的 Excel 序列号
+    const utcDays = num - 25569;
+    // 转换为毫秒（使用本地时区）
+    const utcMs = utcDays * 86400 * 1000;
+    const date = new Date(utcMs);
+    // 使用本地日期组件，避免 UTC 偏移
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
   return undefined;
 }

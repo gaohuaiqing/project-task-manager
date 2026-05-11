@@ -111,10 +111,13 @@ export function computeTaskPermissions(
   const canCreate = isManager;
   const canCreateSubtask = isManager || (isEngineer && parentTask?.assigneeId === user.id);
 
-  // 修复：确保 ID 比较时类型一致（都转为 number）
+  // 修复：确保 ID 比较时类型一致（都转为 number），并处理 NaN 情况
   const taskAssigneeId = task?.assigneeId != null ? Number(task.assigneeId) : null;
   const userId = Number(user.id);
-  const isAssignedToUser = taskAssigneeId === userId;
+  // 检查转换后的值是否有效（非 NaN）
+  const isValidAssigneeId = taskAssigneeId !== null && !isNaN(taskAssigneeId);
+  const isValidUserId = !isNaN(userId);
+  const isAssignedToUser = isValidAssigneeId && isValidUserId && taskAssigneeId === userId;
 
   const canEdit = isManager || (isEngineer && isAssignedToUser);
   const canDelete = isManager;

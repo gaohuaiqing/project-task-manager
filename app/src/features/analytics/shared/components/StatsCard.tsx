@@ -227,15 +227,17 @@ export function StatsCard({
  */
 export function StatsCardFromMetric(
   metric: StatsCardMetric,
-  props?: Omit<StatsCardProps, 'title' | 'value' | 'displayValue'>
+  props?: Omit<StatsCardProps, 'title' | 'value' | 'displayValue' | 'subtitle'>
 ) {
   return (
     <StatsCard
       title={metric.label}
       value={metric.value}
       displayValue={metric.displayValue}
-      subtitle={metric.trendText}
+      subtitle={metric.subtitle}
+      description={metric.description}
       trend={metric.trend}
+      trendText={metric.trendText}
       {...props}
     />
   );

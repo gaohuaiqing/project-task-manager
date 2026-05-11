@@ -25,6 +25,8 @@ import {
   useProjectProgress,
   useDashboardTrends,
 } from './hooks/useDashboardData';
+import { AlertCircle, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 // 管理者角色列表（可查看分析组件）
 const MANAGER_ROLES = ['admin', 'dept_manager', 'tech_manager'];
@@ -37,7 +39,7 @@ export default function DashboardPage() {
   const isManager = MANAGER_ROLES.includes(user?.role ?? '');
 
   // 获取仪表板统计数据
-  const { data: stats, isLoading: statsLoading } = useDashboardStats();
+  const { data: stats, isLoading: statsLoading, error: statsError, refetch: refetchStats } = useDashboardStats();
 
   // 获取趋势指标（对比当前周期 vs 上期）
   const { data: trendsData } = useDashboardTrends(7);
@@ -55,6 +57,25 @@ export default function DashboardPage() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  // 错误状态处理
+  if (statsError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <AlertCircle className="h-12 w-12 text-red-500" />
+        <div className="text-center">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">加载失败</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            无法加载仪表板数据，请检查网络连接后重试
+          </p>
+        </div>
+        <Button onClick={() => refetchStats()} variant="outline" className="gap-2">
+          <RefreshCw className="h-4 w-4" />
+          重新加载
+        </Button>
       </div>
     );
   }
@@ -143,21 +164,21 @@ export default function DashboardPage() {
         <StatsCard
           title={isManager ? '进行中任务' : '我的进行中'}
           value={stats?.inProgressTasks ?? 0}
-          subtitle={`总计: ${stats?.totalTasks ?? 0}`}
+          subtitle={stats?.totalRootTasks !== undefined ? `${stats.totalRootTasks} 根任务 / ${(stats.totalTasks ?? 0) - stats.totalRootTasks} 子任务` : `总计: ${stats?.totalTasks ?? 0}`}
           trend={getTrend('totalTasks')}
           onClick={() => navigate('/tasks?status=in_progress')}
         />
         <StatsCard
           title={isManager ? '已完成任务' : '我的已完成'}
           value={stats?.completedTasks ?? 0}
-          subtitle={stats?.totalTasks ? `完成率: ${Math.round((stats.completedTasks / stats.totalTasks) * 100)}%` : undefined}
+          subtitle={stats?.totalRootTasks !== undefined ? `${stats.totalRootTasks} 根任务 / ${(stats.totalTasks ?? 0) - stats.totalRootTasks} 子任务` : `总计: ${stats?.totalTasks ?? 0}`}
           trend={getTrend('completedTasks')}
           onClick={() => navigate('/tasks?status=completed')}
         />
         <StatsCard
           title={isManager ? '延期预警' : '我的到期/逾期'}
           value={isManager ? (stats?.delayWarningTasks ?? 0) : ((stats?.delayWarningTasks ?? 0) + (stats?.overdueTasks ?? 0))}
-          subtitle={isManager ? `已延期: ${stats?.overdueTasks ?? 0}` : undefined}
+          subtitle={stats?.totalRootTasks !== undefined ? `${stats.totalRootTasks} 根任务 / ${(stats.totalTasks ?? 0) - stats.totalRootTasks} 子任务` : `总计: ${stats?.totalTasks ?? 0}`}
           trend={getTrend('delayWarning')}
           invertTrendColors
           onClick={() => navigate('/tasks?status=warning')}

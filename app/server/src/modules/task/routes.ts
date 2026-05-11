@@ -304,11 +304,27 @@ router.post('/batch-delete', async (req: Request, res: Response, next: NextFunct
       return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: '请提供要删除的任务ID列表' } });
     }
 
-    // 限制单次批量删除数量（防止大量删除影响性能）
-    if (ids.length > 50) {
+    // H4修复：计算实际删除数量（包括子任务），而非只计算根任务数量
+    // 先预览获取所有后代任务数量
+    let totalToDelete = 0;
+    const previewResults = await Promise.all(
+      ids.map(async (id: string) => {
+        const descendants = await taskService.getTaskWithDescendants(id);
+        return descendants.length;
+      })
+    );
+    totalToDelete = previewResults.reduce((sum, count) => sum + count, 0);
+
+    // 限制单次批量删除总数量（包括子任务），防止大量删除影响性能
+    const MAX_TOTAL_DELETE = 200;
+    if (totalToDelete > MAX_TOTAL_DELETE) {
       return res.status(400).json({
         success: false,
-        error: { code: 'BAD_REQUEST', message: '单次最多删除50个任务' }
+        error: {
+          code: 'BAD_REQUEST',
+          message: `批量删除将影响 ${totalToDelete} 个任务（包括子任务），超过限制 ${MAX_TOTAL_DELETE}。请分批删除或减少选中任务数量。`,
+          details: { rootTaskCount: ids.length, totalTaskCount: totalToDelete, limit: MAX_TOTAL_DELETE }
+        }
       });
     }
 

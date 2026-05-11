@@ -204,7 +204,7 @@ function transformAdminData(
     alerts,
     metrics: [
       { label: '项目总数', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), description: '当前系统中所有项目的总数量', ...buildTrendHelper(trendMap, 'activeProjects') },
-      { label: '任务总数', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), description: '所有项目中的任务总数量', ...buildTrendHelper(trendMap, 'totalTasks') },
+      { label: '任务总数', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), subtitle: stats.totalRootTasks !== undefined ? `${stats.totalRootTasks} 根任务 / ${(stats.totalTasks || 0) - stats.totalRootTasks} 子任务` : undefined, description: '所有项目中的任务总数量', ...buildTrendHelper(trendMap, 'totalTasks') },
       { label: '完成率', value: stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0}%`, description: '已完成任务占总任务的百分比', ...buildTrendHelper(trendMap, 'completedTasks') },
       { label: '延期率', value: stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0}%`, description: '延期任务占总任务的百分比', ...buildTrendHelper(trendMap, 'overdue', true) },
       { label: '总人数', value: stats.totalMembers || 0, displayValue: String(stats.totalMembers || 0), description: '系统中注册的用户总数' },
@@ -258,7 +258,7 @@ function transformDeptManagerData(
     alerts,
     metrics: [
       { label: '部门项目', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), description: '本部门负责的项目总数', ...buildTrendHelper(trendMap, 'activeProjects') },
-      { label: '部门任务', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), description: '本部门所有项目中的任务总数', ...buildTrendHelper(trendMap, 'totalTasks') },
+      { label: '部门任务', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), subtitle: stats.totalRootTasks !== undefined ? `${stats.totalRootTasks} 根任务 / ${(stats.totalTasks || 0) - stats.totalRootTasks} 子任务` : undefined, description: '本部门所有项目中的任务总数', ...buildTrendHelper(trendMap, 'totalTasks') },
       { label: '完成率', value: stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0}%`, description: '本部门已完成任务占比', ...buildTrendHelper(trendMap, 'completedTasks') },
       { label: '延期率', value: stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0}%`, description: '本部门延期任务占比', ...buildTrendHelper(trendMap, 'overdue', true) },
       { label: '部门人数', value: stats.totalMembers || 0, displayValue: String(stats.totalMembers || 0), description: '本部门当前的成员总数' },
@@ -320,7 +320,7 @@ function transformTechManagerData(
     alerts,
     metrics: [
       { label: '组内项目', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), description: '当前技术组参与的项目数量', ...buildTrendHelper(trendMap, 'activeProjects') },
-      { label: '组内任务', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), description: '组内所有成员的任务总数', ...buildTrendHelper(trendMap, 'totalTasks') },
+      { label: '组内任务', value: stats.totalTasks || 0, displayValue: String(stats.totalTasks || 0), subtitle: stats.totalRootTasks !== undefined ? `${stats.totalRootTasks} 根任务 / ${(stats.totalTasks || 0) - stats.totalRootTasks} 子任务` : undefined, description: '组内所有成员的任务总数', ...buildTrendHelper(trendMap, 'totalTasks') },
       { label: '完成率', value: stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0}%`, description: '组内已完成任务占比', ...buildTrendHelper(trendMap, 'completedTasks') },
       { label: '延期率', value: stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0, displayValue: `${stats.totalTasks ? Math.round((stats.overdueTasks / stats.totalTasks) * 100) : 0}%`, description: '超过计划截止日期的任务占比', ...buildTrendHelper(trendMap, 'overdue', true) },
       { label: '组内人数', value: stats.totalMembers || 0, displayValue: String(stats.totalMembers || 0), description: '当前技术组的成员总数' },
@@ -373,7 +373,7 @@ function transformEngineerData(
     })),
     metrics: [
       { label: '参与项目', value: stats.totalProjects || 0, displayValue: String(stats.totalProjects || 0), description: '当前参与的项目数量', ...buildTrendHelper(trendMap, 'activeProjects') },
-      { label: '进行中', value: stats.inProgressTasks || 0, displayValue: String(stats.inProgressTasks || 0), description: '当前正在进行中的任务数量', ...buildTrendHelper(trendMap, 'totalTasks') },
+      { label: '进行中', value: stats.inProgressTasks || 0, displayValue: String(stats.inProgressTasks || 0), subtitle: stats.totalRootTasks !== undefined ? `${stats.totalRootTasks} 根任务 / ${(stats.totalTasks || 0) - stats.totalRootTasks} 子任务` : undefined, description: '当前正在进行中的任务数量', ...buildTrendHelper(trendMap, 'totalTasks') },
       { label: '已完成', value: stats.completedTasks || 0, displayValue: String(stats.completedTasks || 0), description: '已完成并关闭的任务数量', ...buildTrendHelper(trendMap, 'completedTasks') },
       { label: '待开始', value: stats.pendingTasks || 0, displayValue: String(stats.pendingTasks || 0), description: '已分配但尚未开始的任务数量' },
     ],

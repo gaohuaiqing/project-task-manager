@@ -214,7 +214,7 @@ export function isUserOnline(userId: number): boolean {
 }
 
 /**
- * 向项目所有成员推送数据变更事件
+ * 向项目所有成员推送数据变更事件（并行批量发送）
  */
 export async function sendToProjectMembers(
   projectId: string,
@@ -228,9 +228,27 @@ export async function sendToProjectMembers(
       'SELECT user_id FROM project_members WHERE project_id = ?',
       [projectId]
     );
-    for (const member of (members as any[])) {
-      sendToUser(member.user_id, type, data);
-    }
+    const userIds = (members as any[]).map(m => m.user_id);
+
+    // 并行发送，提升大项目推送性能
+    const message = JSON.stringify({ type, data, timestamp: Date.now() });
+    const sendPromises = userIds.map(userId => {
+      const connections = userConnections.get(userId);
+      if (!connections || connections.size === 0) return Promise.resolve(false);
+
+      return Promise.all(
+        Array.from(connections).map(ws => {
+          if (ws.readyState === WebSocket.OPEN) {
+            return new Promise<void>(resolve => {
+              ws.send(message, err => resolve());
+            });
+          }
+          return Promise.resolve();
+        })
+      ).then(() => true);
+    });
+
+    await Promise.all(sendPromises);
   } catch {
     // 广播失败不应阻塞业务逻辑
   }

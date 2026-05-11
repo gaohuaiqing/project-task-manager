@@ -110,7 +110,10 @@ export class AnalyticsRepository {
 
     // 构建角色感知的项目过滤条件
     const projectScope = await buildProjectScopeFilter(user, 'p');
+    const taskScope = await buildTaskScopeFilter(user, 't', true);
 
+    // 拆分查询以提高稳定性（避免复杂子查询导致 ER_MALFORMED_PACKET）
+    // 1. 项目统计
     const [projectRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         COUNT(*) as total_projects,
@@ -118,34 +121,49 @@ export class AnalyticsRepository {
         SUM(CASE WHEN p.status = 'delayed' THEN 1 ELSE 0 END) as delayed_projects,
         SUM(CASE WHEN p.status = 'completed' THEN 1 ELSE 0 END) as completed_projects,
         COALESCE(AVG(p.progress), 0) as avg_progress
-       FROM projects p
-       WHERE ${projectScope.clause}`,
+       FROM projects p WHERE ${projectScope.clause}`,
       projectScope.params
     );
+    const projectData = projectRows[0] || { total_projects: 0, active_projects: 0, delayed_projects: 0, completed_projects: 0, avg_progress: 0 };
 
-    // 构建角色感知的任务过滤条件（assignee_id 为 NULL 的任务对所有人可见）
-    const taskScope = await buildTaskScopeFilter(user, 't', true);
-
+    // 2. 基础任务统计（含根任务统计）
     const [taskRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         COUNT(*) as total_tasks,
+        SUM(CASE WHEN t.wbs_level = 1 THEN 1 ELSE 0 END) as total_root_tasks,
+        SUM(CASE WHEN t.assignee_id IS NULL THEN 1 ELSE 0 END) as unassigned_tasks,
+        SUM(CASE WHEN t.updated_at >= DATE_SUB(NOW(), INTERVAL ${TIME_INTERVALS.WEEK_DAYS} DAY) THEN 1 ELSE 0 END) as active_tasks
+       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id WHERE ${taskScope.clause}`,
+      taskScope.params
+    );
+    const taskData = taskRows[0] || { total_tasks: 0, total_root_tasks: 0, unassigned_tasks: 0, active_tasks: 0 };
+
+    // 3. 任务状态统计（使用 MUTEX_STATUS_CONDITIONS）
+    const [statusRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.pendingApproval} THEN 1 ELSE 0 END) as pending_approval_tasks,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.notStarted} THEN 1 ELSE 0 END) as pending_tasks,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.inProgress} THEN 1 ELSE 0 END) as in_progress_tasks,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_tasks,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 1 ELSE 0 END) as delay_warning_tasks,
-        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as overdue_tasks,
-        SUM(CASE WHEN t.assignee_id IS NULL THEN 1 ELSE 0 END) as unassigned_tasks,
-        SUM(CASE WHEN t.updated_at >= DATE_SUB(NOW(), INTERVAL ${TIME_INTERVALS.WEEK_DAYS} DAY) THEN 1 ELSE 0 END) as active_tasks,
-        SUM(CASE WHEN (${MUTEX_STATUS_CONDITIONS.notStarted} OR ${MUTEX_STATUS_CONDITIONS.inProgress})
-            AND t.end_date IS NOT NULL
-            AND t.end_date >= CURDATE()
-            AND t.end_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as week_due_tasks
-       FROM wbs_tasks t
-       JOIN projects p ON t.project_id = p.id
-       WHERE ${taskScope.clause}`,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as overdue_tasks
+       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id WHERE ${taskScope.clause}`,
       taskScope.params
     );
+    const statusData = statusRows[0] || { pending_approval_tasks: 0, pending_tasks: 0, in_progress_tasks: 0, completed_tasks: 0, delay_warning_tasks: 0, overdue_tasks: 0 };
+
+    // 4. 本周到期任务
+    const [weekDueRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) as week_due_tasks
+       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
+       WHERE ${taskScope.clause}
+         AND (${MUTEX_STATUS_CONDITIONS.notStarted} OR ${MUTEX_STATUS_CONDITIONS.inProgress})
+         AND t.end_date IS NOT NULL
+         AND t.end_date >= CURDATE()
+         AND t.end_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY)`,
+      taskScope.params
+    );
+    const weekDueTasks = Number(weekDueRows[0]?.week_due_tasks) || 0;
 
     // 成员统计: admin 显示全局，其他角色按部门/组过滤
     let memberCount = 0;
@@ -167,12 +185,9 @@ export class AnalyticsRepository {
       }
     }
 
-    const projectResult = projectRows[0];
-    const taskResult = taskRows[0];
-
-    // 活跃度计算（从合并查询结果中获取）
-    const activityRate = (Number(taskResult.total_tasks) || 0) > 0
-      ? Math.round((Number(taskResult.active_tasks) / Number(taskResult.total_tasks)) * 100)
+    // 活跃度计算
+    const activityRate = (Number(taskData.total_tasks) || 0) > 0
+      ? Math.round((Number(taskData.active_tasks) / Number(taskData.total_tasks)) * 100)
       : 0;
 
     // 资源利用率（保留独立查询，因为涉及子查询和不同的 GROUP BY）
@@ -191,30 +206,29 @@ export class AnalyticsRepository {
     );
     const utilizationRate = Math.min(100, Math.round(Number(utilizationRows[0]?.utilization_rate) || 0));
 
-    const weekDueTasks = Number(taskResult.week_due_tasks) || 0;
-
     const result: DashboardStats = {
-      total_projects: Number(projectResult.total_projects) || 0,
-      active_projects: Number(projectResult.active_projects) || 0,
-      delayed_projects: Number(projectResult.delayed_projects) || 0,
-      completed_projects: Number(projectResult.completed_projects) || 0,
-      total_tasks: Number(taskResult.total_tasks) || 0,
-      pending_approval_tasks: Number(taskResult.pending_approval_tasks) || 0,
-      pending_tasks: Number(taskResult.pending_tasks) || 0,
-      in_progress_tasks: Number(taskResult.in_progress_tasks) || 0,
-      completed_tasks: Number(taskResult.completed_tasks) || 0,
-      delay_warning_tasks: Number(taskResult.delay_warning_tasks) || 0,
-      overdue_tasks: Number(taskResult.overdue_tasks) || 0,
-      unassigned_tasks: Number(taskResult.unassigned_tasks) || 0,
+      total_projects: Number(projectData.total_projects) || 0,
+      active_projects: Number(projectData.active_projects) || 0,
+      delayed_projects: Number(projectData.delayed_projects) || 0,
+      completed_projects: Number(projectData.completed_projects) || 0,
+      total_tasks: Number(taskData.total_tasks) || 0,
+      total_root_tasks: Number(taskData.total_root_tasks) || 0,
+      pending_approval_tasks: Number(statusData.pending_approval_tasks) || 0,
+      pending_tasks: Number(statusData.pending_tasks) || 0,
+      in_progress_tasks: Number(statusData.in_progress_tasks) || 0,
+      completed_tasks: Number(statusData.completed_tasks) || 0,
+      delay_warning_tasks: Number(statusData.delay_warning_tasks) || 0,
+      overdue_tasks: Number(statusData.overdue_tasks) || 0,
+      unassigned_tasks: Number(taskData.unassigned_tasks) || 0,
       total_members: memberCount,
-      avg_progress: Math.round(Number(projectResult.avg_progress) || 0),
+      avg_progress: Math.round(Number(projectData.avg_progress) || 0),
       activity_rate: activityRate,
       utilization_rate: utilizationRate,
       week_due_tasks: weekDueTasks,
     };
 
-    // 缓存结果（3分钟，仪表板数据更新频繁）
-    CacheService.set(cacheKey, result, 180);
+    // 性能优化：延长缓存时间到5分钟
+    CacheService.set(cacheKey, result, 300);
 
     return result;
   }
@@ -686,35 +700,27 @@ export class AnalyticsRepository {
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
-    // 全部任务统计
-    const [rows] = await pool.execute<RowDataPacket[]>(
+    // 性能优化：合并多个统计查询为一个
+    // 包含：全部任务统计、根任务统计、优先级分布、任务类型分布
+    const [combinedStatsRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
+        -- 全部任务统计
         COUNT(*) as total_tasks,
         ROUND(AVG(t.progress), 1) as avg_completion_rate,
         ROUND(SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 2) as delay_rate,
-        SUM(CASE WHEN priority = 'urgent' THEN 1 ELSE 0 END) as urgent_count
+        SUM(CASE WHEN priority = 'urgent' THEN 1 ELSE 0 END) as urgent_count,
+        -- 根任务统计
+        SUM(CASE WHEN t.wbs_level = 1 THEN 1 ELSE 0 END) as total_root_tasks,
+        SUM(CASE WHEN t.wbs_level = 1 AND priority = 'urgent' THEN 1 ELSE 0 END) as urgent_root_count
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        ${whereClause}`,
       params
     );
 
-    const stats = rows[0];
+    const stats = combinedStatsRows[0];
 
-    // 根任务统计（双轨显示）
-    const [rootTaskRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT
-        COUNT(*) as total_root_tasks,
-        SUM(CASE WHEN priority = 'urgent' THEN 1 ELSE 0 END) as urgent_root_count
-       FROM wbs_tasks t
-       JOIN projects p ON t.project_id = p.id
-       ${whereClause} AND t.wbs_level = 1`,
-      params
-    );
-
-    const rootStats = rootTaskRows[0];
-
-    // 获取优先级分布（基于根任务）
+    // 优先级分布（基于根任务）- 单独查询，数据量小
     const [priorityRows] = await pool.execute<RowDataPacket[]>(
       `SELECT priority, COUNT(*) as count FROM wbs_tasks t JOIN projects p ON t.project_id = p.id ${whereClause} AND t.wbs_level = 1 GROUP BY priority`,
       params
@@ -722,7 +728,7 @@ export class AnalyticsRepository {
     const priority_distribution: Record<string, number> = {};
     priorityRows.forEach(r => { priority_distribution[r.priority] = Number(r.count); });
 
-    // 获取负责人分布
+    // 负责人分布
     const [assigneeRows] = await pool.execute<RowDataPacket[]>(
       `SELECT t.assignee_id, u.real_name as assignee_name,
               COUNT(*) as task_count,
@@ -886,7 +892,7 @@ export class AnalyticsRepository {
 
     return {
       total_tasks: Number(stats.total_tasks) || 0,
-      total_root_tasks: Number(rootStats.total_root_tasks) || 0,  // 根任务数（双轨显示）
+      total_root_tasks: Number(stats.total_root_tasks) || 0,  // 根任务数（双轨显示，合并查询）
       avg_completion_rate: Math.round(Number(stats.avg_completion_rate) || 0),
       delay_rate: Math.round(Number(stats.delay_rate) || 0),
       urgent_count: Number(stats.urgent_count) || 0,
@@ -1232,21 +1238,22 @@ export class AnalyticsRepository {
     // 获取成员效能明细（带角色过滤）
     const memberEfficiencyList = await this.getMemberEfficiencyList(pool, options, user);
 
-    // 计算汇总统计（过滤None值，防止NaN传播）
+    // 计算汇总统计（H13修复：过滤NaN/undefined/null值，防止NaN传播）
     const totalMembers = memberEfficiencyList.length;
-    const safeSum = (arr: number[]) => arr.reduce((s, v) => s + (v ?? 0), 0);
-    const avgProductivity = totalMembers > 0
-      ? Math.round((safeSum(memberEfficiencyList.map(m => m.productivity)) / totalMembers) * 100) / 100
-      : 0;
-    const avgEstimationAccuracy = totalMembers > 0
-      ? Math.round((safeSum(memberEfficiencyList.map(m => m.estimation_accuracy)) / totalMembers) * 100) / 100
-      : 0;
-    const avgReworkRate = totalMembers > 0
-      ? Math.round((safeSum(memberEfficiencyList.map(m => m.rework_rate)) / totalMembers) * 100) / 100
-      : 0;
-    const avgFulltimeUtilization = totalMembers > 0
-      ? Math.round((safeSum(memberEfficiencyList.map(m => m.fulltime_utilization)) / totalMembers) * 100) / 100
-      : 0;
+    const safeSum = (arr: (number | undefined | null)[]) =>
+      arr.reduce((s, v) => {
+        const numVal = v !== undefined && v !== null ? Number(v) : NaN;
+        return s + (isNaN(numVal) ? 0 : numVal);
+      }, 0);
+    // 过滤有效成员（所有指标都有效）
+    const validMembers = memberEfficiencyList.filter(m =>
+      m.productivity !== undefined && m.productivity !== null && !isNaN(Number(m.productivity))
+    );
+    const validCount = validMembers.length || 1; // 至少为1，避免除零
+    const avgProductivity = Math.round((safeSum(memberEfficiencyList.map(m => m.productivity)) / validCount) * 100) / 100;
+    const avgEstimationAccuracy = Math.round((safeSum(memberEfficiencyList.map(m => m.estimation_accuracy)) / validCount) * 100) / 100;
+    const avgReworkRate = Math.round((safeSum(memberEfficiencyList.map(m => m.rework_rate)) / validCount) * 100) / 100;
+    const avgFulltimeUtilization = Math.round((safeSum(memberEfficiencyList.map(m => m.fulltime_utilization)) / validCount) * 100) / 100;
 
     // 获取产能趋势（带角色过滤）
     const productivityTrend = await this.getProductivityTrend(pool, options, user);

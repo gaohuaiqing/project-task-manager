@@ -20,6 +20,7 @@ import {
 import { useProjectsForReport, useMembersForReport } from './data';
 import type { ReportFilters, ReportTab } from './types';
 import { REPORT_TABS } from './types';
+import { toast } from 'sonner';
 
 export interface ReportsPageProps {
   /** 初始 Tab */
@@ -79,7 +80,10 @@ export function ReportsPage({ initialTab }: ReportsPageProps) {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
 
-      if (!response.ok) throw new Error('导出失败');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData?.error?.message || `导出失败: ${response.status}`);
+      }
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -90,7 +94,12 @@ export function ReportsPage({ initialTab }: ReportsPageProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
+
+      toast.success('导出成功');
     } catch (err) {
+      // H15修复：添加用户可见的错误提示
+      const errorMessage = err instanceof Error ? err.message : '导出失败，请稍后重试';
+      toast.error('导出失败', { description: errorMessage });
       if (import.meta.env.DEV) console.error('导出失败:', err);
     }
   }, [currentTab, filters]);

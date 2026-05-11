@@ -14,12 +14,16 @@ export function createPool(options?: Partial<PoolOptions>): Pool {
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'task_manager',
     waitForConnections: true,
-    connectionLimit: parseInt(process.env.DB_POOL_SIZE || '30'),
-    queueLimit: 100,
+    connectionLimit: parseInt(process.env.DB_POOL_SIZE || '50'),
+    queueLimit: 0,
     charset: 'utf8mb4',
     // 连接健康检查配置
     enableKeepAlive: true,
-    keepAliveInitialDelay: 0, // 立即开始 keep-alive
+    keepAliveInitialDelay: 10000, // 10秒后开始keep-alive
+    // 连接空闲超时（毫秒）
+    idleTimeout: 60000, // 60秒空闲后释放
+    // 最大连接生命周期（防止内存泄漏）
+    maxLifetime: 1800000, // 30分钟后强制重建连接
     ...options,
   });
 

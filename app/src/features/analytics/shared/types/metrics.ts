@@ -48,6 +48,7 @@ export interface StatsCardMetric {
   value: number;
   displayValue: string;
   label: string;
+  subtitle?: string;
   description?: string;
   trend?: number;
   trendText?: string;

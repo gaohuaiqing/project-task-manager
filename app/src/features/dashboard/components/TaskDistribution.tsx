@@ -2,7 +2,7 @@
  * 任务分布组件 - 专业仪表盘风格
  */
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { CheckCircle2, Clock, AlertCircle, PlayCircle } from 'lucide-react';
+import { CheckCircle2, Clock, AlertCircle, PlayCircle, ListTodo } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TaskDistribution } from '../types';
 
@@ -86,7 +86,7 @@ export function TaskDistribution({ distribution, className }: TaskDistributionPr
                   <div className="w-16 h-1 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-emerald-500 rounded-full"
-                      style={{ width: `${(count / totalByStatus) * 100}%` }}
+                      style={{ width: totalByStatus > 0 ? `${(count / totalByStatus) * 100}%` : '0%' }}
                     />
                   </div>
                   <span className="text-[11px] font-medium font-mono tabular-nums w-5 text-right text-gray-600 dark:text-gray-400">{count}</span>

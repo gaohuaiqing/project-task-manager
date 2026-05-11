@@ -64,14 +64,3 @@ export function useTaskDistribution(params: DashboardQueryParams = {}) {
     staleTime: 5 * 60 * 1000,
   });
 }
-
-/**
- * 获取延期分析数据
- */
-export function useDelayAnalysis(params: DashboardQueryParams = {}) {
-  return useQuery({
-    queryKey: queryKeys.analytics.delayAnalysis(params),
-    queryFn: () => analyticsApi.getDelayAnalysis(params),
-    staleTime: 10 * 60 * 1000,
-  });
-}

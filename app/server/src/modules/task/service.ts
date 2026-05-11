@@ -259,9 +259,13 @@ export class TaskService {
    * 级联更新后续任务
    * 当前置任务变更时，自动重新计算后续任务的日期
    * 支持4种依赖类型：FS(完成-开始), SS(开始-开始), FF(完成-完成), SF(开始-完成)
-   * 使用事务保证数据一致性
+   * 使用事务保证数据一致性，添加乐观锁防止竞态条件
    */
   private async cascadeUpdateSuccessorTasks(taskId: string, currentDepth: number): Promise<void> {
+    // 性能优化：深度超过阈值时使用异步执行，避免阻塞主线程
+    const ASYNC_THRESHOLD = 3;
+    const CASCADE_TIMEOUT = 30000; // 30秒超时
+
     // 获取后续任务（包含依赖类型）
     const successorTasks = await this.repo.getSuccessorTasks(taskId);
 
@@ -278,66 +282,112 @@ export class TaskService {
     // 使用事务包裹所有级联更新，保证原子性
     const pool = (await import('../../core/db')).getPool();
     const connection = await pool.getConnection();
+
+    // 性能优化：添加超时保护
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('级联更新超时')), CASCADE_TIMEOUT);
+    });
+
     try {
-      await connection.beginTransaction();
+      await Promise.race([
+        (async () => {
+          await connection.beginTransaction();
 
-      // 验证前置任务是否有必要的日期
-      // FS/FF 需要 end_date，SS/SF 需要 start_date
-      const cascadeChanges: Array<{ taskId: string; changes: Record<string, unknown>; depth: number }> = [];
+          // 获取所有后续任务的当前版本号（乐观锁检查）
+          const successorIds = successorTasks.map(s => s.id);
+          const placeholders = successorIds.map(() => '?').join(',');
+          const [currentVersions] = await connection.execute(
+            `SELECT id, version FROM wbs_tasks WHERE id IN (${placeholders})`,
+            successorIds
+          );
+          const versionMap = new Map((currentVersions as any[]).map(r => [r.id, r.version]));
 
-      for (const successor of successorTasks) {
-        const dependencyType = ((successor as any).dependency_type || 'FS') as DependencyType;
+          // 验证前置任务是否有必要的日期
+          // FS/FF 需要 end_date，SS/SF 需要 start_date
+          const cascadeChanges: Array<{ taskId: string; changes: Record<string, unknown>; depth: number }> = [];
 
-        // 检查前置任务是否有必要的日期
-        if ((dependencyType === 'FS' || dependencyType === 'FF') && !predecessorTask.end_date) {
-          continue;
-        }
-        if ((dependencyType === 'SS' || dependencyType === 'SF') && !predecessorTask.start_date) {
-          continue;
-        }
+          for (const successor of successorTasks) {
+            const dependencyType = ((successor as any).dependency_type || 'FS') as DependencyType;
 
-        const duration = successor.duration || 1;
+            // 检查前置任务是否有必要的日期
+            if ((dependencyType === 'FS' || dependencyType === 'FF') && !predecessorTask.end_date) {
+              continue;
+            }
+            if ((dependencyType === 'SS' || dependencyType === 'SF') && !predecessorTask.start_date) {
+              continue;
+            }
 
-        // 使用支持4种依赖类型的日期计算方法
-        const newStartDate = await calculateStartDateForDependency(
-          predecessorTask.start_date || predecessorTask.end_date || new Date(),
-          predecessorTask.end_date || predecessorTask.start_date || new Date(),
-          dependencyType,
-          successor.lag_days || 0,
-          duration,
-          successor.is_six_day_week
-        );
+            const duration = successor.duration || 1;
 
-        // 计算新的结束日期
-        const newEndDate = await calculateEndDate(newStartDate, duration, successor.is_six_day_week);
+            // 使用支持4种依赖类型的日期计算方法
+            const newStartDate = await calculateStartDateForDependency(
+              predecessorTask.start_date || predecessorTask.end_date || new Date(),
+              predecessorTask.end_date || predecessorTask.start_date || new Date(),
+              dependencyType,
+              successor.lag_days || 0,
+              duration,
+              successor.is_six_day_week
+            );
 
-        // 在事务内更新任务日期
-        const fields: string[] = ['start_date = ?', 'end_date = ?', 'version = version + 1'];
-        const values: (string | null)[] = [formatLocalDate(newStartDate), formatLocalDate(newEndDate), successor.id];
-        await connection.execute(
-          `UPDATE wbs_tasks SET ${fields.join(', ')} WHERE id = ?`,
-          values
-        );
+            // 计算新的结束日期
+            const newEndDate = await calculateEndDate(newStartDate, duration, successor.is_six_day_week);
 
-        // 收集级联变更，事务提交后统一发射
-        cascadeChanges.push({
-          taskId: successor.id,
-          changes: { start_date: newStartDate, end_date: newEndDate },
-          depth: currentDepth + 1,
-        });
-      }
+            // 乐观锁检查：确保版本号未变化
+            const expectedVersion = versionMap.get(successor.id);
+            if (expectedVersion === undefined) {
+              logger.warn('[Cascade] 任务 %s 版本信息丢失，跳过更新', successor.id);
+              continue;
+            }
 
-      await connection.commit();
+            // 在事务内更新任务日期，带版本号检查（乐观锁）
+            const fields: string[] = ['start_date = ?', 'end_date = ?', 'version = version + 1'];
+            const values: (string | number | null)[] = [formatLocalDate(newStartDate), formatLocalDate(newEndDate), expectedVersion, successor.id];
+            const [updateResult] = await connection.execute(
+              `UPDATE wbs_tasks SET ${fields.join(', ')} WHERE id = ? AND version = ?`,
+              values
+            );
 
-      // 事务提交成功后，统一发射级联事件
-      for (const change of cascadeChanges) {
-        emitTaskUpdated({
-          taskId: change.taskId,
-          changes: change.changes,
-          cascadeUpdate: true,
-          cascadeDepth: change.depth,
-        });
-      }
+            // 检查更新是否成功（版本冲突检测）
+            if ((updateResult as any).affectedRows === 0) {
+              logger.warn('[Cascade] 任务 %s 版本冲突（期望 %d），跳过更新', successor.id, expectedVersion);
+              continue;
+            }
+
+            // 收集级联变更，事务提交后统一发射
+            cascadeChanges.push({
+              taskId: successor.id,
+              changes: { start_date: newStartDate, end_date: newEndDate },
+              depth: currentDepth + 1,
+            });
+          }
+
+          await connection.commit();
+
+          // 事务提交成功后，统一发射级联事件
+          // 性能优化：深度超过阈值时，使用 setImmediate 延迟执行，释放事件循环
+          for (const change of cascadeChanges) {
+            if (currentDepth >= ASYNC_THRESHOLD) {
+              // 异步执行，不等待
+              setImmediate(() => {
+                emitTaskUpdated({
+                  taskId: change.taskId,
+                  changes: change.changes,
+                  cascadeUpdate: true,
+                  cascadeDepth: change.depth,
+                });
+              });
+            } else {
+              emitTaskUpdated({
+                taskId: change.taskId,
+                changes: change.changes,
+                cascadeUpdate: true,
+                cascadeDepth: change.depth,
+              });
+            }
+          }
+        })(),
+        timeoutPromise
+      ]);
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -427,8 +477,10 @@ export class TaskService {
   }
 
   async getTasks(options: TaskQueryOptions, user?: User): Promise<{ items: WBSTaskListItem[]; total: number; page: number; pageSize: number; totalPages: number }> {
-    // WBS 视图需要全量数据构建树，统一使用大页面
-    const effectivePageSize = 10000;
+    // 性能优化：根据查询条件动态调整页面大小
+    // - 指定项目时：使用合理分页（500条），减少内存占用
+    // - 全局查询时：保持大页面以支持树形结构构建
+    const effectivePageSize = options.project_id ? 500 : 10000;
 
     const page = options.page || 1;
     const { items, total } = await this.repo.getTasks({ ...options, pageSize: effectivePageSize });
@@ -785,9 +837,19 @@ export class TaskService {
       data.description = sanitizeString(data.description);
     }
 
-    // 检查版本
+    // 检查版本 - H2修复：返回详细冲突信息
     if (data.version !== task.version) {
-      return { updated: false, conflict: true, needsApproval: false };
+      return {
+        updated: false,
+        conflict: true,
+        needsApproval: false,
+        conflictInfo: {
+          currentVersion: task.version,
+          yourVersion: data.version,
+          lastModifiedAt: task.updated_at ? new Date(task.updated_at).toISOString() : undefined,
+          message: `数据已被修改（当前版本: ${task.version}，您的版本: ${data.version}），请刷新后重试`
+        }
+      };
     }
 
     // 判断是否需要审批（工程师修改计划需要审批）
@@ -1471,13 +1533,34 @@ export class TaskService {
    * 批量导入任务（事务保护）
    * 根据项目编码自动匹配项目UUID
    * 使用事务包裹所有任务创建操作，失败时全部回滚
+   *
+   * H1修复：添加导入数量限制，防止内存溢出
+   * 性能优化：预加载任务数据 + 批量提交事务
    */
   async importTasks(
     tasks: Array<Record<string, unknown>>,
     currentUser: User
   ): Promise<{ total: number; success: number; failed: number; results: Array<{ success: boolean; wbs_code?: string; rowNumber?: number; error?: string }> }> {
+    // H1修复：限制单次导入数量，防止内存溢出
+    const MAX_IMPORT_SIZE = 1000;
+    if (tasks.length > MAX_IMPORT_SIZE) {
+      return {
+        total: tasks.length,
+        success: 0,
+        failed: tasks.length,
+        results: [{
+          success: false,
+          error: `导入数量超出限制：当前 ${tasks.length} 条，最大允许 ${MAX_IMPORT_SIZE} 条。请分批导入。`
+        }],
+      };
+    }
+
     const pool = (await import('../../core/db')).getPool();
     const connection = await pool.getConnection();
+
+    // 性能优化：批量提交配置
+    const BATCH_SIZE = 50;
+    let batchCount = 0;
 
     try {
       await connection.beginTransaction();
@@ -1485,6 +1568,34 @@ export class TaskService {
       const results: Array<{ success: boolean; wbs_code?: string; rowNumber?: number; error?: string }> = [];
       const taskMap = new Map<string, { taskId: string; projectId: string }>(); // wbs_code -> { task_id, project_id } 映射
       const projectCache = new Map<string, string>(); // project_code -> project_id 缓存
+
+      // 性能优化：预加载所有现有任务的WBS编码映射（避免重复查询）
+      const [allExistingTasks] = await connection.execute<import('mysql2/promise').RowDataPacket[]>(
+        `SELECT t.id, t.project_id, t.parent_id, t.wbs_level, t.sort_order, t.created_at, p.code as project_code
+         FROM wbs_tasks t
+         JOIN projects p ON t.project_id = p.id
+         ORDER BY t.project_id, t.sort_order ASC, t.created_at ASC`
+      );
+
+      // 按项目分组并计算WBS编码
+      const existingTasksByProject = new Map<string, any[]>();
+      const existingWbsCodeMap = new Map<string, { taskId: string; projectId: string }>(); // 全局WBS编码映射
+
+      const wbsService = new (await import('../../core/wbs/WbsCodeService')).WbsCodeService();
+      for (const row of allExistingTasks) {
+        if (!existingTasksByProject.has(row.project_id)) {
+          existingTasksByProject.set(row.project_id, []);
+        }
+        existingTasksByProject.get(row.project_id)!.push(row);
+      }
+
+      // 为每个项目计算WBS编码并建立映射
+      for (const [projectId, projTasks] of existingTasksByProject) {
+        const tasksWithCodes = wbsService.attachCodes(projTasks);
+        for (const t of tasksWithCodes) {
+          existingWbsCodeMap.set(t.wbs_code, { taskId: t.id, projectId });
+        }
+      }
 
       // P15: 预验证 - WBS编码格式和重复检查，收集所有错误
       const wbsCodePattern = /^\d+(\.\d+)*$/;
@@ -1529,6 +1640,17 @@ export class TaskService {
           failed: tasks.length,
           results: preValidationErrors,
         };
+      }
+
+      // 性能优化：预加载用户姓名到ID映射
+      const [allUsers] = await connection.execute<import('mysql2/promise').RowDataPacket[]>(
+        'SELECT id, real_name FROM users WHERE is_active = 1'
+      );
+      const userNameToIdMap = new Map<string, number>();
+      for (const user of allUsers) {
+        if (user.real_name) {
+          userNameToIdMap.set(user.real_name, user.id);
+        }
       }
 
       for (const taskData of tasks) {
@@ -1584,8 +1706,7 @@ export class TaskService {
           // 这样可以确保父任务在子任务之前被创建和存储到 taskMap
           const sortOrder = rowNumber || (results.length + 1);
 
-          // 查找父任务（先从当前批次查找，再从数据库查找）
-          // 这样可以支持增量导入（在已有任务下添加新子任务）
+          // 查找父任务（性能优化：使用预加载的映射）
           let parentId: string | undefined;
           let parentProjectId: string | undefined;
           if (wbsLevel > 1) {
@@ -1593,44 +1714,15 @@ export class TaskService {
             // 先从当前批次查找
             const parentInfo = taskMap.get(parentWbsCode);
             if (parentInfo) {
-              // 从已导入的父任务获取项目ID
               parentId = parentInfo.taskId;
               parentProjectId = parentInfo.projectId;
             }
+            // 再从预加载的现有任务映射查找
             if (!parentId) {
-              // 再从数据库查找已存在的父任务
-              // 先按项目编码分组查找所有可能的项目
-              const allProjectCodes = [projectCode];
-              // 如果根任务编码与当前任务不同，可能需要跨项目查找
-              const rootWbs = wbsParts[0];
-
-              // 查找所有项目的任务来匹配WBS编码
-              const [parentRows] = await connection.execute<import('mysql2/promise').RowDataPacket[]>(
-                `SELECT t.id, t.project_id, t.parent_id, t.wbs_level, t.sort_order, t.created_at, p.code as project_code
-                 FROM wbs_tasks t
-                 JOIN projects p ON t.project_id = p.id
-                 ORDER BY t.project_id, t.sort_order ASC, t.created_at ASC`
-              );
-
-              // 按项目分组计算WBS编码
-              const projectTasksMap = new Map<string, any[]>();
-              for (const row of parentRows) {
-                if (!projectTasksMap.has(row.project_id)) {
-                  projectTasksMap.set(row.project_id, []);
-                }
-                projectTasksMap.get(row.project_id)!.push(row);
-              }
-
-              // 在每个项目中查找匹配的父任务
-              const wbsService = new (await import('../../core/wbs/WbsCodeService')).WbsCodeService();
-              for (const [projId, projTasks] of projectTasksMap) {
-                const tasksWithCodes = wbsService.attachCodes(projTasks);
-                const parentTask = tasksWithCodes.find((t: any) => t.wbs_code === parentWbsCode);
-                if (parentTask) {
-                  parentId = parentTask.id;
-                  parentProjectId = projId;
-                  break;
-                }
+              const existingParent = existingWbsCodeMap.get(parentWbsCode);
+              if (existingParent) {
+                parentId = existingParent.taskId;
+                parentProjectId = existingParent.projectId;
               }
             }
             if (!parentId) {
@@ -1641,11 +1733,10 @@ export class TaskService {
 
           // 项目一致性处理：子任务自动继承父任务的项目
           if (parentProjectId && parentProjectId !== projectId) {
-            // 使用父任务的项目ID，而不是报错
             projectId = parentProjectId;
           }
 
-          // 解析前置任务 - 兼容前端导出列名
+          // 解析前置任务 - 性能优化：使用预加载的映射
           let predecessorId: string | undefined;
           const predecessorWbs = (
             taskData['前置任务WBS'] ||
@@ -1659,19 +1750,11 @@ export class TaskService {
             if (predInfo) {
               predecessorId = predInfo.taskId;
             }
+            // 再从预加载的现有任务映射查找
             if (!predecessorId) {
-              // 再从数据库查找
-              const [predRows] = await connection.execute<import('mysql2/promise').RowDataPacket[]>(
-                `SELECT t.id, t.project_id, t.parent_id, t.wbs_level, t.sort_order, t.created_at FROM wbs_tasks t
-                 WHERE t.project_id = ?
-                 ORDER BY t.sort_order ASC, t.created_at ASC`,
-                [projectId]
-              );
-              const wbsService = new (await import('../../core/wbs/WbsCodeService')).WbsCodeService();
-              const tasksWithCodes = wbsService.attachCodes(predRows as any);
-              const predTask = tasksWithCodes.find((t: any) => t.wbs_code === predecessorWbs);
-              if (predTask) {
-                predecessorId = predTask.id;
+              const existingPred = existingWbsCodeMap.get(predecessorWbs as string);
+              if (existingPred) {
+                predecessorId = existingPred.taskId;
               }
             }
             if (!predecessorId) {
@@ -1680,22 +1763,15 @@ export class TaskService {
             }
           }
 
-          // 解析负责人ID - 支持姓名转ID查询
+          // 解析负责人ID - 性能优化：使用预加载的用户映射
           let assigneeId: number | undefined;
           const assigneeIdValue = taskData['负责人ID'] || taskData.assignee_id;
           const assigneeNameValue = taskData['负责人'] || taskData.assignee_name || taskData.assigneeName;
           if (assigneeIdValue) {
             assigneeId = parseInt(String(assigneeIdValue));
           } else if (assigneeNameValue) {
-            // 查询成员ID（需要在事务连接中执行）
-            // assignee_id 存储的是 users.id，直接查 users 表的 real_name
-            const [memberRows] = await connection.execute<import('mysql2/promise').RowDataPacket[]>(
-              'SELECT id FROM users WHERE real_name = ? AND is_active = 1 LIMIT 1',
-              [String(assigneeNameValue)]
-            );
-            if (memberRows.length > 0) {
-              assigneeId = memberRows[0].id;
-            }
+            // 使用预加载的用户映射
+            assigneeId = userNameToIdMap.get(String(assigneeNameValue));
           }
 
           // 创建任务请求
@@ -1724,12 +1800,17 @@ export class TaskService {
           // 使用事务连接创建任务（跳过权限检查，导入操作需要覆盖多个项目）
           const taskId = await this.createTaskWithConnection(connection, createRequest, currentUser, true);
           taskMap.set(wbsCode, { taskId, projectId });
+          // 同时更新现有任务映射，供后续任务查找
+          existingWbsCodeMap.set(wbsCode, { taskId, projectId });
           logger.info('[Task] 导入成功: WBS=%s, 行号=%s, taskId=%s', wbsCode, rowNumber, taskId);
 
-          // 逐条提交，避免单条失败导致整批回滚
-          await connection.commit();
-          // 开启新事务继续处理后续任务
-          await connection.beginTransaction();
+          // 性能优化：批量提交事务（每BATCH_SIZE条提交一次）
+          batchCount++;
+          if (batchCount >= BATCH_SIZE) {
+            await connection.commit();
+            await connection.beginTransaction();
+            batchCount = 0;
+          }
 
           results.push({ success: true, wbs_code: wbsCode, rowNumber });
         } catch (err) {
@@ -1748,6 +1829,7 @@ export class TaskService {
           // 回滚当前失败的任务，开启新事务继续处理
           try { await connection.rollback(); } catch { /* ignore */ }
           try { await connection.beginTransaction(); } catch { /* ignore */ }
+          batchCount = 0;
         }
       }
 
@@ -1926,11 +2008,19 @@ export class TaskService {
 
   /**
    * 批量更新任务
+   *
+   * @param ids 任务ID列表
+   * @param updates 更新内容
+   * @param currentUser 当前用户
+   * @param atomic 是否使用原子事务模式（默认 false）
+   *                - false: 尽力而为模式，逐个更新，失败不影响其他任务
+   *                - true: 原子模式，使用事务包裹，任一失败则全部回滚
    */
   async batchUpdateTasks(
     ids: string[],
     updates: Partial<UpdateTaskRequest>,
-    currentUser: User
+    currentUser: User,
+    atomic: boolean = false
   ): Promise<{ success: number; failed: number; errors: Array<{ id: string; error: string }> }> {
     const errors: Array<{ id: string; error: string }> = [];
     let success = 0;
@@ -1948,6 +2038,49 @@ export class TaskService {
       throw new ValidationError('没有有效的更新字段');
     }
 
+    if (atomic) {
+      // 原子模式：使用事务，任一失败则全部回滚
+      const pool = (await import('../../core/db')).getPool();
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+
+        for (const id of ids) {
+          const task = await this.repo.getTaskById(id);
+          if (!task) {
+            throw new ValidationError(`任务 ${id} 不存在，事务回滚`);
+          }
+
+          // 构建更新语句
+          const fields: string[] = [];
+          const values: (string | number | boolean | null)[] = [];
+          for (const field of allowedFields) {
+            if ((filteredUpdates as any)[field] !== undefined) {
+              fields.push(`${field} = ?`);
+              values.push((filteredUpdates as any)[field]);
+            }
+          }
+          fields.push('version = version + 1');
+          values.push(id, task.version);
+
+          await connection.execute(
+            `UPDATE wbs_tasks SET ${fields.join(', ')} WHERE id = ? AND version = ?`,
+            values
+          );
+          success++;
+        }
+
+        await connection.commit();
+        return { success, failed: 0, errors: [] };
+      } catch (error) {
+        await connection.rollback();
+        return { success: 0, failed: ids.length, errors: [{ id: ids[0], error: error instanceof Error ? error.message : '批量更新失败，已回滚' }] };
+      } finally {
+        connection.release();
+      }
+    }
+
+    // 尽力而为模式：逐个更新，失败不影响其他任务
     for (const id of ids) {
       try {
         const task = await this.repo.getTaskById(id);
@@ -1968,14 +2101,91 @@ export class TaskService {
 
   /**
    * 批量删除任务（管理员专用）
+   *
+   * @param ids 任务ID列表
+   * @param currentUser 当前用户
+   * @param atomic 是否使用原子事务模式（默认 false）
+   *                - false: 尽力而为模式，逐个删除，失败不影响其他任务
+   *                - true: 原子模式，使用事务包裹，任一失败则全部回滚
    */
   async batchDeleteTasks(
     ids: string[],
-    currentUser: User
+    currentUser: User,
+    atomic: boolean = false
   ): Promise<{ success: number; failed: number; errors: Array<{ id: string; error: string }> }> {
     const errors: Array<{ id: string; error: string }> = [];
     let success = 0;
 
+    if (atomic) {
+      // 原子模式：使用事务，任一失败则全部回滚
+      const pool = (await import('../../core/db')).getPool();
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+
+        for (const id of ids) {
+          // 在事务内执行删除（复用 deleteTask 的核心逻辑）
+          const task = await this.repo.getTaskById(id);
+          if (!task) {
+            errors.push({ id, error: '任务不存在' });
+            throw new Error(`任务 ${id} 不存在，事务回滚`);
+          }
+
+          // 权限检查
+          if (currentUser.role !== 'admin' && currentUser.role !== 'tech_manager' && currentUser.role !== 'dept_manager') {
+            throw new ForbiddenError('无权限删除任务');
+          }
+
+          // 项目成员验证
+          if (currentUser.role !== 'admin') {
+            const [memberRows] = await connection.execute(
+              'SELECT COUNT(*) as count FROM project_members WHERE project_id = ? AND user_id = ?',
+              [task.project_id, currentUser.id]
+            );
+            if (memberRows[0].count === 0) {
+              throw new ForbiddenError('您不是该项目的成员，无权限删除任务');
+            }
+          }
+
+          // 获取所有后代任务
+          const [descendants] = await connection.execute(
+            `WITH RECURSIVE TaskTree AS (
+              SELECT id FROM wbs_tasks WHERE id = ?
+              UNION ALL
+              SELECT t.id FROM wbs_tasks t
+              INNER JOIN TaskTree tt ON t.parent_id = tt.id
+            ) SELECT id FROM TaskTree`,
+            [id]
+          );
+          const descendantIds = (descendants as any[]).map(r => r.id);
+
+          // 清除前置关系
+          if (descendantIds.length > 0) {
+            const placeholders = descendantIds.map(() => '?').join(',');
+            await connection.execute(
+              `UPDATE wbs_tasks SET predecessor_id = NULL WHERE predecessor_id IN (${placeholders})`,
+              descendantIds
+            );
+            // 删除任务
+            await connection.execute(
+              `DELETE FROM wbs_tasks WHERE id IN (${placeholders})`,
+              descendantIds
+            );
+          }
+          success++;
+        }
+
+        await connection.commit();
+        return { success, failed: 0, errors: [] };
+      } catch (error) {
+        await connection.rollback();
+        return { success: 0, failed: ids.length, errors: [{ id: ids[0], error: error instanceof Error ? error.message : '批量删除失败，已回滚' }] };
+      } finally {
+        connection.release();
+      }
+    }
+
+    // 尽力而为模式：逐个删除，失败不影响其他任务
     for (const id of ids) {
       try {
         await this.deleteTask(id, currentUser);

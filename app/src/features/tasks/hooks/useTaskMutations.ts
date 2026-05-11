@@ -19,10 +19,9 @@ export function useCreateTask() {
 
   return useMutation({
     mutationFn: (data: CreateTaskRequest) => taskApi.createTask(data),
-    onSuccess: async () => {
-      // 立即刷新任务列表（创建任务后需要重新计算 WBS 编码）
-      await queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
-      await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
+    onSuccess: () => {
+      // 性能优化：使用 invalidationBatcher 批量失效，不强制 refetch
+      invalidationBatcher.invalidate(queryKeys.task.lists());
       invalidationBatcher.invalidate(queryKeys.analytics.all);
     },
   });
@@ -66,14 +65,13 @@ export function useUpdateTask(id?: string) {
 
       return { previousTask, taskId };
     },
-    onSuccess: async (result, variables) => {
+    onSuccess: (result, variables) => {
       const taskId = 'id' in variables ? variables.id : id;
       if (taskId) {
         queryClient.invalidateQueries({ queryKey: queryKeys.task.detail(taskId) });
       }
-      // 强制刷新任务列表（更新任务后需要重新计算 WBS 编码）
-      await queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
-      await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
+      // 性能优化：使用 invalidationBatcher 批量失效，不强制 refetch
+      invalidationBatcher.invalidate(queryKeys.task.lists());
       invalidationBatcher.invalidate(queryKeys.analytics.all);
 
       // 处理审批响应
@@ -102,10 +100,9 @@ export function useDeleteTask() {
 
   return useMutation({
     mutationFn: (id: string) => taskApi.deleteTask(id),
-    onSuccess: async () => {
-      // 立即刷新任务列表（删除任务后需要重新计算 WBS 编码）
-      await queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
-      await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
+    onSuccess: () => {
+      // 性能优化：使用 invalidationBatcher 批量失效，不强制 refetch
+      invalidationBatcher.invalidate(queryKeys.task.lists());
       invalidationBatcher.invalidate(queryKeys.analytics.all);
     },
   });
@@ -135,9 +132,9 @@ export function useChangeTaskLevel() {
   return useMutation({
     mutationFn: ({ taskId, targetLevel }: { taskId: string; targetLevel: number }) =>
       taskApi.changeTaskLevel(taskId, targetLevel),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
-      await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
+    onSuccess: () => {
+      // 性能优化：使用 invalidationBatcher 批量失效，不强制 refetch
+      invalidationBatcher.invalidate(queryKeys.task.lists());
     },
   });
 }
@@ -151,9 +148,9 @@ export function useReorderTask() {
   return useMutation({
     mutationFn: ({ taskId, afterTaskId }: { taskId: string; afterTaskId: string | null }) =>
       taskApi.reorderTask(taskId, afterTaskId),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.task.lists() });
-      await queryClient.refetchQueries({ queryKey: queryKeys.task.lists() });
+    onSuccess: () => {
+      // 性能优化：使用 invalidationBatcher 批量失效，不强制 refetch
+      invalidationBatcher.invalidate(queryKeys.task.lists());
     },
   });
 }

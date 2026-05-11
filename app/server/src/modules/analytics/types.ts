@@ -31,7 +31,8 @@ export interface DashboardStats {
   completed_projects: number;
 
   // 任务统计（按状态细分）
-  total_tasks: number;
+  total_tasks: number;          // 全部任务数
+  total_root_tasks: number;     // 根任务数（wbs_level=1）
   pending_approval_tasks: number;  // pending_approval
   pending_tasks: number;        // not_started
   in_progress_tasks: number;    // in_progress

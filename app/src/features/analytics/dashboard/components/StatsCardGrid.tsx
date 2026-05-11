@@ -55,6 +55,7 @@ export function StatsCardGrid({
           title={metric.label}
           value={metric.value}
           displayValue={metric.displayValue}
+          subtitle={metric.subtitle}
           description={metric.description}
           trend={metric.trend}
           trendText={metric.trendText}

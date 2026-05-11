@@ -99,9 +99,15 @@ router.get('/reports/task-statistics', requirePermission('REPORT_VIEW'), async (
 router.get('/reports/delay-analysis', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = getCurrentUser(req)!;
+    // 验证 delay_type 参数
+    const validDelayTypes = ['internal', 'external', 'requirement', 'resource', 'technical', 'other'];
+    const delayType = req.query.delay_type as string | undefined;
+    if (delayType && !validDelayTypes.includes(delayType)) {
+      throw new ValidationError(`无效的延期类型: ${delayType}，有效值为: ${validDelayTypes.join(', ')}`);
+    }
     const options: ReportQueryOptions = {
       project_id: req.query.project_id as string,
-      delay_type: req.query.delay_type as any,
+      delay_type: delayType as any,
       start_date: req.query.start_date as string,
       end_date: req.query.end_date as string,
     };
