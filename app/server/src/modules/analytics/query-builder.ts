@@ -245,12 +245,18 @@ export async function buildUserDepartmentScopeFilter(user: User): Promise<ScopeF
  * 部门层级: 根部门(dept_manager管理) → 技术组(tech_manager管理) → 用户部门
  * dept_manager 管理的是根部门及其所有子部门下的用户
  *
- * 优先使用 departments.manager_id（始终可用），
- * department_managers 表作为可选增强（支持多经理场景）
+ * 支持两种授权方式：
+ * 1. departments.manager_id（始终可用）
+ * 2. department_managers 表（可选增强，支持多经理场景）
+ *
+ * 使用递归 CTE 查询部门树，获取用户管理的部门及其所有后代部门。
+ * 遵循"无授权则无权限"的安全原则，无 fallback 逻辑。
  */
 export async function getManagedDepartmentIds(
   managerId: number,
-  managerDeptId: number,
+  // _managerDeptId: 保留参数用于向后兼容，函数内部通过 managerId 查询数据库获取管理的部门
+  // 原设计中此参数用于 fallback 逻辑，现已移除 fallback，保留参数签名以避免破坏现有调用方
+  _managerDeptId: number,
 ): Promise<number[]> {
   // 尝试从缓存获取
   const cacheKey = `${CACHE_KEY_PREFIX}managed:${managerId}`;
@@ -264,7 +270,8 @@ export async function getManagedDepartmentIds(
   // 检查 department_managers 表是否存在
   const tableExists = await checkTableExists('department_managers');
 
-  // 递归查找所有子部门
+  // 使用递归 CTE 查询管理的部门及其所有后代
+  // 支持两种授权方式：departments.manager_id 和 department_managers 表
   const query = tableExists
     ? `WITH RECURSIVE dept_tree AS (
         SELECT d.id FROM departments d
@@ -289,10 +296,8 @@ export async function getManagedDepartmentIds(
 
   const deptIds = rows.map((r: RowDataPacket) => r.id);
 
-  // 如果没找到（可能不是直接的manager），fallback到自己的部门
-  if (deptIds.length === 0 && managerDeptId) {
-    deptIds.push(managerDeptId);
-  }
+  // 移除 fallback 逻辑：无授权则返回空数组
+  // 遵循"无授权则无权限"的安全原则
 
   // 缓存结果（15分钟 - 优化性能）
   CacheService.set(cacheKey, deptIds, SCOPE_CACHE_TTL);
@@ -306,12 +311,18 @@ export async function getManagedDepartmentIds(
  * tech_manager 管理的是技术组及其子部门下的用户
  * 被授权技术组需要通过授权机制获取
  *
- * 优先使用 departments.manager_id（始终可用），
- * department_managers 表作为可选增强
+ * 支持两种授权方式：
+ * 1. departments.manager_id（始终可用）
+ * 2. department_managers 表（可选增强，支持多经理场景）
+ *
+ * 使用递归 CTE 查询技术组树，获取用户管理的技术组及其所有后代部门。
+ * 遵循"无授权则无权限"的安全原则，无 fallback 逻辑。
  */
 export async function getTechManagerGroupIds(
   managerId: number,
-  managerDeptId: number,
+  // _managerDeptId: 保留参数用于向后兼容，函数内部通过 managerId 查询数据库获取管理的技术组
+  // 原设计中此参数用于 fallback 逻辑，现已移除 fallback，保留参数签名以避免破坏现有调用方
+  _managerDeptId: number,
 ): Promise<number[]> {
   // 尝试从缓存获取
   const cacheKey = `${CACHE_KEY_PREFIX}tech_groups:${managerId}`;
@@ -325,30 +336,39 @@ export async function getTechManagerGroupIds(
   // 检查 department_managers 表是否存在
   const tableExists = await checkTableExists('department_managers');
 
-  // 获取直接管理的技术组
+  // 使用递归 CTE 查询管理的技术组及其所有后代
+  // 与 dept_manager 逻辑一致，统一处理
   const query = tableExists
-    ? `SELECT DISTINCT d.id FROM departments d
-       LEFT JOIN department_managers dm ON d.id = dm.department_id
-       WHERE d.manager_id = ? OR dm.user_id = ?`
-    : `SELECT DISTINCT d.id FROM departments d
-       WHERE d.manager_id = ?`;
+    ? `WITH RECURSIVE dept_tree AS (
+        SELECT d.id FROM departments d
+        LEFT JOIN department_managers dm ON d.id = dm.department_id
+        WHERE d.manager_id = ? OR dm.user_id = ?
+        UNION ALL
+        SELECT d.id FROM departments d
+        JOIN dept_tree dt ON d.parent_id = dt.id
+      )
+      SELECT id FROM dept_tree`
+    : `WITH RECURSIVE dept_tree AS (
+        SELECT d.id FROM departments d
+        WHERE d.manager_id = ?
+        UNION ALL
+        SELECT d.id FROM departments d
+        JOIN dept_tree dt ON d.parent_id = dt.id
+      )
+      SELECT id FROM dept_tree`;
 
   const params = tableExists ? [managerId, managerId] : [managerId];
-  const [managedGroups] = await pool.execute<RowDataPacket[]>(query, params);
+  const [rows] = await pool.execute<RowDataPacket[]>(query, params);
 
-  const groupIds = managedGroups.map((r: RowDataPacket) => r.id);
+  const groupIds = rows.map((r: RowDataPacket) => r.id);
 
-  // fallback
-  if (groupIds.length === 0 && managerDeptId) {
-    groupIds.push(managerDeptId);
-  }
-
-  const result = [...new Set(groupIds)]; // 去重
+  // 移除 fallback 逻辑：无授权则返回空数组
+  // 遵循"无授权则无权限"的安全原则
 
   // 缓存结果（15分钟 - 优化性能）
-  CacheService.set(cacheKey, result, SCOPE_CACHE_TTL);
+  CacheService.set(cacheKey, groupIds, SCOPE_CACHE_TTL);
 
-  return result;
+  return groupIds;
 }
 
 /**
@@ -376,4 +396,25 @@ export async function checkTableExists(tableName: string): Promise<boolean> {
     CacheService.set(cacheKey, false, TABLE_EXISTS_CACHE_TTL);
     return false;
   }
+}
+
+/**
+ * 清除用户权限范围缓存
+ * 当用户部门变更或部门经理变更时调用
+ *
+ * @param userId 用户ID
+ */
+export function clearUserScopeCache(userId: number): void {
+  const managedCacheKey = `${CACHE_KEY_PREFIX}managed:${userId}`;
+  const techGroupsCacheKey = `${CACHE_KEY_PREFIX}tech_groups:${userId}`;
+  CacheService.del(managedCacheKey);
+  CacheService.del(techGroupsCacheKey);
+}
+
+/**
+ * 清除所有权限范围缓存
+ * 当部门结构变更时调用
+ */
+export function clearAllScopeCache(): void {
+  CacheService.flush();
 }
