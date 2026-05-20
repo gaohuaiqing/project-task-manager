@@ -533,36 +533,28 @@ export class TaskService {
     // 全局统一计算 WBS 编码（不区分项目）
     let itemsWithCode: WBSTaskListItem[] = items;
     if (user) {
-      // 尝试从缓存获取
-      const cached = await wbsCodeCache.get(user.id, 'global');
-      if (cached) {
-        itemsWithCode = items.map(item => ({
+      // 每次查询都重新计算WBS编码（确保编码与查询顺序一致）
+      const tasksForCalculation = items.map(item => ({
+        id: item.id,
+        parent_id: item.parent_id,
+        wbs_level: item.wbs_level,
+        sort_order: item.sort_order,
+        created_at: item.created_at,
+      }));
+
+      const { codeMap } = wbsCodeService.calculateCodes(tasksForCalculation);
+
+      itemsWithCode = items.map(item => {
+        const wbsCode = codeMap.get(item.id) || '';
+        // 从动态计算的 WBS 编码推算等级，确保 wbs_level 与 wbs_code 一致
+        const derivedLevel = wbsCode ? wbsCode.split('.').length : 1;
+        return {
           ...item,
-          wbs_code: cached.codeMap.get(item.id) || '',
-          predecessor_code: item.predecessor_id ? cached.codeMap.get(item.predecessor_id) || '' : undefined,
-        }));
-      } else {
-        // 准备计算数据
-        const tasksForCalculation = items.map(item => ({
-          id: item.id,
-          parent_id: item.parent_id,
-          wbs_level: item.wbs_level,
-          sort_order: item.sort_order,
-          created_at: item.created_at,
-        }));
-
-        // 一次性计算所有任务的 WBS 编码
-        const { codeMap } = wbsCodeService.calculateCodes(tasksForCalculation);
-
-        // 设置缓存
-        await wbsCodeCache.set(user.id, 'global', { codeMap, idMap: new Map() });
-
-        itemsWithCode = items.map(item => ({
-          ...item,
-          wbs_code: codeMap.get(item.id) || '',
+          wbs_code: wbsCode,
+          wbs_level: derivedLevel,
           predecessor_code: item.predecessor_id ? codeMap.get(item.predecessor_id) || '' : undefined,
-        }));
-      }
+        };
+      });
     }
 
     // 实时计算每个任务的状态（符合需求文档：状态应该实时判断）
@@ -728,12 +720,22 @@ export class TaskService {
     const id = uuidv4();
     const status: TaskStatus = 'not_started';
 
-    // 计算新任务的 sort_order（排在同级最前面，方便用户继续添加子任务）
+    // 计算新任务的 sort_order
     const siblings = await this.repo.getSiblings(data.project_id, data.parent_id || null);
-    const minSortOrder = siblings.length > 0
-      ? Math.min(...siblings.map(s => s.sort_order ?? 100))
-      : 100;
-    const sortOrder = minSortOrder - 100; // 比最小的还小，排在最前面
+    let sortOrder: number;
+    if (!data.parent_id) {
+      // 根任务：后进先出，排在最前面
+      const minSortOrder = siblings.length > 0
+        ? Math.min(...siblings.map(s => s.sort_order ?? 100))
+        : 100;
+      sortOrder = minSortOrder - 100;
+    } else {
+      // 子任务：先进先出，排在同级末尾
+      const maxSortOrder = siblings.length > 0
+        ? Math.max(...siblings.map(s => s.sort_order ?? 100))
+        : 100;
+      sortOrder = maxSortOrder + 100;
+    }
 
     // P10修复：使用事务包裹创建任务、进度记录、计数器递增，保证原子性
     const pool = (await import('../../core/db')).getPool();
@@ -794,9 +796,6 @@ export class TaskService {
 
     // 刷新 WBS 编码全局注册表
     await wbsCodeRegistry.refreshProject(data.project_id);
-
-    // 校正项目 sort_order（确保新任务的排序正确）
-    await this.ensureProjectSortOrder(data.project_id);
 
     // 通知分析模块缓存失效
     emitTaskCreated({ taskId: id, projectId: data.project_id });
@@ -1163,9 +1162,6 @@ export class TaskService {
 
     // 刷新 WBS 编码全局注册表
     await wbsCodeRegistry.refreshProject(task.project_id);
-
-    // 校正项目 sort_order（确保删除后的排序正确）
-    await this.ensureProjectSortOrder(task.project_id);
 
     // 记录审计日志（同步写入，确保删除操作被记录）
     await audit.logSync({

@@ -4,6 +4,7 @@ import type { User, Permission } from '../../core/types';
 export interface LoginRequest {
   username: string;
   password: string;
+  deviceId?: string;  // 前端生成的设备指纹
 }
 
 export interface LoginResponse {

@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { authApi } from '../api';
 import { queryKeys } from '@/lib/api/query-keys';
 import { useAppContext } from '@/shared/context/AppContext';
+import { getDeviceFingerprint } from '@/utils/deviceId';
 import type { LoginRequest, User, Permission, AuthState } from '../types';
 
 /**
@@ -105,7 +106,10 @@ export function useAuth(): AuthState & {
   // 登录方法
   const login = useCallback(
     async (data: LoginRequest) => {
-      await loginMutation.mutateAsync(data);
+      await loginMutation.mutateAsync({
+        ...data,
+        deviceId: getDeviceFingerprint(),
+      });
     },
     [loginMutation]
   );

@@ -51,13 +51,13 @@ export class AuthRepository {
     user_id: number;
     ip_address: string | null;
     user_agent: string | null;
+    device_fingerprint: string | null;
     expires_at: Date;
   }): Promise<string> {
     const pool = getPool();
-    // 使用 session_id 字段存储 UUID，id 是自增字段
     await pool.execute(
-      'INSERT INTO sessions (session_id, user_id, ip_address, user_agent, expires_at, status, created_at, last_accessed) VALUES (?, ?, ?, ?, ?, ?, UNIX_TIMESTAMP(), UNIX_TIMESTAMP())',
-      [session.id, session.user_id, session.ip_address, session.user_agent, session.expires_at, 'active']
+      'INSERT INTO sessions (session_id, user_id, ip_address, user_agent, device_fingerprint, expires_at, status, created_at, last_accessed) VALUES (?, ?, ?, ?, ?, ?, ?, UNIX_TIMESTAMP(), UNIX_TIMESTAMP())',
+      [session.id, session.user_id, session.ip_address, session.user_agent, session.device_fingerprint, session.expires_at, 'active']
     );
     return session.id;
   }
@@ -259,7 +259,7 @@ export class AuthRepository {
   async getActiveSessionsByUser(userId: number): Promise<Session[]> {
     const pool = getPool();
     const [rows] = await pool.execute<SessionRow[]>(
-      "SELECT * FROM sessions WHERE user_id = ? AND status = 'active' AND expires_at > UNIX_TIMESTAMP() ORDER BY last_accessed ASC",
+      "SELECT * FROM sessions WHERE user_id = ? AND status = 'active' AND expires_at > UNIX_TIMESTAMP() ORDER BY last_accessed DESC",
       [userId]
     );
     return rows;
@@ -326,6 +326,7 @@ export class AuthRepository {
         user_id: row.session.user_id,
         ip_address: row.session.ip_address,
         user_agent: row.session.user_agent,
+        device_fingerprint: row.session.device_fingerprint,
         expires_at: row.session.expires_at,
         status: row.session.status,
         created_at: row.session.created_at,

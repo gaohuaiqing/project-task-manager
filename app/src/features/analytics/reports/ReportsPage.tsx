@@ -10,6 +10,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FilterBar } from './components/shared';
+import { TIME_PERIODS, CACHE_TIMES } from '../shared/constants';
 import {
   ProjectProgressTab,
   TaskStatisticsTab,
@@ -69,15 +70,25 @@ export function ReportsPage({ initialTab }: ReportsPageProps) {
   // 导出处理
   const handleExport = useCallback(async () => {
     try {
+      // 将 timeRange 转换为实际日期（与 UI 数据获取逻辑一致）
+      const startDate = filters.startDate
+        || new Date(Date.now() - TIME_PERIODS.month * CACHE_TIMES.dayMs).toISOString().split('T')[0];
+      const endDate = filters.endDate || new Date().toISOString().split('T')[0];
+
       const params = new URLSearchParams();
       params.set('format', 'xlsx');
+      params.set('start_date', startDate);
+      params.set('end_date', endDate);
       if (filters.projectId) params.set('project_id', filters.projectId);
       if (filters.assigneeId) params.set('assignee_id', filters.assigneeId);
-      if (filters.startDate) params.set('start_date', filters.startDate);
-      if (filters.endDate) params.set('end_date', filters.endDate);
+      if (filters.taskType) params.set('task_type', filters.taskType);
+      if (filters.delayType) params.set('delay_type', filters.delayType);
+      if (filters.departmentId) params.set('department_id', filters.departmentId);
+      if (filters.techGroupId) params.set('tech_group_id', filters.techGroupId);
 
-      const response = await fetch(`/api/reports/${currentTab}/export?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      // 使用 Cookie 认证（与 apiService 一致），无需 Bearer token
+      const response = await fetch(`/api/analytics/export/${currentTab}?${params.toString()}`, {
+        credentials: 'same-origin',
       });
 
       if (!response.ok) {
@@ -97,7 +108,6 @@ export function ReportsPage({ initialTab }: ReportsPageProps) {
 
       toast.success('导出成功');
     } catch (err) {
-      // H15修复：添加用户可见的错误提示
       const errorMessage = err instanceof Error ? err.message : '导出失败，请稍后重试';
       toast.error('导出失败', { description: errorMessage });
       if (import.meta.env.DEV) console.error('导出失败:', err);

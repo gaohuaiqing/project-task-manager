@@ -41,6 +41,7 @@ export interface Session {
   user_id: number;
   ip_address: string | null;
   user_agent: string | null;
+  device_fingerprint: string | null;  // 设备指纹
   status: 'active' | 'expired' | 'terminated';  // 会话状态
   expires_at: Date;
   last_accessed: Date | null;  // 最后访问时间

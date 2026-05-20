@@ -178,7 +178,7 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     }
   };
 
-  // 批量删除任务
+  // 批量删除任务 - 仅管理员和部门经理可用
   const canBatchDelete = user?.role === 'admin' || user?.role === 'dept_manager';
 
   // 批量删除时记录用户选中的任务总数（包括子任务）

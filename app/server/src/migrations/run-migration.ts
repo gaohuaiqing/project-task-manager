@@ -43,6 +43,7 @@ import { up as runMigration059 } from './059-fix-project-type-enum';
 import { runMigration060 } from './060-add-wbs-sort-index';
 import { runMigration061 } from './061-wbs-code-optimization';
 import { runMigration062 } from './062-fix-null-sort-order';
+import { up as runMigration063 } from './063-add-device-fingerprint';
 
 /**
  * 检查迁移是否已执行
@@ -605,6 +606,19 @@ export async function runPendingMigrations(): Promise<void> {
     console.log('🎉 迁移 062 完成！');
     return true;
   });  // 修复 sort_order 为 NULL 的任务数据
+
+  await safeRunMigration('063', async () => {
+    const version = '063';
+    const name = 'add_device_fingerprint';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 063 已执行，跳过');
+      return true;
+    }
+    await runMigration063();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 063 完成！');
+    return true;
+  });  // 为 sessions 表添加 device_fingerprint 字段
 
   console.log('✅ 数据库迁移检查完成');
 }

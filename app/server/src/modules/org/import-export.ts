@@ -151,7 +151,7 @@ export class ImportExportService {
 
         // 查找父部门
         let parentId: number | null = null;
-        const parentName = row['上级部门名称'] || row['parent_name'];
+        const parentName = row['上级部门名称'] || row['上级部门'] || row['parent_name'];
         if (parentName && typeof parentName === 'string') {
           const normalizedParentName = parentName.toLowerCase().trim();
           const existingParent = deptNameMap.get(normalizedParentName);

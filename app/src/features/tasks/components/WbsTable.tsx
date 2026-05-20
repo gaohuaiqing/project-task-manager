@@ -549,7 +549,7 @@ export const WbsTable = React.memo(function WbsTable({
     return map;
   }, [renderedTasks, user]);
 
-  // 所有任务ID集合（tasks 已是扁平数组，无需递归 children）
+  // 所有任务ID集合（仅包含有删除权限的任务）
   const allTaskIds = useMemo(() => {
     if (!canBatchDelete) return [];
     return tasks

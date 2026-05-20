@@ -294,7 +294,7 @@ router.post('/batch-update', async (req: Request, res: Response, next: NextFunct
   }
 });
 
-// P11: 批量删除任务（管理员专用）
+// P11: 批量删除任务（仅管理员和部门经理可用，无数量限制）
 router.post('/batch-delete', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = requireUser(req);
@@ -304,34 +304,12 @@ router.post('/batch-delete', async (req: Request, res: Response, next: NextFunct
       return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: '请提供要删除的任务ID列表' } });
     }
 
-    // H4修复：计算实际删除数量（包括子任务），而非只计算根任务数量
-    // 先预览获取所有后代任务数量
-    let totalToDelete = 0;
-    const previewResults = await Promise.all(
-      ids.map(async (id: string) => {
-        const descendants = await taskService.getTaskWithDescendants(id);
-        return descendants.length;
-      })
-    );
-    totalToDelete = previewResults.reduce((sum, count) => sum + count, 0);
-
-    // 限制单次批量删除总数量（包括子任务），防止大量删除影响性能
-    const MAX_TOTAL_DELETE = 200;
-    if (totalToDelete > MAX_TOTAL_DELETE) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'BAD_REQUEST',
-          message: `批量删除将影响 ${totalToDelete} 个任务（包括子任务），超过限制 ${MAX_TOTAL_DELETE}。请分批删除或减少选中任务数量。`,
-          details: { rootTaskCount: ids.length, totalTaskCount: totalToDelete, limit: MAX_TOTAL_DELETE }
-        }
-      });
-    }
-
-    // 权限检查：admin/dept_manager 可以批量删除
+    // 权限检查：仅 admin/dept_manager 可以批量删除
     if (currentUser.role !== 'admin' && currentUser.role !== 'dept_manager') {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权限批量删除任务' } });
     }
+
+    // 移除数量限制，允许删除任意数量的任务
 
     const results = await taskService.batchDeleteTasks(ids, currentUser);
     res.json({ success: true, data: results });

@@ -78,10 +78,16 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
       throw new ValidationError('用户名和密码不能为空');
     }
 
+    // 提取并校验 deviceId
+    let deviceId: string | undefined = req.body.deviceId;
+    if (deviceId && (typeof deviceId !== 'string' || deviceId.length > 64 || !/^[a-zA-Z0-9_]+$/.test(deviceId))) {
+      deviceId = undefined;
+    }
+
     const ip = req.ip || req.socket.remoteAddress || '';
     const userAgent = req.headers['user-agent'] || '';
 
-    const result = await authService.login({ username, password }, ip, userAgent);
+    const result = await authService.login({ username, password, deviceId }, ip, userAgent);
 
     res.cookie('sessionId', result.sessionId, {
       httpOnly: true,
@@ -166,6 +172,7 @@ router.get('/sessions', requireAuth, async (req: Request, res: Response, next: N
     const safeSessions = sessions.map(s => ({
       id: s.session_id,
       ipAddress: s.ip_address ? maskIP(s.ip_address) : null,
+      ipGroup: s.ip_address ? normalizeIPForGroup(s.ip_address) : null,
       userAgent: s.user_agent,
       createdAt: s.created_at,
       lastAccessed: s.last_accessed,
@@ -345,6 +352,18 @@ function maskIP(ip: string): string {
   }
 
   return '***';
+}
+
+/**
+ * 标准化 IP 用于分组
+ * 将 IPv6 映射的 IPv4 转为 IPv4 格式，用于按物理设备分组
+ */
+function normalizeIPForGroup(ip: string): string {
+  if (!ip) return '';
+  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return mapped[1];
+  if (ip === '::1') return '127.0.0.1';
+  return ip;
 }
 
 export default router;

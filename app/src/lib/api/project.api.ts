@@ -33,6 +33,7 @@ export async function getProjects(params: ProjectQueryParams = {}): Promise<Proj
     id: String(item.id),
     startDate: item.plannedStartDate || null,
     deadline: item.plannedEndDate || null,
+    memberIds: item.memberIds || [],
   }));
 
   return {

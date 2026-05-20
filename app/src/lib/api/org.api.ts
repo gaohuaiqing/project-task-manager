@@ -690,11 +690,12 @@ export async function getAssigneeRecommendations(taskType: string): Promise<Assi
  * 下载组织架构导入模板
  */
 export async function downloadOrganizationTemplate(): Promise<void> {
-  const blob = await apiClient.get(`${BASE_PATH}/export/template/organization`, {
+  const response = await apiClient.get(`${BASE_PATH}/export/template/organization`, {
     responseType: 'blob',
   });
-  // 注意：由于 axios 拦截器返回 response.data，所以这里 blob 已经是 Blob 类型
-  const url = window.URL.createObjectURL(blob as Blob);
+  // blob 类型响应拦截器返回完整 AxiosResponse，需取 response.data
+  const blob = response.data as Blob;
+  const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.setAttribute('download', 'organization_template.xlsx');
@@ -708,11 +709,12 @@ export async function downloadOrganizationTemplate(): Promise<void> {
  * 导出组织架构数据
  */
 export async function exportOrganization(): Promise<void> {
-  const blob = await apiClient.get(`${BASE_PATH}/export/organization`, {
+  const response = await apiClient.get(`${BASE_PATH}/export/organization`, {
     responseType: 'blob',
   });
-  // 注意：由于 axios 拦截器返回 response.data，所以这里 blob 已经是 Blob 类型
-  const url = window.URL.createObjectURL(blob as Blob);
+  // blob 类型响应拦截器返回完整 AxiosResponse，需取 response.data
+  const blob = response.data as Blob;
+  const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.setAttribute('download', `organization_${new Date().toISOString().split('T')[0]}.xlsx`);

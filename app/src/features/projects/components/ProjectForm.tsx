@@ -7,7 +7,7 @@
  * - 成员管理分组（树形选择器）
  * - 里程碑分组（动态增减）
  */
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -132,29 +132,31 @@ export function ProjectForm({
   // 选中的成员ID列表
   const selectedMemberIds = watch('memberIds') || [];
 
-  // 追踪项目 ID，只在项目切换时重置整个表单
-  const prevProjectIdRef = useRef<string | undefined>(undefined);
+  // 追踪项目 ID 和更新时间，确保数据变化时重置表单
+  const prevProjectRef = useRef<{ id: string; updatedAt: string } | undefined>(undefined);
   // 追踪里程碑是否已初始化（用于区分首次加载和更新后的数据刷新）
   const milestonesInitializedRef = useRef(false);
 
   // 对话框关闭时重置追踪引用，确保再次打开同一项目时能正确初始化
   useEffect(() => {
     if (!open) {
-      prevProjectIdRef.current = undefined;
+      prevProjectRef.current = undefined;
       milestonesInitializedRef.current = false;
     }
   }, [open]);
 
-  // 当项目 ID 变化或对话框打开时，初始化表单
+  // 当项目变化或对话框打开时，初始化表单
   useEffect(() => {
     if (!open) return; // 对话框关闭时不执行初始化
 
-    const currentProjectId = project?.id;
-    const isProjectChanged = prevProjectIdRef.current !== currentProjectId;
+    const currentKey = project ? { id: String(project.id), updatedAt: project.updatedAt || '' } : undefined;
+    const isProjectChanged = !prevProjectRef.current ||
+      prevProjectRef.current.id !== currentKey?.id ||
+      prevProjectRef.current.updatedAt !== currentKey?.updatedAt;
 
     if (project && isProjectChanged) {
-      // 项目切换，重置整个表单
-      prevProjectIdRef.current = currentProjectId;
+      // 项目切换或数据更新，重置整个表单
+      prevProjectRef.current = currentKey;
       milestonesInitializedRef.current = false; // 重置里程碑初始化标记
 
       reset({
@@ -178,9 +180,9 @@ export function ProjectForm({
       if (existingMilestones.length > 0) {
         milestonesInitializedRef.current = true;
       }
-    } else if (!project && prevProjectIdRef.current !== undefined) {
+    } else if (!project && prevProjectRef.current !== undefined) {
       // 关闭表单，清空数据
-      prevProjectIdRef.current = undefined;
+      prevProjectRef.current = undefined;
       milestonesInitializedRef.current = false;
       reset({
         code: '',
@@ -193,7 +195,7 @@ export function ProjectForm({
         milestones: [],
       });
     }
-  }, [project?.id, reset, open]);
+  }, [project, reset, open, existingMilestones]);
 
   // 当 existingMilestones 变化且里程碑未初始化时，更新里程碑字段
   // 这确保首次加载时能正确显示里程碑，但不会在里程碑更新后覆盖用户正在编辑的数据
@@ -488,11 +490,19 @@ export function ProjectForm({
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="startDate">开始日期 *</Label>
-                <DateInput
-                  data-testid="project-input-start-date"
-                  id="startDate"
-                  {...register('startDate', { required: '请选择开始日期' })}
-                  value={formatDateForInput(watch('startDate'))}
+                <Controller
+                  name="startDate"
+                  control={control}
+                  rules={{ required: '请选择开始日期' }}
+                  render={({ field }) => (
+                    <DateInput
+                      data-testid="project-input-start-date"
+                      id="startDate"
+                      value={formatDateForInput(field.value)}
+                      onChange={(e) => field.onChange(e.target.value)}
+                      onBlur={field.onBlur}
+                    />
+                  )}
                 />
                 {errors.startDate && (
                   <p className="text-xs text-destructive">{errors.startDate.message}</p>
@@ -500,11 +510,19 @@ export function ProjectForm({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="deadline">截止日期 *</Label>
-                <DateInput
-                  data-testid="project-input-deadline"
-                  id="deadline"
-                  {...register('deadline', { required: '请选择截止日期' })}
-                  value={formatDateForInput(watch('deadline'))}
+                <Controller
+                  name="deadline"
+                  control={control}
+                  rules={{ required: '请选择截止日期' }}
+                  render={({ field }) => (
+                    <DateInput
+                      data-testid="project-input-deadline"
+                      id="deadline"
+                      value={formatDateForInput(field.value)}
+                      onChange={(e) => field.onChange(e.target.value)}
+                      onBlur={field.onBlur}
+                    />
+                  )}
                 />
                 {errors.deadline && (
                   <p className="text-xs text-destructive">{errors.deadline.message}</p>
@@ -580,14 +598,20 @@ export function ProjectForm({
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs">目标日期 *</Label>
-                          <DateInput
-                            data-testid="project-input-milestone-date"
-                            id={`milestone-${index}-date`}
-                            {...register(`milestones.${index}.targetDate`, {
-                              required: '请选择目标日期',
-                            })}
-                            value={formatDateForInput(watch(`milestones.${index}.targetDate`))}
-                            className="h-8"
+                          <Controller
+                            name={`milestones.${index}.targetDate`}
+                            control={control}
+                            rules={{ required: '请选择目标日期' }}
+                            render={({ field }) => (
+                              <DateInput
+                                data-testid="project-input-milestone-date"
+                                id={`milestone-${index}-date`}
+                                value={formatDateForInput(field.value)}
+                                onChange={(e) => field.onChange(e.target.value)}
+                                onBlur={field.onBlur}
+                                className="h-8"
+                              />
+                            )}
                           />
                           {errors.milestones?.[index]?.targetDate && (
                             <p className="text-xs text-destructive">

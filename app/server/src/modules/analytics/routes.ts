@@ -336,6 +336,7 @@ router.get('/export/:domain', requirePermission('REPORT_EXPORT'), async (req: Re
       assignee_id: req.query.assignee_id ? parseInt(req.query.assignee_id as string) : undefined,
       start_date: req.query.start_date as string,
       end_date: req.query.end_date as string,
+      task_type: req.query.task_type as string,
       delay_type: req.query.delay_type as any,
     };
     const buffer = await analyticsService.exportData(domain, format, currentUser, filters);

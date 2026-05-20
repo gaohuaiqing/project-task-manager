@@ -82,6 +82,7 @@ import { getAvatarUrl } from '@/utils/avatar';
 
 interface DepartmentFormData {
   name: string;
+  parentId: number | null;
   managerId: number | null;
   coManagerId: number | null;
 }
@@ -209,7 +210,7 @@ export function OrganizationSettings() {
   const [capabilityDialogOpen, setCapabilityDialogOpen] = useState(false);
   const [selectedParentId, setSelectedParentId] = useState<number | null>(null);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
-  const [formData, setFormData] = useState<DepartmentFormData>({ name: '', managerId: null, coManagerId: null });
+  const [formData, setFormData] = useState<DepartmentFormData>({ name: '', parentId: null, managerId: null, coManagerId: null });
 
   // 选中的节点（用于右侧详情面板）
   const [selection, setSelection] = useState<Selection>({ type: 'none' });
@@ -390,13 +391,13 @@ export function OrganizationSettings() {
 
   const handleCreate = (parentId: number | null = null) => {
     setSelectedParentId(parentId);
-    setFormData({ name: '', managerId: null, coManagerId: null });
+    setFormData({ name: '', parentId: null, managerId: null, coManagerId: null });
     setCreateDialogOpen(true);
   };
 
   const handleEdit = (dept: Department) => {
     setSelectedDept(dept);
-    setFormData({ name: dept.name, managerId: dept.managerId, coManagerId: dept.coManagerId ?? null });
+    setFormData({ name: dept.name, parentId: dept.parentId, managerId: dept.managerId, coManagerId: dept.coManagerId ?? null });
     setEditDialogOpen(true);
   };
 
@@ -434,6 +435,7 @@ export function OrganizationSettings() {
     try {
       await updateMutation.mutateAsync({
         name: formData.name.trim(),
+        parentId: formData.parentId,
         managerId: formData.managerId,
         coManagerId: formData.coManagerId,
       });
@@ -443,7 +445,7 @@ export function OrganizationSettings() {
       if (selection.type === 'department' && selection.department?.id === selectedDept.id) {
         setSelection({
           type: 'department',
-          department: { ...selectedDept, name: formData.name, managerId: formData.managerId, coManagerId: formData.coManagerId }
+          department: { ...selectedDept, name: formData.name, parentId: formData.parentId, managerId: formData.managerId, coManagerId: formData.coManagerId }
         });
       }
     } catch (error: any) {
@@ -1453,6 +1455,52 @@ export function OrganizationSettings() {
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 data-testid="org-input-department-name"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>上级部门</Label>
+              <Select
+                value={formData.parentId?.toString() || 'none'}
+                onValueChange={(val) => setFormData({ ...formData, parentId: val === 'none' ? null : parseInt(val) })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="无（顶级部门）" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">无（顶级部门）</SelectItem>
+                  {(() => {
+                    const getDescendantIds = (id: number): Set<number> => {
+                      const ids = new Set<number>();
+                      const find = map.get(id);
+                      if (find?.children) {
+                        for (const child of find.children) {
+                          ids.add(child.id);
+                          for (const cid of getDescendantIds(child.id)) ids.add(cid);
+                        }
+                      }
+                      return ids;
+                    };
+                    const map = new Map(departments.map(d => [d.id, d]));
+                    const excludeIds = selectedDept ? getDescendantIds(selectedDept.id) : new Set<number>();
+                    if (selectedDept) excludeIds.add(selectedDept.id);
+                    const flatten = (list: Department[], prefix = ''): { id: number; label: string }[] => {
+                      const result: { id: number; label: string }[] = [];
+                      for (const dept of list) {
+                        if (!excludeIds.has(dept.id)) {
+                          result.push({ id: dept.id, label: prefix + dept.name });
+                          if (dept.children) {
+                            result.push(...flatten(dept.children, prefix + '　'));
+                          }
+                        }
+                      }
+                      return result;
+                    };
+                    const tree = buildDepartmentTree(departments);
+                    return flatten(tree).map(opt => (
+                      <SelectItem key={opt.id} value={opt.id.toString()}>{opt.label}</SelectItem>
+                    ));
+                  })()}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="editManager">部门负责人</Label>

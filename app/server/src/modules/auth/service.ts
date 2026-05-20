@@ -45,39 +45,58 @@ export class AuthService {
     // 重置登录尝试
     await this.repo.updateLoginAttempts(user.id, 0, null);
 
-    // 检查并管理多设备登录限制
+    const deviceId = data.deviceId || null;
+    const normalizedIP = this.normalizeIP(ip);
+
+    // 获取用户所有活跃会话
     const activeSessions = await this.repo.getActiveSessionsByUser(user.id);
-    const newDeviceLogin = this.isNewDeviceLogin(activeSessions, ip, userAgent);
 
-    // 查找同一设备的旧会话（相同 IP + User-Agent）
-    const sameDeviceSession = activeSessions.find(s =>
-      s.ip_address === ip && s.user_agent === userAgent
-    );
+    // 按 IP 分组处理会话
+    const sameIPSessions = activeSessions.filter(s => this.normalizeIP(s.ip_address || '') === normalizedIP);
+    const differentIPSessions = activeSessions.filter(s => this.normalizeIP(s.ip_address || '') !== normalizedIP);
 
-    // 如果存在同一设备的旧会话，先终止（避免本地开发时会话累积）
-    if (sameDeviceSession) {
-      await this.repo.terminateSession(sameDeviceSession.session_id, 'replaced_by_new_login');
-      logger.info(`[Auth] User ${user.id} re-login from same device, terminated old session ${sameDeviceSession.session_id.substring(0, 8)}...`);
+    // 1. 踢掉不同 IP 的所有会话（不同电脑）
+    if (differentIPSessions.length > 0) {
+      await this.repo.terminateSessions(
+        differentIPSessions.map(s => s.session_id),
+        'kicked_by_new_device'
+      );
+      for (const session of differentIPSessions) {
+        await this.notifySessionTerminated(user, session, 'kicked_by_new_device', ip);
+      }
+      logger.info(`[Auth] User ${user.id} login from new IP ${normalizedIP}, terminated ${differentIPSessions.length} sessions from other IPs`);
     }
 
-    if (activeSessions.length >= MAX_SESSIONS_PER_USER) {
-      // 终止最旧的会话并发送通知
-      const sessionsToTerminate = activeSessions
-        .filter(s => s.session_id !== sameDeviceSession?.session_id) // 排除已经终止的
-        .slice(0, activeSessions.length - MAX_SESSIONS_PER_USER + 1);
+    // 2. 同 IP：查找同 fingerprint 的旧会话（同浏览器重新登录）
+    const sameFingerprintSession = deviceId
+      ? sameIPSessions.find(s => s.device_fingerprint === deviceId)
+      : sameIPSessions.find(s => s.ip_address === ip && s.user_agent === userAgent);
 
-      for (const session of sessionsToTerminate) {
-        await this.notifySessionTerminated(user, session, 'max_sessions_exceeded', ip);
-      }
+    if (sameFingerprintSession) {
+      await this.repo.terminateSession(sameFingerprintSession.session_id, 'replaced_by_new_login');
+      logger.info(`[Auth] User ${user.id} re-login from same device, terminated old session ${sameFingerprintSession.session_id.substring(0, 8)}...`);
+    }
 
+    // 2.5 防止同 IP 会话无限增长（隐身模式、清除 localStorage 等）
+    const remainingSameIPSessions = sameIPSessions.filter(
+      s => s.session_id !== sameFingerprintSession?.session_id
+    );
+    if (remainingSameIPSessions.length >= MAX_SESSIONS_PER_USER) {
+      const excess = remainingSameIPSessions
+        .sort((a, b) => {
+          const aTime = a.created_at instanceof Date ? a.created_at.getTime() : Number(a.created_at) * 1000;
+          const bTime = b.created_at instanceof Date ? b.created_at.getTime() : Number(b.created_at) * 1000;
+          return aTime - bTime;
+        })
+        .slice(0, remainingSameIPSessions.length - MAX_SESSIONS_PER_USER + 1);
       await this.repo.terminateSessions(
-        sessionsToTerminate.map(s => s.session_id),
+        excess.map(s => s.session_id),
         'max_sessions_exceeded'
       );
-      logger.info(`[Auth] User ${user.id} exceeded max sessions, terminated ${sessionsToTerminate.length} old sessions`);
+      logger.info(`[Auth] User ${user.id} same-IP sessions exceeded limit, terminated ${excess.length} oldest`);
     }
 
-    // 创建会话
+    // 3. 创建新会话
     const sessionId = uuidv4();
     const expiresAt = new Date(Date.now() + SESSION_DURATION_DAYS * 24 * 60 * 60 * 1000);
     await this.repo.createSession({
@@ -85,15 +104,16 @@ export class AuthService {
       user_id: user.id,
       ip_address: ip,
       user_agent: userAgent,
+      device_fingerprint: deviceId,
       expires_at: expiresAt,
     });
 
-    // 如果是新设备登录，发送通知（排除同一设备重新登录的情况）
-    if (newDeviceLogin && activeSessions.length > 0 && !sameDeviceSession) {
+    // 4. 如果从不同 IP 登录且有活跃会话，发送新设备通知
+    if (differentIPSessions.length > 0) {
       await this.notifyNewDeviceLogin(user, activeSessions, ip, userAgent);
     }
 
-    // 记录登录审计日志（同步写入，确保安全操作被记录）
+    // 记录登录审计日志
     await audit.logSync({
       userId: user.id,
       username: user.real_name,
@@ -360,34 +380,17 @@ export class AuthService {
   // ========== 私有辅助方法 ==========
 
   /**
-   * 检查是否为新设备登录
+   * 标准化 IP 地址用于比较
+   * IPv6 映射的 IPv4 地址转换为 IPv4 格式
    */
-  private isNewDeviceLogin(sessions: Session[], ip: string, userAgent: string): boolean {
-    if (sessions.length === 0) return false;
-
-    // 本地 IP 不触发新设备通知（::1 是 IPv6 localhost，127.0.0.1 是 IPv4 localhost）
-    if (this.isLocalIP(ip)) return false;
-
-    // 检查是否有相同 User-Agent 的会话（同一浏览器）
-    const sameBrowser = sessions.some(s =>
-      s.user_agent === userAgent
-    );
-
-    // 如果是同一浏览器，检查是否来自相同网络环境
-    if (sameBrowser) {
-      // 检查是否有相同 IP 或相同子网的会话
-      const sameNetwork = sessions.some(s =>
-        s.ip_address && (s.ip_address === ip || this.isSameIPSubnet(s.ip_address, ip))
-      );
-      if (sameNetwork) return false;
-    }
-
-    // 检查是否有相同 IP 和 User-Agent 的会话
-    const knownDevice = sessions.some(s =>
-      s.ip_address === ip && s.user_agent === userAgent
-    );
-
-    return !knownDevice;
+  private normalizeIP(ip: string): string {
+    if (!ip) return '';
+    // ::ffff:192.168.1.1 -> 192.168.1.1
+    const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapped) return mapped[1];
+    // IPv6 localhost
+    if (ip === '::1') return '127.0.0.1';
+    return ip;
   }
 
   /**
@@ -395,42 +398,9 @@ export class AuthService {
    */
   private isLocalIP(ip: string): boolean {
     if (!ip) return false;
-
-    // IPv4 本地地址
     if (ip === '127.0.0.1' || ip.startsWith('127.')) return true;
-
-    // IPv6 本地地址
     if (ip === '::1' || ip === '::1%0' || ip.startsWith('::ffff:127.')) return true;
-
-    // 内网地址（可选：10.x.x.x, 172.16-31.x.x, 192.168.x.x）
-    // 这些通常不触发新设备通知，但可以根据需求调整
-
     return false;
-  }
-
-  /**
-   * 检查两个 IP 是否在同一子网（/24）
-   */
-  private isSameIPSubnet(ip1: string, ip2: string): boolean {
-    if (!ip1 || !ip2) return false;
-
-    // 先检查是否都是本地 IP
-    if (this.isLocalIP(ip1) && this.isLocalIP(ip2)) return true;
-
-    // IPv4 子网比较
-    const parts1 = ip1.split('.');
-    const parts2 = ip2.split('.');
-
-    if (parts1.length === 4 && parts2.length === 4) {
-      // 比较 /24 子网（前三段）
-      return parts1[0] === parts2[0] &&
-             parts1[1] === parts2[1] &&
-             parts1[2] === parts2[2];
-    }
-
-    // IPv6 或其他格式：简单比较前半部分
-    return ip1.substring(0, Math.floor(ip1.length / 2)) ===
-           ip2.substring(0, Math.floor(ip2.length / 2));
   }
 
   /**
@@ -546,14 +516,8 @@ export class AuthService {
     newLoginIP?: string
   ): Promise<void> {
     try {
-      // 仅在超过最大会话数场景发送通知
-      if (reason !== 'max_sessions_exceeded') {
-        return;
-      }
-
-      // 本地 IP 登录不发送通知（同一设备）
-      if (newLoginIP && this.isLocalIP(newLoginIP)) {
-        logger.info(`[Auth] 本地登录不发送会话终止通知，用户 ${user.id}`);
+      // 仅在踢设备场景发送通知
+      if (reason !== 'kicked_by_new_device' && reason !== 'max_sessions_exceeded') {
         return;
       }
 

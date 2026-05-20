@@ -1,0 +1,105 @@
+{
+  "testConfig": {
+    "description": "交付前测试数据配置",
+    "loginPattern": "登录名=工号，密码=工号",
+    "note": "用户使用系统已有账户，不创建新用户"
+  },
+  "testAccounts": [
+    { "id": 1, "username": "admin", "password": "admin", "real_name": "系统管理员", "role": "admin" },
+    { "id": 1598, "username": "50223183", "password": "50223183", "real_name": "高怀庆", "role": "dept_manager" },
+    { "id": 1603, "username": "50233164", "password": "50233164", "real_name": "汪志明", "role": "tech_manager" },
+    { "id": 1604, "username": "50234447", "password": "50234447", "real_name": "陈理", "role": "tech_manager" },
+    { "id": 1606, "username": "50241392", "password": "50241392", "real_name": "张达", "role": "engineer" },
+    { "id": 1607, "username": "50260249", "password": "50260249", "real_name": "陈霄", "role": "engineer" },
+    { "id": 1608, "username": "50261934", "password": "50261934", "real_name": "叶协通", "role": "engineer" },
+    { "id": 1609, "username": "50265571", "password": "50265571", "real_name": "胡斌", "role": "engineer" }
+  ],
+  "testProjects": [
+    {
+      "name": "测试项目A-产品开发",
+      "code": "TEST-A",
+      "project_type": "product_dev",
+      "status": "in_progress",
+      "memberIds": [1607, 1606]
+    },
+    {
+      "name": "测试项目B-功能管理",
+      "code": "TEST-B",
+      "project_type": "func_mgmt",
+      "status": "in_progress",
+      "memberIds": [1608, 1609]
+    },
+    {
+      "name": "测试项目C-技术研究",
+      "code": "TEST-C",
+      "project_type": "tech_research",
+      "status": "planning",
+      "memberIds": [1606, 1607, 1608]
+    }
+  ],
+  "testTasks": [
+    {
+      "projectIndex": 0,
+      "wbsCode": "1",
+      "description": "项目A根任务",
+      "assigneeId": 1603,
+      "duration": 10,
+      "level": 1,
+      "status": "in_progress"
+    },
+    {
+      "projectIndex": 0,
+      "wbsCode": "1.1",
+      "description": "项目A子任务-开发阶段",
+      "assigneeId": 1607,
+      "duration": 5,
+      "level": 2,
+      "status": "not_started"
+    },
+    {
+      "projectIndex": 0,
+      "wbsCode": "1.2",
+      "description": "项目A子任务-测试阶段",
+      "assigneeId": 1606,
+      "duration": 5,
+      "level": 2,
+      "status": "not_started"
+    },
+    {
+      "projectIndex": 1,
+      "wbsCode": "1",
+      "description": "项目B根任务",
+      "assigneeId": 1604,
+      "duration": 15,
+      "level": 1,
+      "status": "in_progress"
+    },
+    {
+      "projectIndex": 1,
+      "wbsCode": "1.1",
+      "description": "项目B子任务-功能设计",
+      "assigneeId": 1608,
+      "duration": 7,
+      "level": 2,
+      "status": "in_progress"
+    },
+    {
+      "projectIndex": 1,
+      "wbsCode": "1.2",
+      "description": "项目B子任务-功能测试",
+      "assigneeId": 1609,
+      "duration": 8,
+      "level": 2,
+      "status": "not_started"
+    },
+    {
+      "projectIndex": 2,
+      "wbsCode": "1",
+      "description": "项目C根任务",
+      "assigneeId": 1603,
+      "duration": 20,
+      "level": 1,
+      "status": "not_started"
+    }
+  ]
+}

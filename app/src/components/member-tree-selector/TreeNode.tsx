@@ -102,11 +102,8 @@ function TreeNodeComponent({
     <div className="select-none">
       {/* 节点行 */}
       <div
-        className={cn(
-          'flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer',
-          'hover:bg-accent transition-colors',
-          level > 0 && 'ml-4'
-        )}
+        className="flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer hover:bg-accent transition-colors"
+        style={{ marginLeft: level > 0 ? `${level * 16}px` : undefined }}
       >
         {/* 展开/折叠按钮（仅部门节点） */}
         {isDepartment ? (

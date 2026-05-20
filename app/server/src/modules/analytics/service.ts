@@ -288,24 +288,42 @@ export class AnalyticsService {
         break;
       }
       case 'project-progress': {
-        // 支持不指定项目ID时导出全部项目进度
         if (filters?.project_id) {
           const report = await this.repo.getProjectProgressReport(filters.project_id, user);
           if (!report) throw new ValidationError('项目不存在');
           data = report as unknown as Record<string, unknown>;
         } else {
-          const report = await this.repo.getAllProjectsProgress(user);
-          data = { projects: report } as unknown as Record<string, unknown>;
+          // 汇总导出：将项目列表转为 Excel 友好结构
+          const projects = await this.repo.getAllProjectsProgress(user);
+          data = {
+            projects_summary: projects.map(p => ({
+              project_name: p.project_name,
+              status: p.status,
+              progress: p.progress,
+              total_tasks: p.total_tasks,
+              completed_tasks: p.completed_tasks,
+            })),
+          } as unknown as Record<string, unknown>;
         }
         break;
       }
       case 'member-analysis': {
-        const report = await this.repo.getMemberAnalysisExtended(filters || {}, user);
+        const memberOptions: MemberAnalysisQueryOptions = {
+          member_id: filters?.assignee_id,
+          start_date: filters?.start_date,
+          end_date: filters?.end_date,
+        };
+        const report = await this.repo.getMemberAnalysisExtended(memberOptions, user);
         data = report as unknown as Record<string, unknown>;
         break;
       }
       case 'resource-efficiency': {
-        const report = await this.repo.getResourceEfficiencyReport(filters || {}, user);
+        const resourceOptions: ResourceEfficiencyQueryOptions = {
+          project_id: filters?.project_id,
+          start_date: filters?.start_date,
+          end_date: filters?.end_date,
+        };
+        const report = await this.repo.getResourceEfficiencyReport(resourceOptions, user);
         data = report as unknown as Record<string, unknown>;
         break;
       }
@@ -410,7 +428,24 @@ export class AnalyticsService {
       }
 
       case 'project-progress': {
-        // 写入项目进度数据
+        // 汇总模式（多项目对比）vs 单项目模式
+        const projectsSummary = (data.projects_summary || []) as Array<Record<string, unknown>>;
+        if (projectsSummary.length > 0) {
+          // 汇总模式：每个项目一行
+          worksheet.columns = [
+            { header: '项目名称', key: 'project_name', width: 30 },
+            { header: '状态', key: 'status', width: 15 },
+            { header: '进度(%)', key: 'progress', width: 10 },
+            { header: '总任务数', key: 'total_tasks', width: 12 },
+            { header: '已完成任务', key: 'completed_tasks', width: 12 },
+          ];
+          worksheet.getRow(1).eachCell((cell: Cell) => {
+            cell.style = headerStyle;
+          });
+          worksheet.addRows(projectsSummary);
+          break;
+        }
+        // 单项目模式：里程碑 + 状态分布
         const milestones = (data.milestones || []) as Array<Record<string, unknown>>;
         const statusDist = (data.status_distribution || []) as Array<Record<string, unknown>>;
         // Sheet 1: 里程碑

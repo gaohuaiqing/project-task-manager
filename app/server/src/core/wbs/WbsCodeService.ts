@@ -53,25 +53,24 @@ export class WbsCodeService {
       childrenMap.get(parentId)!.push(task);
     });
 
-    // 每层排序：sort_order 优先，无则按 created_at
+    // 每层排序：与 MySQL ORDER BY sort_order ASC 行为一致（NULL 排最前）
     childrenMap.forEach(children => {
       children.sort((a, b) => {
-        // 都有 sort_order，按 sort_order 排序
-        if (a.sort_order !== null && b.sort_order !== null) {
-          return a.sort_order - b.sort_order;
+        // 都为 NULL，按创建时间排序
+        if (a.sort_order === null && b.sort_order === null) {
+          const aTime = a.created_at
+            ? (typeof a.created_at === 'string' ? new Date(a.created_at).getTime() : a.created_at.getTime())
+            : 0;
+          const bTime = b.created_at
+            ? (typeof b.created_at === 'string' ? new Date(b.created_at).getTime() : b.created_at.getTime())
+            : 0;
+          return aTime - bTime;
         }
-        // 只有 a 有 sort_order，a 排前面
-        if (a.sort_order !== null) return -1;
-        // 只有 b 有 sort_order，b 排前面
-        if (b.sort_order !== null) return 1;
-        // 都没有 sort_order，按创建时间排序（空值按原始顺序）
-        const aTime = a.created_at
-          ? (typeof a.created_at === 'string' ? new Date(a.created_at).getTime() : a.created_at.getTime())
-          : 0;
-        const bTime = b.created_at
-          ? (typeof b.created_at === 'string' ? new Date(b.created_at).getTime() : b.created_at.getTime())
-          : 0;
-        return aTime - bTime;
+        // NULL 排最前（与 MySQL ASC 一致）
+        if (a.sort_order === null) return -1;
+        if (b.sort_order === null) return 1;
+        // 都有 sort_order，按数值排序
+        return a.sort_order - b.sort_order;
       });
     });
 

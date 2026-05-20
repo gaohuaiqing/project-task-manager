@@ -24,6 +24,7 @@ interface MeResponse {
 export interface SessionInfo {
   id: string;
   ipAddress: string | null;
+  ipGroup: string | null;
   userAgent: string | null;
   createdAt: number;
   lastAccessed: number;
