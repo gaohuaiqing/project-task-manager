@@ -167,6 +167,11 @@ export function TaskForm({
         return false;
       }
     }
+    // 新建任务时，责任人是必填项（编辑模式不强制，允许保留存量未分配任务）
+    if (!isEdit && !data.assigneeId) {
+      setError('请选择责任人');
+      return false;
+    }
     return true;
   };
 
@@ -452,7 +457,7 @@ export function TaskForm({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="flex items-center gap-2">
-                负责人
+                负责人 {!isEdit && <span className="text-destructive">*</span>}
                 {!permissions.canEditAssignee && (
                   <Lock className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
@@ -480,15 +485,14 @@ export function TaskForm({
             </div>
             <Select
               data-testid="task-select-assignee"
-              value={watch('assigneeId')?.toString() || 'none'}
-              onValueChange={(value) => setValue('assigneeId', value === 'none' ? null : parseInt(value))}
+              value={watch('assigneeId')?.toString() || ''}
+              onValueChange={(value) => setValue('assigneeId', parseInt(value))}
               disabled={!permissions.canEditAssignee}
             >
               <SelectTrigger className={!permissions.canEditAssignee ? 'opacity-60' : ''}>
-                <SelectValue placeholder="选择负责人" />
+                <SelectValue placeholder="请选择责任人" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">未指定</SelectItem>
                 {allMembers.map((member) => (
                   <SelectItem key={member.id} value={member.id.toString()}>
                     <div className="flex items-center gap-2">
