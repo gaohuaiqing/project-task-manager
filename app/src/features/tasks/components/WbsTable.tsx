@@ -256,6 +256,8 @@ export const WbsTable = React.memo(function WbsTable({
 }: WbsTableProps) {
   // 获取当前用户（用于权限计算）
   const { user } = useAuth();
+  // 组件级权限（顶部「新建任务」/空状态「添加根任务」入口用：canCreate=是否可建根任务，仅 manager）
+  const rootPermissions = computeTaskPermissions(user);
   const { toast } = useToast();
 
   // 拖拽历史记录（用于撤销）
@@ -1201,7 +1203,10 @@ export const WbsTable = React.memo(function WbsTable({
           // 添加同级任务 - 使用 Map O(1) 查找
           if (onCreateTask) {
             const selectedTask = taskMap.get(selectedRowId);
-            onCreateTask(selectedTask?.parentId, selectedTask?.depth);
+            // 工程师(canCreate=false)仅能基于选中子任务(有parentId)创建同级；manager 可建根任务
+            if (rootPermissions.canCreate || selectedTask?.parentId) {
+              onCreateTask(selectedTask?.parentId, selectedTask?.depth);
+            }
           }
           break;
         case 'Delete':
@@ -1297,10 +1302,12 @@ export const WbsTable = React.memo(function WbsTable({
               </Button>
             </div>
           )}
-          <Button data-testid="task-btn-create-task" variant="outline" size="sm" onClick={() => onCreateTask()}>
-            <Plus className="h-4 w-4 mr-2" />
-            新建任务
-          </Button>
+          {rootPermissions.canCreate && (
+            <Button data-testid="task-btn-create-task" variant="outline" size="sm" onClick={() => onCreateTask()}>
+              <Plus className="h-4 w-4 mr-2" />
+              新建任务
+            </Button>
+          )}
           {/* 撤销拖拽 */}
           {reorderHistory.length > 0 && (
             <Button
@@ -1542,10 +1549,12 @@ export const WbsTable = React.memo(function WbsTable({
                 >
                   <div className="flex flex-col items-center gap-4">
                     <p>暂无任务数据</p>
-                    <Button variant="outline" size="sm" onClick={() => onCreateTask?.()}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      添加根任务
-                    </Button>
+                    {rootPermissions.canCreate && (
+                      <Button variant="outline" size="sm" onClick={() => onCreateTask?.()}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        添加根任务
+                      </Button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -1676,6 +1685,32 @@ export const WbsTable = React.memo(function WbsTable({
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* 筛选结果统计栏：显示当前筛选后的任务数量及各状态分布（computed_status 口径，与 WBS 显示一致） */}
+      <div className="shrink-0 flex items-center gap-2 px-1 pt-3 text-xs text-muted-foreground flex-wrap border-t border-border/40">
+        <span>筛选结果：<span className="font-semibold text-foreground">{tasks.length}</span> 个任务</span>
+        <span className="text-border">|</span>
+        {(() => {
+          const counts: Record<string, number> = {};
+          for (const t of tasks) {
+            const s = String(t.computedStatus || t.status || '');
+            if (s) counts[s] = (counts[s] || 0) + 1;
+          }
+          // 显示顺序：延期相关优先（用户最关注），其次进行中/未开始，最后完成类
+          const ORDER = ['delayed', 'delay_warning', 'in_progress', 'not_started', 'overdue_completed', 'early_completed', 'on_time_completed', 'pending_approval'];
+          const COLORS = STATUS_COLORS as Record<string, { bg: string; text: string; label: string }>;
+          return ORDER.filter(s => counts[s]).map(s => {
+            const c = COLORS[s];
+            if (!c) return null;
+            return (
+              <span key={s} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${c.bg} ${c.text}`}>
+                {c.label} {counts[s]}
+              </span>
+            );
+          });
+        })()}
+        {tasks.length === 0 && <span className="italic">无匹配任务</span>}
       </div>
 
       {/* 快捷键提示 */}

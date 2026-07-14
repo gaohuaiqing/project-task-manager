@@ -22,8 +22,7 @@ import {
   useReorderTask,
 } from './hooks/useTaskMutations';
 import { useProjects } from '@/features/projects/hooks/useProjects';
-import { getMembers } from '@/lib/api/org.api';
-import { taskApi, batchDeleteTasks } from '@/lib/api/task.api';
+import { taskApi, batchDeleteTasks, getTaskFilterOptions } from '@/lib/api/task.api';
 import type { BatchDeleteTaskResult, ImportResult } from '@/lib/api/task.api';
 import { queryKeys } from '@/lib/api/query-keys';
 import { invalidationBatcher } from '@/lib/utils/invalidationBatcher';
@@ -92,17 +91,33 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     }));
   }, [projectId]);
 
+  // 项目联动失效清理：项目筛选变化时清空已选负责人（候选已变，可能失效）
+  const selectedProjectKey = Array.isArray(filters.projectId)
+    ? filters.projectId.join(',')
+    : filters.projectId;
+  useEffect(() => {
+    setFilters((prev) => {
+      if (!prev.assigneeId && !prev.includeUnassigned) return prev;
+      return { ...prev, assigneeId: undefined, includeUnassigned: undefined };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectKey]);
+
   // 查询任务列表（使用筛选参数）
   const { data: tasksData, isLoading: tasksLoading } = useTasks(filters);
 
   // 查询项目列表（用于下拉选择）
   const { data: projectsData } = useProjects({ pageSize: 100 });
 
-  // 查询成员列表（用于负责人下拉）
-  const { data: membersData } = useQuery({
-    queryKey: queryKeys.org.members(),
-    queryFn: () => getMembers({ pageSize: 100, status: 'active' }),
-    staleTime: 5 * 60 * 1000, // 5 分钟
+  // 查询负责人候选（有任务的 distinct 责任人，项目联动）
+  const projectIdForFilter = useMemo(() => {
+    if (!filters.projectId) return undefined;
+    return Array.isArray(filters.projectId) ? filters.projectId : [filters.projectId];
+  }, [filters.projectId]);
+  const { data: filterOptionsData } = useQuery({
+    queryKey: ['task', 'filterOptions', filters.projectId],
+    queryFn: () => getTaskFilterOptions({ projectId: projectIdForFilter }),
+    staleTime: 60 * 1000,
   });
 
   // Mutations
@@ -406,10 +421,10 @@ export default function TasksPage({ projectId }: TasksPageProps) {
     setPendingFieldUpdate(null);
   }, [pendingFieldUpdate, queryClient]);
 
-  // 成员列表（简化格式）
+  // 负责人候选（有任务的 distinct 责任人，含未分配 id=null）
   const members = useMemo(() => {
-    return membersData?.items.map(m => ({ id: m.id, name: m.name })) ?? [];
-  }, [membersData]);
+    return filterOptionsData?.assignees ?? [];
+  }, [filterOptionsData]);
 
   // 项目列表（简化格式）
   const projects = useMemo(() => {

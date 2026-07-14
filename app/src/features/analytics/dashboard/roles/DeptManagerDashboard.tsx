@@ -95,6 +95,8 @@ export function DeptManagerDashboard({
     loadRate: group.loadRate,
     activity: group.activity,
     memberCount: group.memberCount,
+    totalTasks: group.totalTasks,
+    rootTasks: group.rootTasks,
     trend: group.trend,
     status: group.status,
   })) || [];

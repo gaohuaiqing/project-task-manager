@@ -64,6 +64,8 @@ export interface GroupEfficiency {
   loadRate: number;
   activity: number;
   memberCount: number;
+  totalTasks: number;
+  rootTasks: number;
   trend: number;
   status: 'healthy' | 'warning' | 'risk';
 }

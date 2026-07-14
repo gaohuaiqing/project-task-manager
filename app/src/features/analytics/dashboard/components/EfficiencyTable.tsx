@@ -30,6 +30,8 @@ export interface EfficiencyItem {
   loadRate?: number;
   activity?: number;
   memberCount?: number;
+  totalTasks?: number;
+  rootTasks?: number;
   trend: number;
   status: 'healthy' | 'warning' | 'risk';
 }
@@ -102,6 +104,11 @@ export function EfficiencyTable({
                 成员数
               </TableHead>
             )}
+            {type === 'group' && (
+              <TableHead className="text-xs font-medium text-gray-500 dark:text-gray-400 text-center">
+                总任务(根)
+              </TableHead>
+            )}
             <TableHead className="text-xs font-medium text-gray-500 dark:text-gray-400 text-center">
               完成率
             </TableHead>
@@ -144,6 +151,11 @@ export function EfficiencyTable({
                 {type === 'group' && (
                   <TableCell className="text-center text-gray-600 dark:text-gray-400">
                     {item.memberCount}
+                  </TableCell>
+                )}
+                {type === 'group' && (
+                  <TableCell className="text-center font-mono tabular-nums text-gray-600 dark:text-gray-400">
+                    {item.totalTasks || 0} ({item.rootTasks || 0})
                   </TableCell>
                 )}
                 <TableCell className="text-center">

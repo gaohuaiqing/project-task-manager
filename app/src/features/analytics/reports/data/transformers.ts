@@ -319,6 +319,33 @@ export function transformDelayAnalysisReport(
     riskLevel: task.delayDays > DELAY_DAYS_RISK.high ? 'high' : task.delayDays > DELAY_DAYS_RISK.medium ? 'medium' : 'low',
   }));
 
+  // 图表①：当前已延期的责任人排行（横条图，双指标：当前延期任务数 + 历史延期次数）
+  const delayedMembers = [...(report.delayedMemberStats || [])]
+    .sort((a, b) => b.delayedTaskCount - a.delayedTaskCount)
+    .slice(0, DISPLAY_LIMITS.topDelayMembers);
+  const delayedMemberChart: BarChartData = delayedMembers.length > 0
+    ? {
+        labels: delayedMembers.map(m => m.assigneeName),
+        datasets: [
+          { label: '当前延期任务数', values: delayedMembers.map(m => m.delayedTaskCount), color: C.red },
+          { label: '历史延期次数', values: delayedMembers.map(m => m.totalDelayCount), color: C.amber },
+        ],
+      }
+    : { labels: [], datasets: [] };
+
+  // 图表②：延期预警责任人排行（横条图，单指标：预警任务数）
+  const warningMembers = [...(report.warningMemberStats || [])]
+    .sort((a, b) => b.warningTaskCount - a.warningTaskCount)
+    .slice(0, DISPLAY_LIMITS.topDelayMembers);
+  const warningMemberChart: BarChartData = warningMembers.length > 0
+    ? {
+        labels: warningMembers.map(m => m.assigneeName),
+        datasets: [
+          { label: '预警任务数', values: warningMembers.map(m => m.warningTaskCount), color: C.amber },
+        ],
+      }
+    : { labels: [], datasets: [] };
+
   return {
     stats,
     delayTypeChart,
@@ -326,6 +353,8 @@ export function transformDelayAnalysisReport(
     delayTrend,
     delayResolvedTrend,
     delayTasks,
+    delayedMemberChart,
+    warningMemberChart,
   };
 }
 

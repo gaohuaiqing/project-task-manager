@@ -16,6 +16,9 @@ export interface DelayAnalysisTabProps {
 export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
   const { data, isLoading, error } = useDelayAnalysisData(filters);
   const [activeTable, setActiveTable] = useState<'tasks' | 'members'>('tasks');
+  // 延期任务列表分页状态（DataTable 为受控分页：外部管理 page/pageSize 并切片当前页数据）
+  const [taskPage, setTaskPage] = useState(1);
+  const [taskPageSize, setTaskPageSize] = useState(10);
 
   if (isLoading) {
     return (
@@ -32,6 +35,11 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
       </div>
     );
   }
+
+  // 分页页码保护：切换筛选条件后数据变少时，防止 taskPage 越界导致空白页
+  const taskTotal = data.delayTasks.length;
+  const taskMaxPage = Math.max(1, Math.ceil(taskTotal / taskPageSize));
+  const safeTaskPage = Math.min(taskPage, taskMaxPage);
 
   const handlePointClick = (_point: ScatterPoint) => {
     // TODO: 跳转到该成员的延期任务列表
@@ -61,6 +69,34 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
 
         <ChartContainer title="延期收敛/扩散趋势" subtitle="新增vs已解决">
           <LineChart data={data.delayResolvedTrend} yAxisLabel="任务数" />
+        </ChartContainer>
+      </ChartGroup>
+
+      {/* 图表区域 - 责任人维度横条排行（新增）*/}
+      <ChartGroup>
+        <ChartContainer
+          title="当前已延期的责任人"
+          subtitle="当前延期任务数 vs 历史延期次数（Top 10）"
+        >
+          <BarChart
+            data={data.delayedMemberChart}
+            layout="vertical"
+            height={360}
+            showLegend
+            yAxisLabel="责任人"
+          />
+        </ChartContainer>
+
+        <ChartContainer
+          title="延期预警责任人"
+          subtitle="预警任务数排行（Top 10）"
+        >
+          <BarChart
+            data={data.warningMemberChart}
+            layout="vertical"
+            height={360}
+            yAxisLabel="责任人"
+          />
         </ChartContainer>
       </ChartGroup>
 
@@ -118,8 +154,10 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
         {activeTable === 'tasks' ? (
           <DataTable
             columns={DELAY_TASK_COLUMNS}
-            data={data.delayTasks}
-            pagination={{ page: 1, pageSize: 10, total: data.delayTasks.length }}
+            data={data.delayTasks.slice((safeTaskPage - 1) * taskPageSize, safeTaskPage * taskPageSize)}
+            pagination={{ page: safeTaskPage, pageSize: taskPageSize, total: data.delayTasks.length }}
+            onPageChange={setTaskPage}
+            onPageSizeChange={(ps) => { setTaskPageSize(ps); setTaskPage(1); }}
           />
         ) : data.memberDelayStats ? (
           <DataTable

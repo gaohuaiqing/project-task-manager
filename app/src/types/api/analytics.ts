@@ -131,6 +131,22 @@ export interface TaskTypeDistributionItem {
   avgDuration: number;
 }
 
+export interface DelayedMemberStat {
+  assigneeId: number;
+  assigneeName: string;
+  /** 当前延期任务数 */
+  delayedTaskCount: number;
+  /** 历史延期次数（该责任人所有任务 delay_count 之和） */
+  totalDelayCount: number;
+}
+
+export interface WarningMemberStat {
+  assigneeId: number;
+  assigneeName: string;
+  /** 预警任务数 */
+  warningTaskCount: number;
+}
+
 export interface DelayAnalysisReport {
   totalDelayed: number;
   warningCount: number;
@@ -139,6 +155,10 @@ export interface DelayAnalysisReport {
   delayReasons: DelayReasonCount[];
   delayTrend: TrendDataPoint[];
   delayedTasks: DelayedTaskItem[];
+  /** 图表①：当前已延期的责任人排行 */
+  delayedMemberStats: DelayedMemberStat[];
+  /** 图表②：延期预警责任人排行 */
+  warningMemberStats: WarningMemberStat[];
 }
 
 export interface DelayedTaskItem {

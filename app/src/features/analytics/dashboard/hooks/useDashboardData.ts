@@ -142,6 +142,7 @@ function mapStatusDistribution(
     in_progress: '进行中',
     early_completed: '提前完成',
     on_time_completed: '按时完成',
+    completed: '已完成',
     delay_warning: '延期预警',
     delayed: '已延期',
     overdue_completed: '超期完成',
@@ -270,7 +271,8 @@ function transformDeptManagerData(
       id: g.id, name: g.name,
       completionRate: g.completionRate, delayRate: g.delayRate,
       loadRate: g.loadRate, activity: g.activity,
-      memberCount: g.memberCount, trend: g.trend, status: g.status,
+      memberCount: g.memberCount, totalTasks: g.totalTasks, rootTasks: g.rootTasks,
+      trend: g.trend, status: g.status,
     })),
     memberStatus: (detail?.memberStatus || []).map((m: any) => ({
       id: m.id, name: m.name, avatar: m.avatar || undefined,

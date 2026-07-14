@@ -26,8 +26,8 @@ import {
 const DEBOUNCE_DELAY = 300;
 
 interface Member {
-  id: number | string;
-  name: string;
+  id: number | string | null;
+  name: string | null;
 }
 
 interface Project {
@@ -144,11 +144,19 @@ export function TaskFilterBar({
     [projects]
   );
 
-  // 成员选项
-  const memberOptions: MultiSelectOption[] = useMemo(
-    () => members.map((m) => ({ value: String(m.id), label: m.name })),
-    [members]
-  );
+  // 成员选项（含「未分配」：id 为 null 的任务；name 兜底 admin 等未设 real_name 的用户）
+  const memberOptions: MultiSelectOption[] = useMemo(() => {
+    const opts = (members || []).map((m) => {
+      if (m.id == null) return { value: 'unassigned', label: '未分配' };
+      return { value: String(m.id), label: m.name || '未知' };
+    });
+    // 「未分配」置顶
+    return [...opts].sort((a, b) => {
+      if (a.value === 'unassigned') return -1;
+      if (b.value === 'unassigned') return 1;
+      return 0;
+    });
+  }, [members]);
 
   // 检查是否有活跃的筛选条件
   const hasActiveFilters = useMemo(() => {
@@ -157,6 +165,7 @@ export function TaskFilterBar({
       filters.search ||
       arrLen(filters.projectId) ||
       arrLen(filters.assigneeId) ||
+      filters.includeUnassigned ||
       arrLen(filters.status) ||
       arrLen(filters.priority) ||
       arrLen(filters.taskType)
@@ -220,16 +229,30 @@ export function TaskFilterBar({
         />
       )}
 
-      {/* 负责人筛选 - 多选 */}
+      {/* 负责人筛选 - 多选（含「未分配」） */}
       <MultiSelect
         data-testid="task-filter-select-assignee"
         options={memberOptions}
-        value={ensureArray(filters.assigneeId?.toString ?
-          (Array.isArray(filters.assigneeId)
+        value={[
+          ...(filters.includeUnassigned ? ['unassigned'] : []),
+          ...(Array.isArray(filters.assigneeId)
             ? filters.assigneeId.map(String)
-            : [String(filters.assigneeId)])
-          : [])}
-        onChange={(value) => updateMultiFilter('assigneeId', value.map(Number))}
+            : filters.assigneeId
+              ? [String(filters.assigneeId)]
+              : []),
+        ]}
+        onChange={(value) => {
+          const includeUnassigned = value.includes('unassigned');
+          const ids = value
+            .filter((v) => v !== 'unassigned')
+            .map(Number)
+            .filter((n) => !isNaN(n));
+          onFiltersChange({
+            ...filters,
+            assigneeId: ids.length > 0 ? ids : undefined,
+            includeUnassigned: includeUnassigned || undefined,
+          });
+        }}
         placeholder="负责人"
         triggerClassName="w-32"
       />

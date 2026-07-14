@@ -109,7 +109,6 @@ export function computeTaskPermissions(
   // ========== 基础操作权限 ==========
 
   const canCreate = isManager;
-  const canCreateSubtask = isManager || (isEngineer && parentTask?.assigneeId === user.id);
 
   // 修复：确保 ID 比较时类型一致（都转为 number），并处理 NaN 情况
   const taskAssigneeId = task?.assigneeId != null ? Number(task.assigneeId) : null;
@@ -120,6 +119,9 @@ export function computeTaskPermissions(
   const isAssignedToUser = isValidAssigneeId && isValidUserId && taskAssigneeId === userId;
 
   const canEdit = isManager || (isEngineer && isAssignedToUser);
+  // 创建子任务：在当前任务(task)下添加，task 即父任务，工程师仅当 task 归自己时允许
+  // （行内「+」入口：task 为当前行任务，作为新子任务的父）
+  const canCreateSubtask = isManager || (isEngineer && isAssignedToUser);
   const canDelete = isManager;
   const canAssign = isManager;
 

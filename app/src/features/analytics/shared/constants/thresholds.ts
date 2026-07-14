@@ -134,6 +134,8 @@ export const DISPLAY_LIMITS = {
   taskStatistics: 100,
   /** 默认分页大小 */
   defaultPageSize: 50,
+  /** 延期/预警责任人排行 Top N（与后端 QUERY_LIMITS.DELAY_MEMBERS 对齐） */
+  topDelayMembers: 10,
 } as const;
 
 // ============ 状态判定阈值 ============

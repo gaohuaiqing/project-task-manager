@@ -223,6 +223,7 @@ export interface TaskQueryParams {
   taskType?: TaskType | TaskType[];    // 支持多选
   priority?: TaskPriority | TaskPriority[];  // 支持多选
   assigneeId?: number | number[];      // 支持多选
+  includeUnassigned?: boolean;          // 包含未指派（assignee_id IS NULL）任务
   parentId?: string | null;
   search?: string;
   page?: number;

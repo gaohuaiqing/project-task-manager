@@ -82,6 +82,22 @@ export async function getTasks(params: TaskQueryParams = {}): Promise<TaskListRe
 }
 
 /**
+ * 获取任务筛选选项（负责人下拉框候选：有任务的 distinct 责任人，项目联动）
+ */
+export async function getTaskFilterOptions(params?: {
+  projectId?: string[];
+}): Promise<{ assignees: Array<{ id: number | null; name: string | null }> }> {
+  const query: Record<string, string> = {};
+  if (params?.projectId && params.projectId.length > 0) {
+    query.project_id = params.projectId.join(',');
+  }
+  const response = await apiClient.get<
+    ApiResponse<{ assignees: Array<{ id: number | null; name: string | null }> }>
+  >(`${BASE_PATH}/filter-options`, { params: query });
+  return response.data;
+}
+
+/**
  * 获取任务详情
  */
 export async function getTask(id: string): Promise<WBSTask> {

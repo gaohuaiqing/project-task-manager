@@ -263,6 +263,10 @@ export interface DelayAnalysisData {
   activityVsDelay?: ScatterChartData;
   delayTasks: DelayTaskItem[];
   memberDelayStats?: MemberDelayItem[];
+  /** 图表①：当前已延期的责任人排行（当前延期任务数 + 历史延期次数） */
+  delayedMemberChart: BarChartData;
+  /** 图表②：延期预警责任人排行（预警任务数） */
+  warningMemberChart: BarChartData;
 }
 
 export interface DelayTaskItem {
