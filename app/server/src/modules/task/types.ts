@@ -154,6 +154,13 @@ export interface TaskQueryOptions {
   accessible_project_ids?: string[];
   /** 数据范围过滤：用于过滤无项目归属的任务（仅返回分配给该用户的无项目任务） */
   user_id?: number;
+  /** 是否包含未指派（assignee_id IS NULL）的任务 */
+  include_unassigned?: boolean;
+}
+
+/** 任务筛选选项（负责人下拉框候选：有任务的 distinct 责任人） */
+export interface TaskFilterOptions {
+  assignees: Array<{ id: number | null; name: string | null }>;
 }
 
 // ============ 进度记录相关 ============

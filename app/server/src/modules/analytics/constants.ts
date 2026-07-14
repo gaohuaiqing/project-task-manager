@@ -39,6 +39,8 @@ export const QUERY_LIMITS = {
   ALLOCATION_SUGGESTIONS: 5,
   /** 成员任务明细上限 */
   MEMBER_TASKS_DETAIL: 100,
+  /** 延期/预警责任人排行 Top N */
+  DELAY_MEMBERS: 10,
 } as const;
 
 // ============ 时间区间（天/周） ============

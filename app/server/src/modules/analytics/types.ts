@@ -187,6 +187,24 @@ export interface TaskTypeStats {
   avg_duration: number;
 }
 
+/** 当前已延期的责任人统计（图表①：当前延期任务数 + 历史延期次数） */
+export interface DelayedMemberStat {
+  assignee_id: number;
+  assignee_name: string;
+  /** 当前延期任务数（基于日期实时判定，不依赖 status 字段） */
+  delayed_task_count: number;
+  /** 历史延期次数 = 该责任人所有任务 delay_count 之和 */
+  total_delay_count: number;
+}
+
+/** 延期预警责任人统计（图表②） */
+export interface WarningMemberStat {
+  assignee_id: number;
+  assignee_name: string;
+  /** 预警任务数（基于日期实时判定，不依赖 status 字段） */
+  warning_task_count: number;
+}
+
 export interface DelayAnalysisReport {
   total_delayed: number;
   warning_count: number;
@@ -195,6 +213,10 @@ export interface DelayAnalysisReport {
   delay_reasons: DelayReasonCount[];
   delay_trend: TrendDataPoint[];
   delayed_tasks: DelayedTaskItem[];  // 延期任务列表（需求文档要求）
+  /** 图表①：当前已延期的责任人排行 */
+  delayed_member_stats: DelayedMemberStat[];
+  /** 图表②：延期预警责任人排行 */
+  warning_member_stats: WarningMemberStat[];
 }
 
 export interface DelayedTaskItem {
@@ -521,6 +543,8 @@ export interface GroupEfficiencyItem {
   load_rate: number;
   activity: number;
   member_count: number;
+  total_tasks: number;
+  root_tasks: number;
   trend: number;
   status: 'healthy' | 'warning' | 'risk';
 }

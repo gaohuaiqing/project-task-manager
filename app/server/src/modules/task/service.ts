@@ -424,6 +424,19 @@ export class TaskService {
   }
 
   /**
+   * 获取任务筛选选项（负责人下拉框候选：有任务的 distinct 责任人）
+   * @param projectIdFilter 项目联动过滤
+   */
+  async getFilterOptions(
+    user: User,
+    projectIdFilter?: string[]
+  ): Promise<{ assignees: Array<{ id: number | null; name: string | null }> }> {
+    const accessibleProjectIds = await this.getAccessibleProjectIds(user);
+    const assignees = await this.repo.getDistinctAssignees(accessibleProjectIds, projectIdFilter);
+    return { assignees };
+  }
+
+  /**
    * 获取部门经理可访问的项目ID列表
    * 使用单次 CTE + JOIN 查询替代原来的 4+N 次顺序查询
    */
@@ -876,18 +889,12 @@ export class TaskService {
       data.description = sanitizeString(data.description);
     }
 
-    // 检查版本 - H2修复：返回详细冲突信息
+    // 检查版本冲突（乐观锁）：版本不一致即视为冲突
     if (data.version !== task.version) {
       return {
         updated: false,
         conflict: true,
         needsApproval: false,
-        conflictInfo: {
-          currentVersion: task.version,
-          yourVersion: data.version,
-          lastModifiedAt: task.updated_at ? new Date(task.updated_at).toISOString() : undefined,
-          message: `数据已被修改（当前版本: ${task.version}，您的版本: ${data.version}），请刷新后重试`
-        }
       };
     }
 
@@ -895,7 +902,7 @@ export class TaskService {
     const needsApproval = this.checkNeedsApproval(data, currentUser);
     const planChangeFields = ['start_date', 'duration', 'predecessor_id', 'lag_days'];
 
-    if (needsApproval && this.hasPlanChanges(data, planChangeFields)) {
+    if (needsApproval && this.hasPlanChanges(data, planChangeFields, task)) {
       // 校验变更原因不能为空
       if (!data.reason || !data.reason.trim()) {
         throw new ValidationError('请输入变更原因');
@@ -970,7 +977,7 @@ export class TaskService {
     }
 
     // 如果修改了影响日期的字段，重新计算日期
-    if (this.hasPlanChanges(data, planChangeFields)) {
+    if (this.hasPlanChanges(data, planChangeFields, task)) {
       const updatedData = await this.recalculateDates(task, data);
       Object.assign(data, updatedData);
     }
@@ -1115,8 +1122,21 @@ export class TaskService {
     return user.role === 'engineer';
   }
 
-  private hasPlanChanges(data: UpdateTaskRequest, fields: string[]): boolean {
-    return fields.some(f => (data as any)[f] !== undefined);
+  private hasPlanChanges(data: UpdateTaskRequest, fields: string[], task: WBSTask): boolean {
+    // 比较 data 与 task 的实际值是否真改（避免表单回填的 start_date 等字段误触发审批）
+    return fields.some(f => {
+      if ((data as any)[f] === undefined) return false;
+      const oldVal = (task as any)[f];
+      const newVal = (data as any)[f];
+      const normalizedOld = oldVal ?? null;
+      const normalizedNew = newVal ?? null;
+      if (normalizedOld === normalizedNew) return false;
+      if (f === 'start_date' && normalizedOld && normalizedNew) {
+        return new Date(normalizedOld).toISOString().split('T')[0]
+             !== new Date(normalizedNew).toISOString().split('T')[0];
+      }
+      return String(normalizedOld) !== String(normalizedNew);
+    });
   }
 
   /**
@@ -2174,7 +2194,7 @@ export class TaskService {
 
           // 项目成员验证
           if (currentUser.role !== 'admin') {
-            const [memberRows] = await connection.execute(
+            const [memberRows] = await connection.execute<import('mysql2/promise').RowDataPacket[]>(
               'SELECT COUNT(*) as count FROM project_members WHERE project_id = ? AND user_id = ?',
               [task.project_id, currentUser.id]
             );
@@ -2256,47 +2276,8 @@ export class TaskService {
     return getWorkingDaysBetween(new Date(startDate), new Date(endDate), isSixDayWeek);
   }
 
-  // ========== 延期次数累计 ==========
-
-  /**
-   * 增加延期次数
-   * 规则：
-   * - 首次延期：延期次数+1
-   * - 计划未刷新：不累加（延期后用户还没有刷新计划）
-   * - 刷新后再次超期：再+1（延期后用户刷新了计划，然后又延期了）
-   */
-  async incrementDelayCount(taskId: string): Promise<{ incremented: boolean; reason: string }> {
-    const task = await this.repo.getTaskById(taskId);
-    if (!task) {
-      throw new ValidationError('任务不存在');
-    }
-
-    const lastRefresh = task.last_plan_refresh_at ? new Date(task.last_plan_refresh_at) : null;
-    const endDate = task.end_date ? new Date(task.end_date) : null;
-
-    // 规则1：首次延期（delay_count == 0）
-    if (task.delay_count === 0) {
-      await this.repo.incrementTaskCounter(taskId, 'delay_count');
-      return { incremented: true, reason: '首次延期，延期次数+1' };
-    }
-
-    // 规则2：之前延期过，检查是否刷新了计划
-    if (!lastRefresh) {
-      // 从未刷新过计划，不累加
-      return { incremented: false, reason: '计划未刷新，不累加延期次数' };
-    }
-
-    // 规则3：刷新后再次超期
-    // 判断刷新是否在原计划结束日期之后（延期后刷新）
-    // 如果 last_plan_refresh_at 在 end_date 之后，说明延期后刷新了计划
-    if (endDate && lastRefresh > endDate) {
-      await this.repo.incrementTaskCounter(taskId, 'delay_count');
-      return { incremented: true, reason: '刷新计划后再次超期，延期次数+1' };
-    }
-
-    // 规则2续：刷新时间在结束日期之前，不算"延期后刷新"
-    return { incremented: false, reason: '计划未刷新，不累加延期次数' };
-  }
+  // 延期次数累加逻辑已移至 WorkflowService.checkDelayedTasks
+  // （每次「新延期事件」：非delayed状态超期 → +delay_count + 自动写 delay_records）
 
   /**
    * 刷新计划（更新 last_plan_refresh_at）

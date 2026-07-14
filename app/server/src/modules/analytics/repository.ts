@@ -5,7 +5,7 @@ import { wbsCodeCache } from '../../core/wbs';
 import type { RowDataPacket } from 'mysql2/promise';
 import type {
   DashboardStats, ProjectProgressReport, TaskStatisticsReport,
-  DelayAnalysisReport, MemberAnalysisReport, ReportQueryOptions,
+  DelayAnalysisReport, DelayedMemberStat, WarningMemberStat, MemberAnalysisReport, ReportQueryOptions,
   ProjectTypeConfig, TaskTypeConfig, HolidayConfig,
   MilestoneProgress, AssigneeTaskCount, DelayReasonCount, MemberTask,
   TrendDataPoint, ProjectProgressItem, MemberInfo,
@@ -310,7 +310,7 @@ export class AnalyticsRepository {
         FROM wbs_tasks t
         JOIN projects p ON t.project_id = p.id
         WHERE t.updated_at >= ? AND t.updated_at < DATE_ADD(?, INTERVAL 1 DAY)
-          AND ${STATUS_CONDITIONS.delayedOrWarning}
+          AND ${STATUS_CONDITIONS.delayed}
           AND ${projectFilter}
           AND ${scope.clause}
         GROUP BY DATE(t.updated_at)
@@ -707,7 +707,7 @@ export class AnalyticsRepository {
         -- 全部任务统计
         COUNT(*) as total_tasks,
         ROUND(AVG(t.progress), 1) as avg_completion_rate,
-        ROUND(SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 2) as delay_rate,
+        ROUND(SUM(CASE WHEN ${STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 2) as delay_rate,
         SUM(CASE WHEN priority = 'urgent' THEN 1 ELSE 0 END) as urgent_count,
         -- 根任务统计
         SUM(CASE WHEN t.wbs_level = 1 THEN 1 ELSE 0 END) as total_root_tasks,
@@ -733,7 +733,7 @@ export class AnalyticsRepository {
       `SELECT t.assignee_id, u.real_name as assignee_name,
               COUNT(*) as task_count,
               SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_count,
-              SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_count
+              SUM(CASE WHEN ${STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed_count
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
@@ -781,7 +781,7 @@ export class AnalyticsRepository {
         t.task_type,
         COUNT(*) as count,
         SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_count,
-        SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_count,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed_count,
         ROUND(AVG(t.duration), 1) as avg_duration
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
@@ -852,7 +852,7 @@ export class AnalyticsRepository {
         FROM wbs_tasks t
         JOIN projects p ON t.project_id = p.id
         WHERE t.updated_at >= ? AND t.updated_at < DATE_ADD(?, INTERVAL 1 DAY)
-          AND ${STATUS_CONDITIONS.delayedOrWarning}
+          AND ${STATUS_CONDITIONS.delayed}
           ${conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : ''}
         GROUP BY DATE(t.updated_at)
       ) AS combined
@@ -932,14 +932,17 @@ export class AnalyticsRepository {
 
     // 基于日期条件实时判断延期状态（与 calculateStatus 逻辑一致）
     // 数据库 status 字段可能未及时更新，使用日期条件保证准确性
+    // 与 MUTEX_STATUS_CONDITIONS / COMPUTED_STATUS_CONDITIONS 对齐：排除待审批(plan_change)任务，
+    // 保证报表"已延期/预警/超期完成"口径与 WBS 表、主卡片完全一致
+    const NOT_PENDING_APPROVAL = `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change')`;
     const DELAY_CONDITIONS = {
       delay_warning:
-        `t.actual_end_date IS NULL AND t.end_date IS NOT NULL ` +
+        `${NOT_PENDING_APPROVAL} AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL ` +
         `AND t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) <= COALESCE(t.warning_days, 3)`,
       delayed:
-        `t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date < CURDATE()`,
+        `${NOT_PENDING_APPROVAL} AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date < CURDATE()`,
       overdue_completed:
-        `t.actual_end_date IS NOT NULL AND t.end_date IS NOT NULL AND t.actual_end_date > t.end_date`,
+        `${NOT_PENDING_APPROVAL} AND t.actual_end_date IS NOT NULL AND t.end_date IS NOT NULL AND t.actual_end_date > t.end_date`,
     } as const;
 
     const allDelayCondition = `(${DELAY_CONDITIONS.delay_warning} OR ${DELAY_CONDITIONS.delayed} OR ${DELAY_CONDITIONS.overdue_completed})`;
@@ -994,6 +997,15 @@ export class AnalyticsRepository {
       params
     );
 
+    // 延期任务列表：只列"已延期"(delayed)，与"已延期"卡片口径一致（不混预警/超期完成、不截断）
+    const listConditions: string[] = [scopeFilter.clause, `(${DELAY_CONDITIONS.delayed})`];
+    const listParams: (string | number)[] = [...scopeFilter.params];
+    if (options.project_id) {
+      listConditions.push('t.project_id = ?');
+      listParams.push(options.project_id);
+    }
+    const listWhereClause = `WHERE ${listConditions.join(' AND ')}`;
+
     // 获取延期任务列表：使用 CASE 表达式实时计算延期类型
     // WBS 编码从全局注册表获取
     // 排序与任务管理模块保持一致：sort_order ASC, created_at ASC
@@ -1016,10 +1028,10 @@ export class AnalyticsRepository {
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
-       ${whereClause}
+       ${listWhereClause}
        ORDER BY t.sort_order ASC, t.created_at ASC
-       LIMIT ${QUERY_LIMITS.DELAY_TASKS}`,
-      params
+       LIMIT ${QUERY_LIMITS.TASK_STATISTICS}`,
+      listParams
     );
 
     // 从缓存获取 WBS 编码（自动填充缓存）
@@ -1065,6 +1077,69 @@ export class AnalyticsRepository {
       delayed: (r.created || 0) - (r.completed || 0),  // 净增延期（未解决数）
     }));
 
+    // ========== 责任人维度横条排行（v1.x 新增）==========
+
+    // 图表①：当前已延期的责任人（当前延期任务数 + 历史延期次数）
+    // ⚠️ 关键：total_delay_count 必须累加该责任人【所有任务】的 delay_count，
+    //    故 WHERE 不加 delayed 条件，改用 SUM(CASE) + HAVING 过滤出当前有延期任务的人
+    const memberConds1: string[] = [scopeFilter.clause];  // 不排除未分配：未分配任务聚成"未分配"行，保证求和=全量
+    const memberParams1: (string | number)[] = [...scopeFilter.params];
+    if (options.project_id) {
+      memberConds1.push('t.project_id = ?');
+      memberParams1.push(options.project_id);
+    }
+    const [delayedMemberRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.assignee_id,
+              IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS assignee_name,
+              SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_task_count,
+              SUM(COALESCE(t.delay_count, 0)) AS total_delay_count
+       FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE ${memberConds1.join(' AND ')}
+       GROUP BY t.assignee_id, u.real_name, u.username
+       HAVING delayed_task_count > 0
+       ORDER BY delayed_task_count DESC, total_delay_count DESC
+       LIMIT ${QUERY_LIMITS.DELAY_MEMBERS}`,
+      memberParams1
+    );
+    const delayed_member_stats: DelayedMemberStat[] = (delayedMemberRows as RowDataPacket[]).map((r) => ({
+      assignee_id: Number(r.assignee_id),
+      assignee_name: String(r.assignee_name ?? '未知'),
+      delayed_task_count: Number(r.delayed_task_count) || 0,
+      total_delay_count: Number(r.total_delay_count) || 0,
+    }));
+
+    // 图表②：延期预警责任人（预警任务数）
+    // WHERE 直接限定 delayWarning，GROUP BY 后每行 COUNT(*) 自然 > 0
+    const memberConds2: string[] = [
+      scopeFilter.clause,
+      `(${DELAY_CONDITIONS.delay_warning})`,
+    ];
+    const memberParams2: (string | number)[] = [...scopeFilter.params];
+    if (options.project_id) {
+      memberConds2.push('t.project_id = ?');
+      memberParams2.push(options.project_id);
+    }
+    const [warningMemberRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.assignee_id,
+              IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS assignee_name,
+              COUNT(*) AS warning_task_count
+       FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE ${memberConds2.join(' AND ')}
+       GROUP BY t.assignee_id, u.real_name, u.username
+       ORDER BY warning_task_count DESC
+       LIMIT ${QUERY_LIMITS.DELAY_MEMBERS}`,
+      memberParams2
+    );
+    const warning_member_stats: WarningMemberStat[] = (warningMemberRows as RowDataPacket[]).map((r) => ({
+      assignee_id: Number(r.assignee_id),
+      assignee_name: String(r.assignee_name ?? '未知'),
+      warning_task_count: Number(r.warning_task_count) || 0,
+    }));
+
     return {
       total_delayed: Number(stats.total_delayed) || 0,
       warning_count: Number(stats.warning_count) || 0,
@@ -1084,6 +1159,8 @@ export class AnalyticsRepository {
         reason: t.reason || '未填写',
         status: t.status,
       })),
+      delayed_member_stats,
+      warning_member_stats,
     };
   }
 
@@ -1240,8 +1317,8 @@ export class AnalyticsRepository {
 
     // 计算汇总统计（H13修复：过滤NaN/undefined/null值，防止NaN传播）
     const totalMembers = memberEfficiencyList.length;
-    const safeSum = (arr: (number | undefined | null)[]) =>
-      arr.reduce((s, v) => {
+    const safeSum = (arr: (number | undefined | null)[]): number =>
+      arr.reduce<number>((s, v) => {
         const numVal = v !== undefined && v !== null ? Number(v) : NaN;
         return s + (isNaN(numVal) ? 0 : numVal);
       }, 0);
@@ -2228,7 +2305,7 @@ export class AnalyticsRepository {
         conditions.push(STATUS_CONDITIONS.completed);
         break;
       case 'tasks_delayed':
-        conditions.push(STATUS_CONDITIONS.delayedOrWarning);
+        conditions.push(STATUS_CONDITIONS.delayed);
         break;
     }
 
@@ -2461,7 +2538,7 @@ export class AnalyticsRepository {
         d.id, d.name,
         COUNT(t.id) as total_tasks,
         SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_tasks,
-        SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_tasks,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed_tasks,
         AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted}
             THEN t.full_time_ratio / 100.0 END) as avg_utilization,
         AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted}
@@ -2508,7 +2585,7 @@ export class AnalyticsRepository {
         t.task_type,
         COUNT(*) as count,
         SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_count,
-        SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_count,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed_count,
         ROUND(AVG(t.duration), 1) as avg_duration
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
@@ -2706,7 +2783,7 @@ export class AnalyticsRepository {
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         p.id, p.name, p.progress,
-        COUNT(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 END) as delayed_tasks,
+        COUNT(CASE WHEN ${STATUS_CONDITIONS.delayed} THEN 1 END) as delayed_tasks,
         u.real_name as manager
        FROM projects p
        LEFT JOIN wbs_tasks t ON p.id = t.project_id
@@ -2777,11 +2854,14 @@ export class AnalyticsRepository {
         COUNT(DISTINCT u.id) as member_count,
         COUNT(t.id) as total_tasks,
         SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_tasks,
-        SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_tasks,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed_tasks,
         AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted}
             THEN t.full_time_ratio / 100.0 END) as avg_load,
-        AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted}
-            THEN t.progress END) as avg_activity
+        SUM(CASE WHEN t.wbs_level = 1 THEN 1 ELSE 0 END) as root_tasks,
+        SUM(CASE WHEN t.updated_at >= DATE_SUB(CURDATE(), INTERVAL ${TIME_INTERVALS.WEEK_DAYS} DAY)
+            OR EXISTS (SELECT 1 FROM progress_records pr WHERE pr.task_id = t.id
+                       AND pr.created_at >= DATE_SUB(CURDATE(), INTERVAL ${TIME_INTERVALS.WEEK_DAYS} DAY))
+            THEN 1 ELSE 0 END) as active_tasks
        FROM departments d
        LEFT JOIN users u ON u.department_id = d.id AND u.is_active = 1
        LEFT JOIN (wbs_tasks t JOIN projects p ON t.project_id = p.id)
@@ -2796,7 +2876,7 @@ export class AnalyticsRepository {
       const completionRate = r.total_tasks > 0 ? Math.round((r.completed_tasks / r.total_tasks) * 100) : 0;
       const delayRate = r.total_tasks > 0 ? Math.round((r.delayed_tasks / r.total_tasks) * 100) : 0;
       const loadRate = Math.round((r.avg_load || 0) * 100);
-      const activity = Math.round(r.avg_activity || 0);
+      const activity = r.total_tasks > 0 ? Math.round((r.active_tasks / r.total_tasks) * 100) : 0;
 
       let status: 'healthy' | 'warning' | 'risk' = 'healthy';
       if (delayRate > 30 || completionRate < 40) status = 'risk';
@@ -2810,6 +2890,8 @@ export class AnalyticsRepository {
         load_rate: loadRate,
         activity,
         member_count: r.member_count || 0,
+        total_tasks: r.total_tasks || 0,
+        root_tasks: r.root_tasks || 0,
         trend: 0,
         status,
       };
@@ -2847,7 +2929,7 @@ export class AnalyticsRepository {
         COUNT(DISTINCT t.id) as total_tasks,
         SUM(CASE WHEN ${STATUS_CONDITIONS.inProgress} THEN 1 ELSE 0 END) as in_progress,
         SUM(CASE WHEN ${STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN ${STATUS_CONDITIONS.delayedOrWarning} THEN 1 ELSE 0 END) as delayed_count,
+        SUM(CASE WHEN ${STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed_count,
         ROUND(COALESCE(AVG(CASE WHEN ${STATUS_CONDITIONS.notCompleted}
             THEN t.full_time_ratio END) / 100.0, 0), 2) as load_rate,
         ROUND(AVG(t.progress), 1) as activity
@@ -3095,19 +3177,30 @@ export class AnalyticsRepository {
     const params: (string | number)[] = [userId];
     if (projectId) params.push(projectId);
 
+    // 使用 MUTEX_STATUS_CONDITIONS 实时计算互斥状态分布（与主卡片/admin 口径一致），
+    // 不依赖 DB status 字段——后者由 cron 每日凌晨刷新，今日过期的任务尚未被标记
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT status, COUNT(*) as count
+      `SELECT
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.pendingApproval} THEN 1 ELSE 0 END) as pending_approval,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 1 ELSE 0 END) as delay_warning,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.inProgress} THEN 1 ELSE 0 END) as in_progress,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.notStarted} THEN 1 ELSE 0 END) as not_started
        FROM wbs_tasks
        WHERE assignee_id = ?
-         ${projectFilter}
-       GROUP BY status
-       ORDER BY count DESC`,
+         ${projectFilter}`,
       params
     );
 
-    return rows.map((r: RowDataPacket) => ({
-      status: r.status,
-      count: r.count,
-    }));
+    const r = (rows[0] || {}) as RowDataPacket;
+    return [
+      { status: 'pending_approval', count: Number(r.pending_approval) || 0 },
+      { status: 'not_started', count: Number(r.not_started) || 0 },
+      { status: 'in_progress', count: Number(r.in_progress) || 0 },
+      { status: 'completed', count: Number(r.completed) || 0 },
+      { status: 'delay_warning', count: Number(r.delay_warning) || 0 },
+      { status: 'delayed', count: Number(r.delayed) || 0 },
+    ].filter((item) => item.count > 0);
   }
 }

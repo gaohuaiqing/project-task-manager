@@ -21,6 +21,24 @@ const ALLOWED_FILTER_FIELDS = [
 
 type AllowedFilterField = typeof ALLOWED_FILTER_FIELDS[number];
 
+/**
+ * calculateStatus（service.ts）的 SQL 等价条件映射，用于实时状态筛选。
+ * 不依赖 DB status 字段（后者由 cron 每日凌晨刷新，今日过期的任务尚未标记，
+ * 会导致 WBS 表"已延期"筛选与 computed_status 不一致）。
+ * 与 analytics/MUTEX_STATUS_CONDITIONS 语义一致，各状态互斥。
+ * ⚠️ 修改需与 TaskService.calculateStatus 保持同步。
+ */
+const COMPUTED_STATUS_CONDITIONS: Record<string, string> = {
+  pending_approval: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) > 0 AND t.pending_change_type = 'plan_change')`,
+  early_completed: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_end_date IS NOT NULL AND t.end_date IS NOT NULL AND t.actual_end_date < t.end_date`,
+  on_time_completed: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_end_date IS NOT NULL AND t.end_date IS NOT NULL AND DATE(t.actual_end_date) = DATE(t.end_date)`,
+  overdue_completed: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_end_date IS NOT NULL AND t.end_date IS NOT NULL AND t.actual_end_date > t.end_date`,
+  delayed: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date < CURDATE()`,
+  delay_warning: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) <= COALESCE(t.warning_days, 3)`,
+  in_progress: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_start_date IS NOT NULL AND t.actual_end_date IS NULL AND (t.end_date IS NULL OR (t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) > COALESCE(t.warning_days, 3)))`,
+  not_started: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_start_date IS NULL AND t.actual_end_date IS NULL AND (t.end_date IS NULL OR t.end_date >= DATE_ADD(CURDATE(), INTERVAL COALESCE(t.warning_days, 3) DAY))`,
+};
+
 export class TaskRepository {
   // ========== 任务 CRUD ==========
 
@@ -57,7 +75,13 @@ export class TaskRepository {
       addCondition('t.project_id', options.project_id);
     }
     if (options.status) {
-      addCondition('t.status', options.status);
+      // 状态筛选用 calculateStatus 等价的实时日期条件（不依赖 DB status 字段——
+      // 后者由 cron 每日刷新，今日过期的任务尚未标记，会导致 WBS 筛选与 computed_status 不一致）
+      const statusArr = (Array.isArray(options.status) ? options.status : [options.status]) as string[];
+      const statusConds = statusArr.map(s => COMPUTED_STATUS_CONDITIONS[s]).filter(Boolean);
+      if (statusConds.length > 0) {
+        conditions.push(`(${statusConds.join(' OR ')})`);
+      }
     }
     if (options.task_type) {
       addCondition('t.task_type', options.task_type);
@@ -65,8 +89,23 @@ export class TaskRepository {
     if (options.priority) {
       addCondition('t.priority', options.priority);
     }
-    if (options.assignee_id) {
-      addCondition('t.assignee_id', options.assignee_id);
+    // 负责人筛选：支持「未分配」（IS NULL）与具体负责人（IN）组合
+    {
+      const ids = options.assignee_id;
+      const hasIds = Array.isArray(ids) ? ids.length > 0 : !!ids;
+      if (options.include_unassigned && hasIds) {
+        // hasIds 保证 ids 非空；统一成数组并剔除 null/undefined（类型收窄，运行时已被 hasIds 覆盖）
+        const arr = (Array.isArray(ids) ? ids : [ids as number]).filter(
+          (v): v is number => v !== null && v !== undefined
+        );
+        const ph = arr.map(() => '?').join(', ');
+        conditions.push(`(t.assignee_id IS NULL OR t.assignee_id IN (${ph}))`);
+        params.push(...arr);
+      } else if (options.include_unassigned) {
+        conditions.push('t.assignee_id IS NULL');
+      } else if (hasIds) {
+        addCondition('t.assignee_id', ids as string | number | (string | number)[]);
+      }
     }
     if (options.parent_id !== undefined) {
       if (options.parent_id === null) {
@@ -150,6 +189,44 @@ export class TaskRepository {
     );
 
     return { items: rows, total };
+  }
+
+  /**
+   * 获取有任务的 distinct 负责人（筛选下拉框候选）
+   * 复用 getTasks 的可见范围（有效项目任务）；NULL assignee 天然聚成一行 = 「未分配」
+   * @param accessibleProjectIds undefined=admin 不过滤；[]=无可见项目；[ids]=限制到这些项目
+   * @param projectIdFilter 项目联动过滤（多选）
+   */
+  async getDistinctAssignees(
+    accessibleProjectIds: string[] | undefined,
+    projectIdFilter?: string[]
+  ): Promise<Array<{ id: number | null; name: string | null }>> {
+    const pool = getPool();
+    const conditions: string[] = [];
+    const params: string[] = [];
+
+    if (accessibleProjectIds !== undefined) {
+      if (accessibleProjectIds.length === 0) return []; // 无可见项目
+      const ph = accessibleProjectIds.map(() => '?').join(', ');
+      conditions.push(`EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND t.project_id IN (${ph}))`);
+      params.push(...accessibleProjectIds);
+    }
+    if (projectIdFilter && projectIdFilter.length > 0) {
+      const ph2 = projectIdFilter.map(() => '?').join(', ');
+      conditions.push(`t.project_id IN (${ph2})`);
+      params.push(...projectIdFilter);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.assignee_id AS id, u.real_name AS name
+       FROM wbs_tasks t
+       LEFT JOIN users u ON t.assignee_id = u.id
+       ${where}
+       GROUP BY t.assignee_id, u.real_name`,
+      params
+    );
+    return rows as Array<{ id: number | null; name: string | null }>;
   }
 
   async getTaskById(id: string): Promise<WBSTask | null> {

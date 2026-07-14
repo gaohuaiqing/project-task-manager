@@ -1,11 +1,14 @@
 // app/server/src/index-new.ts
 // 新架构服务入口 - 模块化架构
+import 'dotenv/config'; // 加载 .env（生产部署配置）
 import express from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import cron from 'node-cron';
 import compression from 'compression';
+import { join } from 'path';
+import { existsSync } from 'fs';
 
 // Core 模块
 import { createPool, closePool } from './core/db';
@@ -32,8 +35,13 @@ const app = express();
 const httpServer = createServer(app);
 
 // ========== 中间件配置 ==========
+// CORS：支持 CORS_ORIGIN 配置单个或多个来源（逗号分隔），适配多入口访问
+const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: corsOrigins.length === 1 ? corsOrigins[0] : corsOrigins,
   credentials: true,
 }));
 
@@ -151,6 +159,30 @@ apiRouter.post('/batch/wbs-tasks', async (req, res, next) => {
 
 // 挂载到 /api 前缀
 app.use('/api', apiRouter);
+
+// 健康检查端点（不经过认证，供容器 healthcheck 与负载均衡探测）
+app.get('/health', (_req: express.Request, res: express.Response) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// 生产环境托管前端静态文件（Docker 部署由 nginx 托管，容器内无产物会自动跳过）
+// 查找顺序：FRONTEND_DIST 环境变量 → 生产扁平目录 public → 开发目录 Build/frontend/dist
+const frontendDist = [
+  process.env.FRONTEND_DIST,
+  join(process.cwd(), 'public'),
+  join(process.cwd(), 'Build/frontend/dist'),
+].find((p): p is string => !!p && existsSync(p));
+
+if (frontendDist) {
+  app.use(express.static(frontendDist));
+  // SPA fallback：非 /api、/ws、/health 路由返回 index.html（支持前端路由直接访问与刷新）
+  app.get(/^(?!\/api\/|\/ws|\/health).*/, (_req: express.Request, res: express.Response) => {
+    res.sendFile(join(frontendDist, 'index.html'));
+  });
+  logger.info(`Serving frontend static from ${frontendDist}`);
+} else {
+  logger.warn('Frontend dist not found, skipping static serving');
+}
 
 // ========== 错误处理 ==========
 // 404 处理

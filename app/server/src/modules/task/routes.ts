@@ -95,6 +95,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       assignee_id: parseNumberArrayParam(req.query.assignee_id),
       parent_id: req.query.parent_id === 'null' ? null : req.query.parent_id as string,
       search: req.query.search as string,
+      include_unassigned: req.query.include_unassigned === 'true',
       page: req.query.page ? parseInt(req.query.page as string) : 1,
       pageSize: req.query.pageSize ? parseInt(req.query.pageSize as string) : 50,
     };
@@ -110,6 +111,18 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     }
 
     const result = await taskService.getTasks(options, currentUser);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 任务筛选选项（负责人下拉框候选：有任务的 distinct 责任人，支持项目联动）
+router.get('/filter-options', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = requireUser(req);
+    const projectIdFilter = parseArrayParam(req.query.project_id) as string[] | undefined;
+    const result = await taskService.getFilterOptions(currentUser, projectIdFilter);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);

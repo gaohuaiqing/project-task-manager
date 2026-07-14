@@ -37,9 +37,9 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
     res.setHeader(SESSION_RENEWED_HEADER, 'true');
     res.cookie('sessionId', sessionId, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: process.env.COOKIE_SECURE === 'true',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7天
-      sameSite: 'strict',
+      sameSite: (process.env.COOKIE_SAMESITE as 'strict' | 'lax' | 'none') || 'lax',
     });
   }
 
@@ -91,9 +91,9 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
 
     res.cookie('sessionId', result.sessionId, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: process.env.COOKIE_SECURE === 'true',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7天
-      sameSite: 'strict',
+      sameSite: (process.env.COOKIE_SAMESITE as 'strict' | 'lax' | 'none') || 'lax',
     });
 
     res.json({ success: true, data: result });
@@ -147,9 +147,9 @@ router.get('/me', async (req: Request, res: Response, next: NextFunction) => {
       res.setHeader(SESSION_RENEWED_HEADER, 'true');
       res.cookie('sessionId', sessionId, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: process.env.COOKIE_SECURE === 'true',
         maxAge: 7 * 24 * 60 * 60 * 1000,
-        sameSite: 'strict',
+        sameSite: (process.env.COOKIE_SAMESITE as 'strict' | 'lax' | 'none') || 'lax',
       });
       response.sessionRenewed = true;
     }

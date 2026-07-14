@@ -737,10 +737,11 @@ export class WorkflowRepository {
     assignee_id: number | null;
     assignee_name: string | null;
     project_id: string;
+    end_date: Date;
   }>> {
     const pool = getPool();
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, t.assignee_id, u.real_name as assignee_name, t.project_id
+      `SELECT t.id, t.description, t.assignee_id, u.real_name as assignee_name, t.project_id, t.end_date
        FROM wbs_tasks t
        LEFT JOIN users u ON t.assignee_id = u.id
        WHERE t.status IN ('in_progress', 'delay_warning')
@@ -754,6 +755,7 @@ export class WorkflowRepository {
       assignee_id: number | null;
       assignee_name: string | null;
       project_id: string;
+      end_date: Date;
     }>;
   }
 

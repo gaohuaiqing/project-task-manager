@@ -695,8 +695,19 @@ export class WorkflowService {
       // 更新状态为delayed
       await this.repo.updateTaskStatus(task.id, 'delayed');
 
-      // 累计延期次数
-      await this.incrementDelayCount(task.id);
+      // 延期事件：累加 delay_count + 自动写延期记录
+      // （getDelayedTasks 已过滤 delayed 状态，此处均为「新延期事件」：首次延期或刷新计划恢复后再次超期）
+      await this.repo.incrementTaskCounter(task.id, 'delay_count');
+      const delayDays = task.end_date
+        ? Math.max(1, Math.ceil((Date.now() - new Date(task.end_date).getTime()) / (1000 * 60 * 60 * 24)))
+        : 1;
+      await this.repo.createDelayRecord({
+        id: uuidv4(),
+        task_id: task.id,
+        delay_days: delayDays,
+        reason: '系统自动记录：任务超过截止日期',
+        recorded_by: 1, // admin（系统自动记录，用户可在任务详情补充原因）
+      });
 
       // 发送延期通知
       if (task.assignee_id) {
@@ -731,45 +742,7 @@ export class WorkflowService {
     return { delayedCount, warningCount, recoveredCount };
   }
 
-  /**
-   * 累计延期次数
-   * 规则：
-   * - 首次延期：延期次数+1
-   * - 计划未刷新：不累加（延期后用户还没有刷新计划）
-   * - 刷新后再次超期：再+1（延期后用户刷新了计划，然后又延期了）
-   */
-  private async incrementDelayCount(taskId: string): Promise<{ incremented: boolean; reason: string }> {
-    const task = await this.getTaskById(taskId);
-    if (!task) {
-      return { incremented: false, reason: '任务不存在' };
-    }
-
-    const lastRefresh = task.last_plan_refresh_at ? new Date(task.last_plan_refresh_at) : null;
-    const endDate = task.end_date ? new Date(task.end_date) : null;
-
-    // 规则1：首次延期（delay_count == 0）
-    if (task.delay_count === 0) {
-      await this.repo.incrementTaskCounter(taskId, 'delay_count');
-      return { incremented: true, reason: '首次延期，延期次数+1' };
-    }
-
-    // 规则2：之前延期过，检查是否刷新了计划
-    if (!lastRefresh) {
-      // 从未刷新过计划，不累加
-      return { incremented: false, reason: '计划未刷新，不累加延期次数' };
-    }
-
-    // 规则3：刷新后再次超期
-    // 判断刷新是否在原计划结束日期之后（延期后刷新）
-    // 如果 last_plan_refresh_at 在 end_date 之后，说明延期后刷新了计划
-    if (endDate && lastRefresh > endDate) {
-      await this.repo.incrementTaskCounter(taskId, 'delay_count');
-      return { incremented: true, reason: '刷新计划后再次超期，延期次数+1' };
-    }
-
-    // 规则2续：刷新时间在结束日期之前，不算"延期后刷新"
-    return { incremented: false, reason: '计划未刷新，不累加延期次数' };
-  }
+  // 延期次数累加已内联至上方 checkDelayedTasks（每次新延期事件 +1 并写 delay_records）
 
   /**
    * 发送每日任务摘要通知
