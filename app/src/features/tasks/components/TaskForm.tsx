@@ -485,7 +485,7 @@ export function TaskForm({
             </div>
             <Select
               data-testid="task-select-assignee"
-              value={watch('assigneeId')?.toString() || ''}
+              value={watch('assigneeId')?.toString()}
               onValueChange={(value) => setValue('assigneeId', parseInt(value))}
               disabled={!permissions.canEditAssignee}
             >
