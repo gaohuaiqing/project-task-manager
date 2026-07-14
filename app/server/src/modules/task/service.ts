@@ -651,6 +651,11 @@ export class TaskService {
       throw new ValidationError('任务描述不能为空');
     }
 
+    // 责任人必填（仅手动新建路径；Excel 导入 createTaskWithConnection 不受此约束）
+    if (!data.assignee_id) {
+      throw new ValidationError('请选择责任人');
+    }
+
     // XSS 防护：消毒任务描述，剥离 HTML 标签
     data.description = sanitizeString(data.description);
 
