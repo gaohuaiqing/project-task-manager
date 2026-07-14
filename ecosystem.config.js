@@ -7,13 +7,29 @@ module.exports = {
   apps: [
     {
       name: 'task-manager-backend',
-      script: './Build/backend/dist/index.js',
+      // 用 tsx 运行 TS 源码：TS 源码 import 无扩展名，编译产物用 node ESM 会失败，
+      // tsx 容忍无扩展名并运行时转译；PM2 daemon 守护，独立于终端会话持续运行
+      script: './node_modules/tsx/dist/cli.mjs',
+      args: 'app/server/src/index.ts',
+      cwd: './',
       instances: 1, // 单实例，避免 WebSocket 连接问题
       exec_mode: 'fork',
       env: {
         NODE_ENV: 'production',
-        PORT: 3001,
+        PORT: 8080,
         HOST: '0.0.0.0',
+        DB_HOST: '127.0.0.1',
+        DB_PORT: '3306',
+        DB_USER: 'root',
+        DB_PASSWORD: '',
+        DB_NAME: 'task_manager',
+        REDIS_HOST: '127.0.0.1',
+        REDIS_PORT: '6379',
+        CORS_ORIGIN: 'http://10.8.180.55:8080,http://localhost:8080',
+        COOKIE_SECURE: 'false',
+        COOKIE_SAMESITE: 'lax',
+        BACKUP_ENCRYPTION_KEY: 'TaskManagerBackupKey2026',
+        LOG_LEVEL: 'info',
       },
       env_development: {
         NODE_ENV: 'development',

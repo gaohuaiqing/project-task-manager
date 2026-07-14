@@ -21,7 +21,6 @@
     "node_modules",
     "dist",
     "src/repositories/**",
-    "src/migrations/**",
     "src/scripts/**",
     "src/types/index.new.ts"
   ]

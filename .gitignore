@@ -183,6 +183,9 @@ docs/自定义Prompt/
 # Docker 部署临时文件
 docker-compose.override.yml
 
+# 服务器数据快照（含真实业务数据与密钥，禁止提交）
+docs/server-snapshot/
+
 # 临时文件
 cookies.txt
 **/cookies.txt

@@ -1,7 +1,6 @@
-# Project Task Manager 3.0 Docker Compose 配置
-# 完整的生产环境部署配置
-
-version: '3.8'
+# Project Task Manager Docker Compose 配置
+# 生产环境部署：MySQL + Redis + Backend + Frontend(Nginx)
+# 所有可配置项通过 .env 文件管理（参考 .env.example）
 
 services:
   # ============================================
@@ -21,7 +20,6 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -45,7 +43,8 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    # 内网部署不启用 requirepass；后端连不上会自动降级为内存缓存
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     healthcheck:
@@ -79,6 +78,13 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       PORT: 3001
       HOST: 0.0.0.0
+      # CORS / Cookie（HTTP 内网部署关键：COOKIE_SECURE=false 才能登录）
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      # 备份加密密钥（生产务必修改为强随机值）
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-task-manager-backup-key}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       mysql:
         condition: service_healthy
@@ -96,7 +102,7 @@ services:
       - ./logs:/app/logs
 
   # ============================================
-  # 前端服务
+  # 前端服务（Nginx 托管静态文件 + 反向代理）
   # ============================================
   frontend:
     build:
@@ -107,7 +113,8 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
       interval: 30s

@@ -1,43 +1,41 @@
-# 前端 Dockerfile
-# 多阶段构建：构建阶段 + 运行阶段
+# 前端 Dockerfile - 多阶段构建（Vite 构建 + Nginx 运行）
 
 # ============================================
 # 构建阶段
 # ============================================
 FROM node:18-alpine AS builder
 
-# 设置工作目录
 WORKDIR /app
 
-# 复制 package.json
-COPY app/package*.json ./
-COPY app/tsconfig.json ./
-COPY app/vite.config.ts ./
+# 复制 package.json + lockfile
+COPY app/package.json app/package-lock.json ./
+
+# 复制构建配置文件
+COPY app/vite.config.ts app/tailwind.config.js app/postcss.config.js ./
+COPY app/tsconfig.json app/tsconfig.app.json app/tsconfig.node.json ./
+COPY app/index.html ./
 
 # 安装依赖
-RUN npm ci && npm cache clean --force
+RUN npm ci
 
-# 复制源代码
+# 复制源码
 COPY app/src ./src
-COPY app/index.html .
-COPY app/tailwind.config.js .
-COPY app/postcss.config.js .
 
-# 构建应用
-RUN npm run build
+# 构建：--outDir 覆盖 vite.config 中为本地设计的 ../Build/frontend/dist，产物输出到 /app/dist
+# NODE_OPTIONS 提升内存上限，避免大型项目（recharts/xlsx/exceljs 等）构建 OOM
+RUN NODE_OPTIONS=--max-old-space-size=4096 npx vite build --outDir ./dist --emptyOutDir
 
 # ============================================
-# 运行阶段
+# 运行阶段：Nginx 托管静态文件
 # ============================================
 FROM nginx:alpine
 
 # 复制自定义 nginx 配置
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# 从构建阶段复制构建产物
+# 从构建阶段复制产物
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# 暴露端口
 EXPOSE 80
 
 # 健康检查

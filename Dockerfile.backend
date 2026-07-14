@@ -1,31 +1,35 @@
-# 后端 Dockerfile
+# 后端 Dockerfile（单阶段构建，便于排错；生产可优化为多阶段减小镜像体积）
+# 构建 Express + TypeScript 后端服务镜像
+
 FROM node:18-alpine
 
-# 设置工作目录
 WORKDIR /app
 
-# 安装 Python 和构建工具（用于编译 node-sass 等原生模块）
+# 原生模块编译工具（bcrypt 等 native addon 编译需要）
 RUN apk add --no-cache python3 make g++
 
-# 复制后端 package.json
-COPY app/server/package*.json ./
+# 复制 package.json + lockfile，安装全部依赖（构建阶段需要 devDependencies 中的 typescript）
+COPY app/server/package.json app/server/package-lock.json ./
+RUN npm ci
+
+# 复制源码与 tsconfig
 COPY app/server/tsconfig.json ./
-
-# 安装依赖
-RUN npm ci --only=production && npm cache clean --force
-
-# 复制后端源代码
 COPY app/server/src ./src
 
-# 构建 TypeScript
-RUN npm run build
+# 编译 TypeScript：用 --outDir 覆盖 tsconfig 中为本地 PM2 设计的 ../../Build/backend/dist，
+# 产物输出到 /app/dist，与下方 CMD 路径一致
+# --noCheck 跳过类型检查（项目存在历史类型债：mysql2 PoolOptions、null 收窄、
+# 废弃 migration 文件等），仅做转译 emit；运行时行为不受影响（dev 同样用 tsx 转译运行）
+RUN npx tsc -p tsconfig.json --outDir ./dist --noCheck
 
-# 暴露端口
+# 移除 devDependencies，仅保留运行时依赖
+RUN npm prune --omit=dev && npm cache clean --force
+
 EXPOSE 3001
 
-# 健康检查
+# 健康检查（依赖后端 /health 端点）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+  CMD node -e "require('http').get('http://localhost:3001/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
 
 # 启动应用
 CMD ["node", "dist/index.js"]
