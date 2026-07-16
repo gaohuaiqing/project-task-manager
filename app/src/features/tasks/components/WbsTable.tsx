@@ -263,6 +263,9 @@ export const WbsTable = React.memo(function WbsTable({
   const rootPermissions = computeTaskPermissions(user);
   const { toast } = useToast();
 
+  // 隐藏已完成根任务开关
+  const [hideCompletedRoots, setHideCompletedRoots] = useState(false);
+
   // 拖拽历史记录（用于撤销）
   interface ReorderHistoryItem {
     taskId: string;
@@ -295,6 +298,59 @@ export const WbsTable = React.memo(function WbsTable({
     loadStickyConfig()
   );
 
+  // 隐藏已完成根任务：递归判断子树是否全部完成（完成类状态：early_completed/on_time_completed/overdue_completed）
+  const COMPLETED_STATUSES = useMemo(() => new Set(['early_completed', 'on_time_completed', 'overdue_completed']), []);
+  const isSubtreeFullyCompleted = useCallback((task: TaskRowWithUI): boolean => {
+    const status = task.computedStatus || task.status || '';
+    if (!COMPLETED_STATUSES.has(status)) return false;
+    if (task.children && task.children.length > 0) {
+      return (task.children as TaskRowWithUI[]).every(child => isSubtreeFullyCompleted(child));
+    }
+    return true; // 叶子任务自身完成
+  }, [COMPLETED_STATUSES]);
+
+  // 过滤后的任务列表：隐藏整棵子树都已完成的根任务（及其所有子孙）
+  const filteredTasks = useMemo(() => {
+    if (!hideCompletedRoots) return tasks;
+    const taskIdSet = new Set(tasks.map(t => t.id));
+    // 找出需要隐藏的根任务ID集合
+    const hiddenRootIds = new Set<string>();
+    for (const task of tasks) {
+      if (!task.parentId || !taskIdSet.has(task.parentId)) {
+        if (isSubtreeFullyCompleted(task)) {
+          hiddenRootIds.add(task.id);
+        }
+      }
+    }
+    if (hiddenRootIds.size === 0) return tasks;
+    // 过滤：排除属于隐藏根任务及其所有子孙的任务
+    const isDescendantOfHidden = (task: TaskRowWithUI): boolean => {
+      if (hiddenRootIds.has(task.id)) return true;
+      let current = task;
+      while (current.parentId) {
+        if (hiddenRootIds.has(current.parentId)) return true;
+        const parent = tasks.find(t => t.id === current.parentId);
+        if (!parent) break;
+        current = parent;
+      }
+      return false;
+    };
+    return tasks.filter(task => !isDescendantOfHidden(task));
+  }, [tasks, hideCompletedRoots, isSubtreeFullyCompleted]);
+
+  // 隐藏的已完成根任务数量（用于统计栏提示）
+  const hiddenCompletedCount = useMemo(() => {
+    if (!hideCompletedRoots) return 0;
+    const taskIdSet = new Set(tasks.map(t => t.id));
+    let count = 0;
+    for (const task of tasks) {
+      if (!task.parentId || !taskIdSet.has(task.parentId)) {
+        if (isSubtreeFullyCompleted(task)) count++;
+      }
+    }
+    return count;
+  }, [tasks, hideCompletedRoots, isSubtreeFullyCompleted]);
+
   // 计算所有有子任务的ID（用于默认全部展开）
   const allExpandableIds = useMemo(() => {
     const ids = new Set<string>();
@@ -308,9 +364,9 @@ export const WbsTable = React.memo(function WbsTable({
         }
       });
     };
-    collect(tasks);
+    collect(filteredTasks);
     return ids;
-  }, [tasks]);
+  }, [filteredTasks]);
 
   // 展开状态 - 默认全部展开
   const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
@@ -329,10 +385,10 @@ export const WbsTable = React.memo(function WbsTable({
   // 搜索激活时：自动展开有 children 的根任务（补全的子孙可见），只增不删，不破坏手动折叠
   useEffect(() => {
     if (!searchActive) return;
-    if (tasks.length === 0) return;
+    if (filteredTasks.length === 0) return;
     setExpandedRows(prev => {
-      const taskIdSet = new Set(tasks.map(t => t.id));
-      const topLevelWithChildren = tasks.filter(
+      const taskIdSet = new Set(filteredTasks.map(t => t.id));
+      const topLevelWithChildren = filteredTasks.filter(
         t => t.hasChildren && (!t.parentId || !taskIdSet.has(t.parentId))
       );
       const next = new Set(prev);
@@ -345,7 +401,7 @@ export const WbsTable = React.memo(function WbsTable({
       });
       return changed ? next : prev;
     });
-  }, [searchActive, tasks]);
+  }, [searchActive, filteredTasks]);
 
   // 选中的行
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
@@ -414,7 +470,7 @@ export const WbsTable = React.memo(function WbsTable({
     });
 
     return () => cancelAnimationFrame(measureRafRef.current);
-  }, [visibleColumns, tasks.length]);
+  }, [visibleColumns, filteredTasks.length]);
 
   // 基于实际渲染宽度计算 sticky 偏移量
   // 注意：表格第一列是拖拽手柄列（不在 visibleColumns 中），所以实际列索引需要 +1
@@ -438,7 +494,7 @@ export const WbsTable = React.memo(function WbsTable({
   const flatTasks = useMemo(() => {
     const result: { task: TaskRowWithUI; level: number }[] = [];
 
-    if (tasks.length === 0) return result;
+    if (filteredTasks.length === 0) return result;
 
     // 传入的 tasks 已经是扁平结构（包含 hasChildren 和 children）
     // 直接遍历，根据展开状态决定是否包含子任务
@@ -458,12 +514,12 @@ export const WbsTable = React.memo(function WbsTable({
     };
 
     // 从顶级任务开始处理（parentId 为空或不存在于当前列表）
-    const taskIdSet = new Set(tasks.map(t => t.id));
-    const topLevelTasks = tasks.filter(t => !t.parentId || !taskIdSet.has(t.parentId));
+    const taskIdSet = new Set(filteredTasks.map(t => t.id));
+    const topLevelTasks = filteredTasks.filter(t => !t.parentId || !taskIdSet.has(t.parentId));
     topLevelTasks.forEach(task => processTask(task, task.wbsLevel));
 
     return result;
-  }, [tasks, expandedRows]);
+  }, [filteredTasks, expandedRows]);
 
   // 分页计算
   const totalPages = Math.max(1, Math.ceil(flatTasks.length / PAGE_SIZE));
@@ -481,7 +537,7 @@ export const WbsTable = React.memo(function WbsTable({
   // 数据变化时页码重置
   useEffect(() => {
     setCurrentPage(1);
-  }, [tasks]);
+  }, [filteredTasks]);
 
   // 当前页的数据切片
   const pagedFlatTasks = useMemo(() => {
@@ -526,9 +582,9 @@ export const WbsTable = React.memo(function WbsTable({
         }
       });
     };
-    collect(tasks);
+    collect(filteredTasks);
     return map;
-  }, [tasks]);
+  }, [filteredTasks]);
 
   // 收集任务及其所有后代任务ID（用于级联选择）
   const collectDescendantIds = useCallback((taskId: string): string[] => {
@@ -578,10 +634,10 @@ export const WbsTable = React.memo(function WbsTable({
   // 所有任务ID集合（仅包含有删除权限的任务）
   const allTaskIds = useMemo(() => {
     if (!canBatchDelete) return [];
-    return tasks
+    return filteredTasks
       .filter(task => computeTaskPermissions(user, task).canDelete)
       .map(task => task.id);
-  }, [tasks, canBatchDelete, user]);
+  }, [filteredTasks, canBatchDelete, user]);
 
   // 切换行展开
   const toggleRow = useCallback((taskId: string) => {
@@ -612,14 +668,14 @@ export const WbsTable = React.memo(function WbsTable({
 
     // 获取任务在当前排序中的前一个任务ID（作为回退位置）
     // 需要找到当前任务在同级任务中的位置，以及它的前一个任务
-    const task = tasks.find(t => t.id === taskId);
+    const task = filteredTasks.find(t => t.id === taskId);
     if (!task) {
       await onReorderTask(taskId, afterTaskId);
       return;
     }
 
     const taskParentId = task.parentId ?? null;
-    const sameParentTasks = tasks.filter(t => (t.parentId ?? null) === taskParentId);
+    const sameParentTasks = filteredTasks.filter(t => (t.parentId ?? null) === taskParentId);
 
     // 找当前任务在同级列表中的位置
     const currentIndex = sameParentTasks.findIndex(t => t.id === taskId);
@@ -650,7 +706,7 @@ export const WbsTable = React.memo(function WbsTable({
       },
       duration: 5000,
     });
-  }, [onReorderTask, tasks, toast]);
+  }, [onReorderTask, filteredTasks, toast]);
 
   // 撤销拖拽排序
   const handleUndoReorder = useCallback(async () => {
@@ -1372,6 +1428,18 @@ export const WbsTable = React.memo(function WbsTable({
             <ChevronsDown className="h-4 w-4" />
           </Button>
 
+          {/* 隐藏已完成根任务 */}
+          <Button
+            variant={hideCompletedRoots ? "default" : "ghost"}
+            size="sm"
+            className="h-8 gap-1 text-xs"
+            onClick={() => setHideCompletedRoots(prev => !prev)}
+            title={hideCompletedRoots ? "显示全部任务" : "隐藏所有子任务都已完成的根任务"}
+          >
+            {hideCompletedRoots ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            {hideCompletedRoots ? "显示全部" : "隐藏已完成"}
+          </Button>
+
           {/* 下载模板 */}
           <Button
             variant="outline"
@@ -1410,7 +1478,7 @@ export const WbsTable = React.memo(function WbsTable({
             members={members}
             projectName={projectName}
             projectId={projectId}
-            disabled={isLoading || tasks.length === 0}
+            disabled={isLoading || filteredTasks.length === 0}
             filteredCount={flatTasks.length}
           />
 
@@ -1713,11 +1781,17 @@ export const WbsTable = React.memo(function WbsTable({
 
       {/* 筛选结果统计栏：显示当前筛选后的任务数量及各状态分布（computed_status 口径，与 WBS 显示一致） */}
       <div className="shrink-0 flex items-center gap-2 px-1 pt-3 text-xs text-muted-foreground flex-wrap border-t border-border/40">
-        <span>筛选结果：<span className="font-semibold text-foreground">{tasks.length}</span> 个任务</span>
+        <span>筛选结果：<span className="font-semibold text-foreground">{filteredTasks.length}</span> 个任务</span>
+        {hideCompletedRoots && hiddenCompletedCount > 0 && (
+          <>
+            <span className="text-border">|</span>
+            <span className="text-amber-600">已隐藏 {hiddenCompletedCount} 个已完成分组</span>
+          </>
+        )}
         <span className="text-border">|</span>
         {(() => {
           const counts: Record<string, number> = {};
-          for (const t of tasks) {
+          for (const t of filteredTasks) {
             const s = String(t.computedStatus || t.status || '');
             if (s) counts[s] = (counts[s] || 0) + 1;
           }
@@ -1734,7 +1808,7 @@ export const WbsTable = React.memo(function WbsTable({
             );
           });
         })()}
-        {tasks.length === 0 && <span className="italic">无匹配任务</span>}
+        {filteredTasks.length === 0 && <span className="italic">无匹配任务</span>}
       </div>
 
       {/* 快捷键提示 */}
