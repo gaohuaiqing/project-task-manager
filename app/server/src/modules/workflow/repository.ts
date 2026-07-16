@@ -120,6 +120,36 @@ export class WorkflowRepository {
     return data.id;
   }
 
+  /**
+   * 创建「直接生效」的计划变更记录（admin/tech_manager/dept_manager 用）
+   * - status 直接置 'approved'
+   * - approver_id = 操作者本人（自审语义，前端据此识别「直接变更」）
+   * - approved_at = NOW()
+   * - 不做 pending 去重（每一次真实变更都应留痕）
+   * 注意：new_value / reason 为 NOT NULL，调用方须保证非空
+   */
+  async createDirectPlanChange(data: {
+    id: string;
+    submission_id: string;
+    task_id: string;
+    user_id: number;
+    change_type: string;
+    old_value: string | null;
+    new_value: string;
+    reason: string;
+  }): Promise<string> {
+    const pool = getPool();
+    await pool.execute(
+      `INSERT INTO plan_changes
+         (id, submission_id, task_id, user_id, change_type,
+          old_value, new_value, reason, status, approver_id, approved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, NOW())`,
+      [data.id, data.submission_id, data.task_id, data.user_id, data.change_type,
+       data.old_value, data.new_value, data.reason, data.user_id]
+    );
+    return data.id;
+  }
+
   async approvePlanChange(id: string, approverId: number, rejectionReason?: string): Promise<boolean> {
     const pool = getPool();
     const status: ApprovalStatus = rejectionReason ? 'rejected' : 'approved';

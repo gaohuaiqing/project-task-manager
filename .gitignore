@@ -17,6 +17,8 @@ build/
 dist/
 app/dist/
 app/server/dist/
+app/server/cjs-build/
+app/server/tsconfig.cjs.json
 app/build/
 .app/
 

@@ -3,7 +3,7 @@
  * 显示任务的计划变更审批历史
  */
 import { Badge } from '@/components/ui/badge';
-import { Clock, Check, X, AlertCircle, User } from 'lucide-react';
+import { Clock, Check, X, AlertCircle, User, Edit } from 'lucide-react';
 import { format } from 'date-fns';
 import type { PlanChange } from '@/lib/api/workflow.api';
 
@@ -39,7 +39,14 @@ export function PlanChangesPanel({ changes }: PlanChangesPanelProps) {
   return (
     <div className="space-y-4">
       {changes.map((change) => {
-        const statusConfig = STATUS_CONFIG[change.status] || STATUS_CONFIG.pending;
+        // 直接变更识别：已通过 && 申请人===审批人（同一人自审，即管理者直接修改）
+        const isDirectChange =
+          change.status === 'approved' &&
+          change.userId != null &&
+          change.userId === change.approverId;
+        const statusConfig = isDirectChange
+          ? { label: '直接变更', variant: 'secondary' as const, icon: Edit }
+          : (STATUS_CONFIG[change.status] || STATUS_CONFIG.pending);
         const StatusIcon = statusConfig.icon;
 
         return (
@@ -78,25 +85,42 @@ export function PlanChangesPanel({ changes }: PlanChangesPanelProps) {
               <span>{change.reason}</span>
             </div>
 
-            {/* 审批信息 */}
+            {/* 审批/变更信息 */}
             {change.status !== 'pending' && (
               <div className="border-t pt-3 space-y-1">
-                {change.approverName && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <User className="h-3 w-3" />
-                    审批人：{change.approverName}
-                  </div>
-                )}
-                {change.approvedAt && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    审批时间：{format(new Date(change.approvedAt), 'yyyy-MM-dd HH:mm')}
-                  </div>
-                )}
-                {change.rejectionReason && (
-                  <div className="text-xs text-destructive">
-                    驳回原因：{change.rejectionReason}
-                  </div>
+                {isDirectChange ? (
+                  <>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Edit className="h-3 w-3" />
+                      直接生效（无需审批）
+                    </div>
+                    {change.approvedAt && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Clock className="h-3 w-3" />
+                        变更时间：{format(new Date(change.approvedAt), 'yyyy-MM-dd HH:mm')}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {change.approverName && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <User className="h-3 w-3" />
+                        审批人：{change.approverName}
+                      </div>
+                    )}
+                    {change.approvedAt && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Clock className="h-3 w-3" />
+                        审批时间：{format(new Date(change.approvedAt), 'yyyy-MM-dd HH:mm')}
+                      </div>
+                    )}
+                    {change.rejectionReason && (
+                      <div className="text-xs text-destructive">
+                        驳回原因：{change.rejectionReason}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}

@@ -536,11 +536,18 @@ export class TaskService {
     const effectivePageSize = options.project_id ? 500 : 10000;
 
     const page = options.page || 1;
-    const { items, total } = await this.repo.getTasks({ ...options, pageSize: effectivePageSize });
+    const { items: matchedItems, total } = await this.repo.getTasks({ ...options, pageSize: effectivePageSize });
     const totalPages = Math.ceil(total / effectivePageSize);
 
-    if (items.length === 0) {
+    if (matchedItems.length === 0) {
       return { items: [], total: 0, page, pageSize: effectivePageSize, totalPages: 0 };
+    }
+
+    // 搜索结果补全：若结果含根任务，带出其全部子孙（便于查看完整 WBS 子树）
+    // 仅 search 时触发；非 search 路径 items===matchedItems，行为零变化。total 保持匹配数（不含补全子孙）。
+    let items = matchedItems;
+    if (options.search && options.search.trim() && items.length > 0) {
+      items = await this.augmentSearchWithRootDescendants(items, options);
     }
 
     // 全局统一计算 WBS 编码（不区分项目）
@@ -604,6 +611,40 @@ export class TaskService {
     });
 
     return roots;
+  }
+
+  /**
+   * 搜索结果补全：识别结果中的根任务（parent_id IS NULL），
+   * 拉取其全部子孙合并入结果，便于查看完整 WBS 子树。仅 search 时调用。
+   * 不变式：不修改 total；子孙通常继承根 project_id；按 id 去重，matched 项保留其 enrichment。
+   */
+  private async augmentSearchWithRootDescendants(
+    items: WBSTaskListItem[],
+    options: TaskQueryOptions,
+  ): Promise<WBSTaskListItem[]> {
+    const rootTasks = items.filter(t => t.parent_id === null || t.parent_id === undefined);
+    if (rootTasks.length === 0) return items;
+
+    const mergedMap = new Map<string, WBSTaskListItem>();
+    items.forEach(t => mergedMap.set(t.id, t));
+
+    // 数据隔离防御：子孙 project_id 须在可访问范围（子孙通常继承根 project_id，防御跨项目 parenting 越权）
+    const accessibleSet = options.accessible_project_ids
+      ? new Set(options.accessible_project_ids.map(String))
+      : null;
+
+    for (const root of rootTasks) {
+      const descendants = await this.repo.getTaskWithDescendantsEnriched(root.id);
+      for (const d of descendants) {
+        if (mergedMap.has(d.id)) continue; // 去重：matched 任务已存在
+        if (accessibleSet && d.project_id && !accessibleSet.has(String(d.project_id))) {
+          continue;
+        }
+        mergedMap.set(d.id, d);
+      }
+    }
+
+    return Array.from(mergedMap.values());
   }
 
   async getTaskById(id: string): Promise<WBSTask | null> {
@@ -913,29 +954,8 @@ export class TaskService {
         throw new ValidationError('请输入变更原因');
       }
 
-      // 收集真正发生变更的字段（比较新旧值，跳过无变化的字段）
-      const changes = planChangeFields
-        .filter(f => (data as any)[f] !== undefined)
-        .filter(f => {
-          const oldVal = (task as any)[f];
-          const newVal = (data as any)[f];
-          // 标准化比较：null/undefined 视为等价，日期格式统一比较
-          const normalizedOld = oldVal ?? null;
-          const normalizedNew = newVal ?? null;
-          if (normalizedOld === normalizedNew) return false;
-          // 日期字段：比较日期部分
-          if (f === 'start_date' && normalizedOld && normalizedNew) {
-            const oldDate = new Date(normalizedOld).toISOString().split('T')[0];
-            const newDate = new Date(normalizedNew).toISOString().split('T')[0];
-            return oldDate !== newDate;
-          }
-          return String(normalizedOld) !== String(normalizedNew);
-        })
-        .map(f => ({
-          field: f,
-          oldValue: (task as any)[f],
-          newValue: (data as any)[f],
-        }));
+      // 收集真正发生变更的字段（复用公共方法，跳过无变化的字段）
+      const changes = this.collectPlanFieldChanges(data, task, planChangeFields);
 
       // 无真正变更则跳过审批流程
       if (changes.length === 0) {
@@ -1017,6 +1037,50 @@ export class TaskService {
         // 发送任务分配通知给新负责人
         if (newAssignee) {
           await this.sendTaskAssignedNotification(task, newAssignee, currentUser);
+        }
+      }
+
+      // 非工程师（admin/tech_manager/dept_manager）修改计划字段：直接生效但留痕到 plan_changes
+      // 统一到「计划变更」历史视图（不走审批流，status 直接 approved）
+      if (!needsApproval) {
+        const directChanges = this.collectPlanFieldChanges(data, task, planChangeFields);
+        if (directChanges.length > 0) {
+          const submissionId = uuidv4();
+          const reason = (data.reason && data.reason.trim())
+            ? sanitizeString(data.reason, 1000)
+            : '管理者直接变更（无需审批）';
+          let recordedCount = 0;
+          for (const change of directChanges) {
+            // new_value 列为 NOT NULL：跳过置空类变更（如清空前置任务），与工程师路径一致
+            const newValue = change.newValue != null ? String(change.newValue) : null;
+            if (newValue === null) continue;
+            try {
+              await this.workflowRepo.createDirectPlanChange({
+                id: uuidv4(),
+                submission_id: submissionId,
+                task_id: id,
+                user_id: currentUser.id,
+                change_type: change.field,
+                old_value: change.oldValue != null ? String(change.oldValue) : null,
+                new_value: newValue,
+                reason,
+              });
+              recordedCount++;
+            } catch (err) {
+              // 留痕失败不阻断已生效的任务更新；记录日志供排查
+              logger.error('记录管理者直接计划变更失败 (task=%s, field=%s): %s',
+                id, change.field, err instanceof Error ? err.message : String(err));
+            }
+          }
+          // 计划调整次数 +1（与工程师路径一致，保证 WBS「计划调整」列计数语义统一）
+          if (recordedCount > 0) {
+            try {
+              await this.repo.incrementTaskCounter(id, 'plan_change_count');
+            } catch (err) {
+              logger.error('更新 plan_change_count 失败 (task=%s): %s',
+                id, err instanceof Error ? err.message : String(err));
+            }
+          }
         }
       }
 
@@ -1128,20 +1192,46 @@ export class TaskService {
   }
 
   private hasPlanChanges(data: UpdateTaskRequest, fields: string[], task: WBSTask): boolean {
-    // 比较 data 与 task 的实际值是否真改（避免表单回填的 start_date 等字段误触发审批）
-    return fields.some(f => {
-      if ((data as any)[f] === undefined) return false;
-      const oldVal = (task as any)[f];
-      const newVal = (data as any)[f];
-      const normalizedOld = oldVal ?? null;
-      const normalizedNew = newVal ?? null;
-      if (normalizedOld === normalizedNew) return false;
-      if (f === 'start_date' && normalizedOld && normalizedNew) {
-        return new Date(normalizedOld).toISOString().split('T')[0]
-             !== new Date(normalizedNew).toISOString().split('T')[0];
-      }
-      return String(normalizedOld) !== String(normalizedNew);
-    });
+    // 复用 collectPlanFieldChanges 的逻辑判断是否有变更（保持日期比较一致性）
+    // 避免 hasPlanChanges 用 UTC 与 collectPlanFieldChanges 用本地比较产生分歧
+    return this.collectPlanFieldChanges(data, task, fields).length > 0;
+  }
+
+  /**
+   * 收集真正发生变更的计划字段（比较新旧值，跳过无变化字段）
+   * 供工程师审批分支与非工程师直接变更分支复用
+   */
+  private collectPlanFieldChanges(
+    data: UpdateTaskRequest,
+    task: WBSTask,
+    fields: string[]
+  ): Array<{ field: string; oldValue: unknown; newValue: unknown }> {
+    return fields
+      .filter(f => (data as any)[f] !== undefined)
+      .filter(f => {
+        const oldVal = (task as any)[f];
+        const newVal = (data as any)[f];
+        // 标准化比较：null/undefined 视为等价，日期格式统一比较
+        const normalizedOld = oldVal ?? null;
+        const normalizedNew = newVal ?? null;
+        if (normalizedOld === normalizedNew) return false;
+        // 日期字段：按本地日期比较，避免 UTC 时区偏移导致同日误判
+        // （DB 存 UTC ISO 如 2026-09-14T16:00Z=北京9/15，表单提交本地串 "2026-09-15"，toISOString 转 UTC 会差一天）
+        if (f === 'start_date' && normalizedOld && normalizedNew) {
+          const oldDate = new Date(normalizedOld);
+          const newDate = new Date(normalizedNew);
+          if (isNaN(oldDate.getTime()) || isNaN(newDate.getTime())) {
+            return String(normalizedOld) !== String(normalizedNew);
+          }
+          return oldDate.toDateString() !== newDate.toDateString();
+        }
+        return String(normalizedOld) !== String(normalizedNew);
+      })
+      .map(f => ({
+        field: f,
+        oldValue: (task as any)[f],
+        newValue: (data as any)[f],
+      }));
   }
 
   /**
