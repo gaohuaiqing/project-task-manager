@@ -334,6 +334,35 @@ export class TaskRepository {
     return rows;
   }
 
+  /**
+   * 获取任务及其所有后代（带 enrichment：assignee_name/project_name/project_code）
+   * 用于搜索结果补全展示。与 getTaskWithDescendants 的区别：LEFT JOIN users/projects。
+   * 不改现有 getTaskWithDescendants（被 delete-preview/删除/复制等多处调用）。
+   */
+  async getTaskWithDescendantsEnriched(id: string): Promise<WBSTaskListItem[]> {
+    const pool = getPool();
+    const [rows] = await pool.execute<TaskRow[]>(
+      `
+      WITH RECURSIVE TaskTree AS (
+        SELECT * FROM wbs_tasks WHERE id = ?
+        UNION ALL
+        SELECT t.* FROM wbs_tasks t
+        INNER JOIN TaskTree tt ON t.parent_id = tt.id
+      )
+      SELECT tt.*,
+             u.real_name AS assignee_name,
+             p.name AS project_name,
+             p.code AS project_code
+      FROM TaskTree tt
+      LEFT JOIN users u ON tt.assignee_id = u.id
+      LEFT JOIN projects p ON tt.project_id = p.id
+      ORDER BY tt.sort_order ASC, tt.created_at ASC
+      `,
+      [id]
+    );
+    return rows as unknown as WBSTaskListItem[];
+  }
+
   async deleteTask(id: string): Promise<boolean> {
     const pool = getPool();
 

@@ -233,6 +233,8 @@ interface WbsTableProps {
   /** 批量删除回调，taskIds 为根任务ID，totalCount 为用户选中的任务总数（包括子任务） */
   onBatchDelete?: (taskIds: string[], totalCount: number) => void;
   totalCount?: number;
+  /** 是否处于搜索激活状态（search 输入非空） */
+  searchActive?: boolean;
 }
 
 export const WbsTable = React.memo(function WbsTable({
@@ -253,6 +255,7 @@ export const WbsTable = React.memo(function WbsTable({
   onChangeLevel,
   onReorderTask,
   totalCount,
+  searchActive,
 }: WbsTableProps) {
   // 获取当前用户（用于权限计算）
   const { user } = useAuth();
@@ -322,6 +325,27 @@ export const WbsTable = React.memo(function WbsTable({
       setExpandedRows(new Set(allExpandableIds));
     }
   }, [allExpandableIds]);
+
+  // 搜索激活时：自动展开有 children 的根任务（补全的子孙可见），只增不删，不破坏手动折叠
+  useEffect(() => {
+    if (!searchActive) return;
+    if (tasks.length === 0) return;
+    setExpandedRows(prev => {
+      const taskIdSet = new Set(tasks.map(t => t.id));
+      const topLevelWithChildren = tasks.filter(
+        t => t.hasChildren && (!t.parentId || !taskIdSet.has(t.parentId))
+      );
+      const next = new Set(prev);
+      let changed = false;
+      topLevelWithChildren.forEach(t => {
+        if (!next.has(t.id)) {
+          next.add(t.id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [searchActive, tasks]);
 
   // 选中的行
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);

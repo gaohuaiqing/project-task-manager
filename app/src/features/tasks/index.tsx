@@ -499,6 +499,7 @@ export default function TasksPage({ projectId }: TasksPageProps) {
             await reorderMutation.mutateAsync({ taskId, afterTaskId });
           }}
           totalCount={tasksData?.total}
+          searchActive={!!filters.search?.trim()}
         />
       </div>
 
