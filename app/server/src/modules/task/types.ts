@@ -150,8 +150,10 @@ export interface TaskQueryOptions {
   search?: string;
   page?: number;
   pageSize?: number;
-  /** 数据范围过滤：仅返回这些项目中的任务 */
+  /** 数据范围过滤：仅返回这些项目中的任务（旧口径，按项目）*/
   accessible_project_ids?: string[];
+  /** 数据范围过滤：与 dashboard 统一的口径（按角色：admin 全部/dept_manager 按 assignee 部门/tech_manager 按组/engineer 按项目成员）*/
+  task_scope?: import('../analytics/query-builder').ScopeFilter;
   /** 数据范围过滤：用于过滤无项目归属的任务（仅返回分配给该用户的无项目任务） */
   user_id?: number;
   /** 是否包含未指派（assignee_id IS NULL）的任务 */

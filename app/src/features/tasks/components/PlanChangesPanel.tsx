@@ -25,6 +25,19 @@ const STATUS_CONFIG: Record<string, { label: string; variant: 'default' | 'secon
   timeout: { label: '已超时', variant: 'outline', icon: AlertCircle },
 };
 
+/**
+ * 格式化变更值显示：日期类型(start_date)统一为 yyyy-MM-dd
+ * 兼容旧数据 Date.toString() 格式（如 "Mon Jul 06 2026..."）和 ISO/yyyy-MM-dd
+ */
+function formatChangeValue(val: string | null | undefined, changeType: string): string {
+  if (!val) return '-';
+  if (changeType === 'start_date') {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? val : format(d, 'yyyy-MM-dd');
+  }
+  return val;
+}
+
 export function PlanChangesPanel({ changes }: PlanChangesPanelProps) {
   if (changes.length === 0) {
     return (
@@ -72,11 +85,11 @@ export function PlanChangesPanel({ changes }: PlanChangesPanelProps) {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">原值：</span>
-                <span className="font-mono">{change.oldValue || '-'}</span>
+                <span className="font-mono">{formatChangeValue(change.oldValue, change.changeType)}</span>
               </div>
               <div>
                 <span className="text-muted-foreground">新值：</span>
-                <span className="font-mono">{change.newValue || '-'}</span>
+                <span className="font-mono">{formatChangeValue(change.newValue, change.changeType)}</span>
               </div>
             </div>
 

@@ -10,7 +10,7 @@ import { audit } from '../../core/audit';
 import { sendToUser } from '../../core/realtime';
 import { logger } from '../../core/logger';
 import { wbsCodeService, wbsCodeCache, wbsCodeRegistry } from '../../core/wbs';
-import { getTechManagerGroupIds } from '../analytics/query-builder';
+import { buildTaskScopeFilter, getTechManagerGroupIds } from '../analytics/query-builder';
 
 /**
  * 将 Date 对象格式化为本地日期字符串 YYYY-MM-DD
@@ -424,6 +424,21 @@ export class TaskService {
   }
 
   /**
+   * 获取用户可见任务的 WBS 编码映射（UUID→编码）—— 全局唯一编码源头
+   * WBS 表（getTasks）+ 所有报表都引用此映射，确保同一 UUID 任务编码各处一致。
+   * 按用户隔离缓存（不同权限范围 codeMap 不同）。
+   */
+  async getUserWbsCodeMap(user: User): Promise<Map<string, string>> {
+    const cached = await wbsCodeCache.get(user.id, `user:${user.id}`);
+    if (cached && cached.codeMap.size > 0) return cached.codeMap;
+    const taskScope = await buildTaskScopeFilter(user, 't', true);
+    const tasks = await this.repo.getTasksForWbsCode(taskScope);
+    const { codeMap, idMap } = wbsCodeService.calculateCodes(tasks);
+    await wbsCodeCache.set(user.id, `user:${user.id}`, { codeMap, idMap });
+    return codeMap;
+  }
+
+  /**
    * 获取任务筛选选项（负责人下拉框候选：有任务的 distinct 责任人）
    * @param projectIdFilter 项目联动过滤
    */
@@ -431,8 +446,11 @@ export class TaskService {
     user: User,
     projectIdFilter?: string[]
   ): Promise<{ assignees: Array<{ id: number | null; name: string | null }> }> {
-    const accessibleProjectIds = await this.getAccessibleProjectIds(user);
-    const assignees = await this.repo.getDistinctAssignees(accessibleProjectIds, projectIdFilter);
+    // 与 getTasks 统一口径：admin 不过滤，其他角色用 buildTaskScopeFilter
+    const taskScope = user.role === 'admin'
+      ? undefined
+      : await buildTaskScopeFilter(user, 't', false);
+    const assignees = await this.repo.getDistinctAssignees(undefined, projectIdFilter, taskScope);
     return { assignees };
   }
 
@@ -550,23 +568,12 @@ export class TaskService {
       items = await this.augmentSearchWithRootDescendants(items, options);
     }
 
-    // 全局统一计算 WBS 编码（不区分项目）
+    // WBS 编码：引用全局唯一源头（getUserWbsCodeMap），与所有报表保持一致
     let itemsWithCode: WBSTaskListItem[] = items;
     if (user) {
-      // 每次查询都重新计算WBS编码（确保编码与查询顺序一致）
-      const tasksForCalculation = items.map(item => ({
-        id: item.id,
-        parent_id: item.parent_id,
-        wbs_level: item.wbs_level,
-        sort_order: item.sort_order,
-        created_at: item.created_at,
-      }));
-
-      const { codeMap } = wbsCodeService.calculateCodes(tasksForCalculation);
-
+      const codeMap = await this.getUserWbsCodeMap(user);
       itemsWithCode = items.map(item => {
         const wbsCode = codeMap.get(item.id) || '';
-        // 从动态计算的 WBS 编码推算等级，确保 wbs_level 与 wbs_code 一致
         const derivedLevel = wbsCode ? wbsCode.split('.').length : 1;
         return {
           ...item,
@@ -851,7 +858,7 @@ export class TaskService {
     await wbsCodeCache.deleteProjectCache(data.project_id);
 
     // 清除当前用户的全局缓存（任务列表查询使用 'global' 作为 projectId）
-    await wbsCodeCache.delete(currentUser.id, 'global');
+    await wbsCodeCache.clearAll();
 
     // 刷新 WBS 编码全局注册表
     await wbsCodeRegistry.refreshProject(data.project_id);
@@ -1229,9 +1236,22 @@ export class TaskService {
       })
       .map(f => ({
         field: f,
-        oldValue: (task as any)[f],
+        // 日期字段格式化 yyyy-MM-dd（避免 Date 对象被 String() 成 "Mon Jul 06 2026..."）
+        oldValue: f === 'start_date' && (task as any)[f] != null
+          ? this.formatDateOnly((task as any)[f])
+          : (task as any)[f],
         newValue: (data as any)[f],
       }));
+  }
+
+  /** 日期值格式化为本地 yyyy-MM-dd（与前端 start_date 表单格式一致，避免 Date.toString 污染 plan_changes）*/
+  private formatDateOnly(val: unknown): string {
+    const d = new Date(val as string | Date);
+    if (isNaN(d.getTime())) return String(val);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }
 
   /**
@@ -1273,7 +1293,7 @@ export class TaskService {
     await wbsCodeCache.deleteProjectCache(task.project_id);
 
     // 清除当前用户的全局缓存（任务列表查询使用 'global' 作为 projectId）
-    await wbsCodeCache.delete(currentUser.id, 'global');
+    await wbsCodeCache.clearAll();
 
     // 刷新 WBS 编码全局注册表
     await wbsCodeRegistry.refreshProject(task.project_id);
@@ -1413,7 +1433,7 @@ export class TaskService {
     // 4. 失效项目缓存
     await wbsCodeCache.deleteProjectCache(task.project_id);
     // 清除当前用户的全局缓存（任务列表查询使用 'global' 作为 projectId）
-    await wbsCodeCache.delete(currentUser.id, 'global');
+    await wbsCodeCache.clearAll();
     // 刷新 WBS 编码全局注册表
     await wbsCodeRegistry.refreshProject(task.project_id);
     if (newParentId) {
@@ -2792,7 +2812,7 @@ export class TaskService {
     await wbsCodeCache.deleteProjectCache(task.project_id);
 
     // 清除当前用户的全局缓存（任务列表查询使用 'global' 作为 projectId）
-    await wbsCodeCache.delete(currentUser.id, 'global');
+    await wbsCodeCache.clearAll();
 
     // 刷新 WBS 编码全局注册表
     await wbsCodeRegistry.refreshProject(task.project_id);
@@ -2869,7 +2889,7 @@ export class TaskService {
     await wbsCodeCache.deleteProjectCache(task.project_id);
 
     // 清除当前用户的全局缓存（任务列表查询使用 'global' 作为 projectId）
-    await wbsCodeCache.delete(currentUser.id, 'global');
+    await wbsCodeCache.clearAll();
 
     // 刷新 WBS 编码全局注册表
     await wbsCodeRegistry.refreshProject(task.project_id);
@@ -2966,3 +2986,6 @@ export class TaskService {
     await this.repo.batchUpdateSortOrder(updates);
   }
 }
+
+// 全局单例：避免重复 new 导致 setupEventListeners 的 EventEmitter 监听器泄漏
+export const taskService = new TaskService();

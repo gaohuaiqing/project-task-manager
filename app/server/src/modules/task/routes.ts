@@ -1,14 +1,14 @@
 // app/server/src/modules/task/routes.ts
 import { Router, Request, Response, NextFunction } from 'express';
-import { TaskService } from './service';
+import { taskService } from './service';
 import { OrgService } from '../org/service';
 import { ValidationError } from '../../core/errors';
 import type { User } from '../../core/types';
 import type { TaskQueryOptions, CreateTaskRequest, UpdateTaskRequest } from './types';
 import type { ChangeTaskLevelRequest, ReorderTaskRequest } from './types';
+import { buildTaskScopeFilter } from '../analytics/query-builder';
 
 const router = Router();
-const taskService = new TaskService();
 const orgService = new OrgService();
 
 function getCurrentUser(req: Request): User | null {
@@ -100,14 +100,11 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       pageSize: req.query.pageSize ? parseInt(req.query.pageSize as string) : 50,
     };
 
-    // 根据角色过滤数据范围
-    const accessibleProjectIds = await taskService.getAccessibleProjectIds(currentUser);
-    if (accessibleProjectIds) {
-      options.accessible_project_ids = accessibleProjectIds;
-      // 传递 user_id 用于过滤无项目归属的任务（只有负责人可见）
-      if (currentUser.role !== 'admin') {
-        options.user_id = currentUser.id;
-      }
+    // 数据范围过滤：与 dashboard 统一口径（admin 全部 / dept_manager 按 assignee 部门 / tech_manager 按组 / engineer 按项目成员）
+    if (currentUser.role !== 'admin') {
+      options.task_scope = await buildTaskScopeFilter(currentUser, 't', false);
+      // accessible_project_ids 供 augmentSearchWithRootDescendants 搜索补全时的跨项目防御
+      options.accessible_project_ids = await taskService.getAccessibleProjectIds(currentUser);
     }
 
     const result = await taskService.getTasks(options, currentUser);
@@ -147,10 +144,9 @@ router.get('/export', async (req: Request, res: Response, next: NextFunction) =>
       pageSize: MAX_EXPORT_SIZE,
     };
 
-    // 数据隔离过滤
+    // 数据范围过滤：与 dashboard 统一口径
     if (currentUser.role !== 'admin') {
-      options.accessible_project_ids = await taskService.getAccessibleProjectIds(currentUser);
-      options.user_id = currentUser.id;
+      options.task_scope = await buildTaskScopeFilter(currentUser, 't', false);
     }
 
     const { items: tasks } = await taskService.getTasks(options);

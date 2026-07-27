@@ -130,7 +130,11 @@ export class TaskRepository {
     //
     // 注意：accessible_project_ids 可能包含不存在项目的ID（project_members 表悬空引用）
     //       必须在 SQL 层面验证项目存在性
-    if (options.accessible_project_ids !== undefined) {
+    // task_scope 优先（与 dashboard 统一口径：dept_manager 按 assignee 部门等），旧 accessible_project_ids 兼容
+    if (options.task_scope) {
+      conditions.push(`(${options.task_scope.clause})`);
+      params.push(...options.task_scope.params);
+    } else if (options.accessible_project_ids !== undefined) {
       if (options.accessible_project_ids.length === 0) {
         // 没有可访问项目：只能看到分配给自己的无项目归属/悬空引用任务
         if (options.user_id) {
@@ -199,13 +203,17 @@ export class TaskRepository {
    */
   async getDistinctAssignees(
     accessibleProjectIds: string[] | undefined,
-    projectIdFilter?: string[]
+    projectIdFilter?: string[],
+    taskScope?: { clause: string; params: (string | number)[] }
   ): Promise<Array<{ id: number | null; name: string | null }>> {
     const pool = getPool();
     const conditions: string[] = [];
-    const params: string[] = [];
+    const params: (string | number)[] = [];
 
-    if (accessibleProjectIds !== undefined) {
+    if (taskScope) {
+      conditions.push(`(${taskScope.clause})`);
+      params.push(...taskScope.params);
+    } else if (accessibleProjectIds !== undefined) {
       if (accessibleProjectIds.length === 0) return []; // 无可见项目
       const ph = accessibleProjectIds.map(() => '?').join(', ');
       conditions.push(`EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND t.project_id IN (${ph}))`);
@@ -227,6 +235,19 @@ export class TaskRepository {
       params
     );
     return rows as Array<{ id: number | null; name: string | null }>;
+  }
+
+  /** 查询用户可见任务的 WBS 编码计算所需字段（供 getUserWbsCodeMap 算编码）*/
+  async getTasksForWbsCode(taskScope: { clause: string; params: (string | number)[] }): Promise<Array<{ id: string; parent_id: string | null; wbs_level: number; sort_order: number | null; created_at: Date; project_id: string }>> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.id, t.parent_id, t.wbs_level, t.sort_order, t.created_at, t.project_id
+       FROM wbs_tasks t
+       WHERE ${taskScope.clause}
+       ORDER BY t.sort_order ASC, t.created_at ASC`,
+      taskScope.params
+    );
+    return rows as Array<{ id: string; parent_id: string | null; wbs_level: number; sort_order: number | null; created_at: Date; project_id: string }>;
   }
 
   async getTaskById(id: string): Promise<WBSTask | null> {
