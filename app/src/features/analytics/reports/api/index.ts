@@ -13,6 +13,8 @@ import type {
   ReportQueryOptions,
   MemberAnalysisQueryOptions,
   ResourceEfficiencyQueryOptions,
+  ActivityTrendQueryOptions,
+  ActivityTrendResponse,
 } from '@/types/api/analytics';
 
 // ==================== 类型定义 ====================
@@ -103,6 +105,28 @@ export async function getResourceEfficiencyReport(
 }
 
 /**
+ * 获取活跃度趋势（团队/个人 维护活动时间曲线）
+ */
+export async function getActivityTrend(
+  options: ActivityTrendQueryOptions
+): Promise<ActivityTrendResponse> {
+  const params = new URLSearchParams();
+  params.set('dimension', options.dimension);
+  params.set('metric', options.metric);
+  if (options.startDate) params.set('start_date', options.startDate);
+  if (options.endDate) params.set('end_date', options.endDate);
+  if (options.projectId) params.set('project_id', options.projectId);
+  if (options.departmentId) params.set('department_id', String(options.departmentId));
+  if (options.assigneeId) params.set('assignee_id', String(options.assigneeId));
+  if (options.topN) params.set('top_n', String(options.topN));
+
+  const response = await apiService.get<ApiResponse<ActivityTrendResponse>>(
+    `/analytics/reports/activity-trend?${params.toString()}`
+  );
+  return response.data;
+}
+
+/**
  * 获取项目进度报表
  * @param projectId 项目ID，可选。不传则返回所有项目汇总数据
  */
@@ -156,6 +180,7 @@ export const reportsApi = {
   getMemberAnalysisReport,
   getResourceEfficiencyReport,
   getProjectProgressReport,
+  getActivityTrend,
   getProjectsSimple,
   getMembersSimple,
 };

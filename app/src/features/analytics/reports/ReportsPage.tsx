@@ -1,6 +1,6 @@
 /**
  * 报表分析模块主页面
- * 包含5个Tab：项目进度、任务统计、延期分析、成员任务分析、资源效能分析
+ * 包含6个Tab：项目进度、任务统计、延期分析、成员任务分析、资源效能分析、活跃度分析
  *
  * @module analytics/reports/ReportsPage
  * @see REQ_07_INDEX.md §2 模块定位
@@ -8,6 +8,7 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FilterBar } from './components/shared';
 import { TIME_PERIODS, CACHE_TIMES } from '../shared/constants';
@@ -17,6 +18,7 @@ import {
   DelayAnalysisTab,
   MemberAnalysisTab,
   ResourceEfficiencyTab,
+  ActivityTrendTab,
 } from './tabs';
 import { useProjectsForReport, useMembersForReport } from './data';
 import type { ReportFilters, ReportTab } from './types';
@@ -31,6 +33,7 @@ export interface ReportsPageProps {
 export function ReportsPage({ initialTab }: ReportsPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
 
   // 筛选条件状态
   const [filters, setFilters] = useState<ReportFilters>({
@@ -62,10 +65,18 @@ export function ReportsPage({ initialTab }: ReportsPageProps) {
     [navigate]
   );
 
-  // 刷新处理
+  // 刷新处理 — 通过版本号触发 React Query 重新请求
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const handleRefresh = useCallback(() => {
-    setFilters({ ...filters });
-  }, [filters]);
+    // 使 React Query 缓存失效，触发所有报表重新请求
+    queryClient.invalidateQueries({ queryKey: ['task-statistics'] });
+    queryClient.invalidateQueries({ queryKey: ['delay-analysis'] });
+    queryClient.invalidateQueries({ queryKey: ['member-analysis'] });
+    queryClient.invalidateQueries({ queryKey: ['resource-efficiency'] });
+    queryClient.invalidateQueries({ queryKey: ['project-progress'] });
+    queryClient.invalidateQueries({ queryKey: ['activity-trend'] });
+    setRefreshVersion((v) => v + 1);
+  }, [queryClient]);
 
   // 导出处理
   const handleExport = useCallback(async () => {
@@ -117,7 +128,7 @@ export function ReportsPage({ initialTab }: ReportsPageProps) {
   // 项目列表（用于筛选器）
   const projects = useMemo(() => {
     if (!projectsData) return [];
-    return projectsData.map((p: any) => ({
+    return projectsData.map((p: { id: string; name: string }) => ({
       id: p.id,
       name: p.name,
     }));
@@ -126,9 +137,9 @@ export function ReportsPage({ initialTab }: ReportsPageProps) {
   // 成员列表（用于筛选器）
   const members = useMemo(() => {
     if (!membersData) return [];
-    return membersData.map((m: any) => ({
+    return membersData.map((m: { id: number; name: string; real_name?: string }) => ({
       id: m.id,
-      name: m.name || m.displayName || m.username,
+      name: m.name || m.real_name,
     }));
   }, [membersData]);
 
@@ -148,7 +159,7 @@ export function ReportsPage({ initialTab }: ReportsPageProps) {
 
       {/* Tab 导航和内容 */}
       <Tabs value={currentTab} onValueChange={handleTabChange} className="space-y-6">
-        <TabsList className="grid grid-cols-5 w-full max-w-[800px] bg-muted/50">
+        <TabsList className="grid grid-cols-6 w-full max-w-[900px] bg-muted/50">
           {REPORT_TABS.map((tab) => (
             <TabsTrigger
               key={tab.value}
@@ -178,6 +189,10 @@ export function ReportsPage({ initialTab }: ReportsPageProps) {
 
         <TabsContent value="resource-efficiency" className="mt-0">
           <ResourceEfficiencyTab filters={filters} />
+        </TabsContent>
+
+        <TabsContent value="activity-trend" className="mt-0">
+          <ActivityTrendTab filters={filters} />
         </TabsContent>
       </Tabs>
     </div>

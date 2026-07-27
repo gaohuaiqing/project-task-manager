@@ -12,6 +12,7 @@ export const STATUS_LABELS: Record<string, string> = {
   pending_approval: '待审批',
   not_started: '未开始',
   in_progress: '进行中',
+  completed: '已完成',
   early_completed: '提前完成',
   on_time_completed: '按时完成',
   delay_warning: '延期预警',

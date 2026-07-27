@@ -22,6 +22,8 @@ export interface LineChartProps {
   showGrid?: boolean;
   xAxisLabel?: string;
   yAxisLabel?: string;
+  /** 折线宽度，默认 2；活跃度等密集对比图可传更细值（如 1.5） */
+  strokeWidth?: number;
 }
 
 const COLORS = [
@@ -39,6 +41,7 @@ export function LineChart({
   showGrid = true,
   xAxisLabel,
   yAxisLabel,
+  strokeWidth = 2,
 }: LineChartProps) {
   // 安全数据处理
   const safeData = data || { labels: [], datasets: [] };
@@ -115,7 +118,7 @@ export function LineChart({
             type="monotone"
             dataKey={dataset.label}
             stroke={dataset.color || COLORS[index % COLORS.length]}
-            strokeWidth={2}
+            strokeWidth={strokeWidth}
             dot={{ r: 3 }}
             activeDot={{ r: 5 }}
           />

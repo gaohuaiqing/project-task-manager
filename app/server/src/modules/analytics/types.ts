@@ -138,6 +138,7 @@ export interface TaskStatisticsReport {
   urgent_count: number;
   priority_distribution: Record<string, number>;      // 优先级分布（基于根任务）
   assignee_distribution: AssigneeTaskCount[];
+  status_distribution: StatusDistributionItem[];       // 任务状态分布（互斥状态分类）
   task_type_distribution: TaskTypeDistributionItem[]; // 任务类型分布（基于根任务）
   task_list: TaskStatisticsItem[];  // 任务明细列表（需求文档要求）
   task_trend?: TrendDataPoint[];    // v1.3 新增：任务趋势数据（最近30天）
@@ -313,20 +314,8 @@ export interface HolidayConfig {
 }
 
 // ============ 审计日志相关 ============
-
-export interface AuditLog {
-  id: string;
-  user_id: number;
-  action: string;
-  table_name: string;
-  record_id: string;
-  old_value: string | null;
-  new_value: string | null;
-  ip_address: string | null;
-  created_at: Date;
-  // 关联信息
-  user_name?: string;
-}
+// 注意：审计日志的类型定义已迁移至 core/types/audit.types.ts（AuditLog 接口）
+// 此处仅保留查询选项类型，供 analytics/routes 引用
 
 export interface AuditLogQueryOptions {
   user_id?: number;
@@ -565,6 +554,42 @@ export interface MemberStatusItem {
 export interface GroupActivityTrendPoint {
   date: string;
   [group_name: string]: string | number;
+}
+
+// ============ 活跃度趋势报表（团队/个人 维护活动时间曲线） ============
+
+export type ActivityTrendDimension = 'team' | 'assignee';
+export type ActivityTrendMetric = 'active_task_ratio' | 'progress_record_count';
+
+/** 活跃度趋势查询参数 */
+export interface ActivityTrendQueryOptions {
+  dimension: ActivityTrendDimension;
+  metric: ActivityTrendMetric;
+  start_date?: string;
+  end_date?: string;
+  project_id?: string;
+  department_id?: number;
+  assignee_id?: number;
+  top_n?: number;
+}
+
+/** 活跃度趋势数据点（长表，前端透视成多系列） */
+export interface ActivityTrendPoint {
+  period: string;       // 周一起始日 YYYY-MM-DD，如 "2026-07-20"
+  entityName: string;   // 部门名 / 责任人名
+  value: number;        // 占比% 或 记录数
+}
+
+export interface ActivityTrendEntity {
+  id: number | null;
+  name: string;
+}
+
+export interface ActivityTrendResponse {
+  dimension: ActivityTrendDimension;
+  metric: ActivityTrendMetric;
+  series: ActivityTrendPoint[];
+  entities: ActivityTrendEntity[];
 }
 
 export interface DeptManagerDashboardDetailResponse {

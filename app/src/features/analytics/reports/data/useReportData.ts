@@ -13,6 +13,7 @@ import type {
   DelayAnalysisData,
   MemberAnalysisData,
   ResourceEfficiencyData,
+  ActivityTrendData,
 } from '../types';
 
 // ==================== API 导入 ====================
@@ -25,6 +26,7 @@ import {
   getProjectProgressReport,
   getProjectsSimple,
   getMembersSimple,
+  getActivityTrend,
 } from '../api';
 
 import {
@@ -34,6 +36,7 @@ import {
   transformResourceEfficiencyReport,
   transformProjectProgressReport,
   transformProjectProgressSummary,
+  transformActivityTrend,
 } from './transformers';
 
 import { analyticsApi } from '@/lib/api/analytics.api';
@@ -230,6 +233,38 @@ export function useProjectProgressData(projectId?: string): {
     refetch: () => refetch(),
     isSummary,
   };
+}
+
+/**
+ * 活跃度分析数据（团队占比 + 个人占比，并行获取，统一 active_task_ratio 口径）
+ */
+export function useActivityTrendData(filters: ReportFilters): UseReportDataResult<ActivityTrendData> {
+  return useReportData('activity-trend', filters, async (f) => {
+    const startDate = getStartDate(f);
+    const endDate = getEndDate(f);
+    const baseOpts = {
+      startDate,
+      endDate,
+      projectId: f.projectId,
+      departmentId: f.departmentId ? Number(f.departmentId) : undefined,
+      assigneeId: f.assigneeId ? Number(f.assigneeId) : undefined,
+    };
+
+    const [teamRatioRes, memberRatioRes] = await Promise.allSettled([
+      getActivityTrend({ ...baseOpts, dimension: 'team', metric: 'active_task_ratio' }),
+      getActivityTrend({ ...baseOpts, dimension: 'assignee', metric: 'active_task_ratio' }),
+    ]);
+
+    if (teamRatioRes.status === 'rejected') throw teamRatioRes.reason;
+
+    const teamRatioResp = teamRatioRes.status === 'fulfilled' ? teamRatioRes.value : { series: [], entities: [] };
+    const memberRatioResp = memberRatioRes.status === 'fulfilled' ? memberRatioRes.value : { series: [], entities: [] };
+
+    return {
+      teamRatio: transformActivityTrend(teamRatioResp.series, teamRatioResp.entities.map(e => e.name)),
+      memberRatio: transformActivityTrend(memberRatioResp.series, memberRatioResp.entities.map(e => e.name)),
+    };
+  });
 }
 
 // ==================== 筛选器数据 Hook ====================

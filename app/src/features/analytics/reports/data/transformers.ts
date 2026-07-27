@@ -11,6 +11,7 @@ import type {
   ResourceEfficiencyReport,
   ProjectProgressReport,
   ProjectProgressSummary,
+  ActivityTrendPoint,
 } from '@/types/api/analytics';
 import type {
   TaskStatisticsData,
@@ -139,25 +140,32 @@ export function transformTaskStatisticsReport(
     }],
   };
 
-  // 任务状态分布（饼图）- 从 assigneeDistribution 转换为状态分布
-  // 注意: API 可能返回字符串类型的数值，需显式转换为 Number
-  const statusMap: Record<string, number> = {};
-  report.assigneeDistribution.forEach(a => {
-    const taskCount = Number(a.taskCount);
-    const completedCount = Number(a.completedCount);
-    const delayedCount = Number(a.delayedCount);
-    // 使用 Math.max 防止数据不一致导致负值
-    const inProgressCount = Math.max(0, taskCount - completedCount - delayedCount);
-    statusMap['进行中/待处理'] = (statusMap['进行中/待处理'] || 0) + inProgressCount;
-    statusMap['已完成'] = (statusMap['已完成'] || 0) + completedCount;
-    statusMap['已延期'] = (statusMap['已延期'] || 0) + delayedCount;
-  });
-  const statusTotal = Object.values(statusMap).reduce((sum, v) => sum + v, 0);
-  const statusChart: PieChartData = {
-    labels: Object.keys(statusMap),
-    values: Object.values(statusMap),
-    percentages: Object.values(statusMap).map(v => safePercentage(v, statusTotal)),
-  };
+  // 任务状态分布（饼图）- 优先使用后端返回的互斥状态分布，数据更准确
+  const statusChart: PieChartData = report.statusDistribution && report.statusDistribution.length > 0
+    ? {
+        labels: report.statusDistribution.map(s => mapStatusToLabel(s.status)),
+        values: report.statusDistribution.map(s => s.count),
+        percentages: report.statusDistribution.map(s => safePercentage(s.count, totalTasks)),
+      }
+    : (() => {
+        // 降级：后端未返回 statusDistribution 时，从 assigneeDistribution 反推（兼容旧数据）
+        const statusMap: Record<string, number> = {};
+        report.assigneeDistribution.forEach(a => {
+          const taskCount = Number(a.taskCount);
+          const completedCount = Number(a.completedCount);
+          const delayedCount = Number(a.delayedCount);
+          const inProgressCount = Math.max(0, taskCount - completedCount - delayedCount);
+          statusMap['进行中/待处理'] = (statusMap['进行中/待处理'] || 0) + inProgressCount;
+          statusMap['已完成'] = (statusMap['已完成'] || 0) + completedCount;
+          statusMap['已延期'] = (statusMap['已延期'] || 0) + delayedCount;
+        });
+        const fallbackTotal = Object.values(statusMap).reduce((sum, v) => sum + v, 0);
+        return {
+          labels: Object.keys(statusMap),
+          values: Object.values(statusMap),
+          percentages: Object.values(statusMap).map(v => safePercentage(v, fallbackTotal)),
+        };
+      })();
 
   // 任务类型分布（横向柱状图）
   const taskTypeChart: BarChartData = {
@@ -165,6 +173,7 @@ export function transformTaskStatisticsReport(
     datasets: [{
       label: '任务数量',
       values: report.taskTypeDistribution.map(t => t.count),
+      color: report.taskTypeDistribution.map((_, i) => C.primary[i % C.primary.length]),
     }],
   };
 
@@ -297,10 +306,12 @@ export function transformDelayAnalysisReport(
   } : generateEmptyTrend();
 
   // 延期收敛趋势 - 使用后端 delayTrend 数据
+  // 注：created 是截止该日期【仍未解决】的延期任务存量（actual_end_date 为空，会随解决而下降）；
+  //     completed 是截止该日期已解决的累计数（单调不减）。两者对比反映延期收敛/扩散态势
   const delayResolvedTrend: LineChartData = report.delayTrend && report.delayTrend.length > 0 ? {
     labels: report.delayTrend.map(d => d.date),
     datasets: [
-      { label: '新增延期', values: report.delayTrend.map(d => d.created), color: C.red },
+      { label: '未解决延期', values: report.delayTrend.map(d => d.created), color: C.red },
       { label: '已解决', values: report.delayTrend.map(d => d.completed), color: C.green },
     ],
   } : generateEmptyTrend();
@@ -346,6 +357,72 @@ export function transformDelayAnalysisReport(
       }
     : { labels: [], datasets: [] };
 
+  // 散点图①：成员延期×负荷分布（从延期任务和成员统计构造）
+  const workloadVsDelay: ScatterChartData | undefined = delayedMembers.length > 0 ? {
+    points: delayedMembers.map(m => ({
+      id: String(m.assigneeId),
+      label: m.assigneeName,
+      x: m.totalDelayCount,       // X轴：历史延期次数
+      y: m.delayedTaskCount,       // Y轴：当前延期任务数
+      size: m.totalDelayCount + m.delayedTaskCount,
+      color: m.delayedTaskCount > 5 ? C.red : m.delayedTaskCount > 2 ? C.amber : C.indigo,
+    })),
+    xAxis: {
+      label: '历史延期次数',
+      min: 0,
+      max: Math.ceil(Math.max(...delayedMembers.map(m => m.totalDelayCount), 5) * 1.2),
+    },
+    yAxis: {
+      label: '当前延期任务数',
+      min: 0,
+      max: Math.ceil(Math.max(...delayedMembers.map(m => m.delayedTaskCount), 3) * 1.3),
+    },
+    quadrantLines: {
+      x: 3,
+      y: 2,
+    },
+  } : undefined;
+
+  // 散点图②：历史延期次数 × 当前预警任务数（展示成员是否"屡犯+预警并存"）
+  // 合并延迟成员和预警成员数据，X=历史延期总次数，Y=当前预警任务数
+  const allMembersForScatter = (() => {
+    const map = new Map<string, { id: number; name: string; totalDelay: number; warningCount: number }>();
+    delayedMembers.forEach(m => {
+      map.set(String(m.assigneeId), { id: m.assigneeId, name: m.assigneeName, totalDelay: m.totalDelayCount, warningCount: 0 });
+    });
+    warningMembers.forEach(m => {
+      const existing = map.get(String(m.assigneeId));
+      if (existing) {
+        existing.warningCount = m.warningTaskCount;
+      } else {
+        map.set(String(m.assigneeId), { id: m.assigneeId, name: m.assigneeName, totalDelay: 0, warningCount: m.warningTaskCount });
+      }
+    });
+    return [...map.values()];
+  })();
+
+  const activityVsDelay: ScatterChartData | undefined = allMembersForScatter.length > 0 ? {
+    points: allMembersForScatter.map(m => ({
+      id: String(m.id),
+      label: m.name,
+      x: m.totalDelay,
+      y: m.warningCount,
+      size: m.totalDelay + m.warningCount,
+      color: m.warningCount > 3 ? C.red : m.warningCount > 1 ? C.amber : C.indigo,
+    })),
+    xAxis: {
+      label: '历史延期次数',
+      min: 0,
+      max: Math.ceil(Math.max(...allMembersForScatter.map(m => m.totalDelay), 3) * 1.3),
+    },
+    yAxis: {
+      label: '当前预警任务数',
+      min: 0,
+      max: Math.ceil(Math.max(...allMembersForScatter.map(m => m.warningCount), 3) * 1.3),
+    },
+    quadrantLines: { x: 3, y: 2 },
+  } : undefined;
+
   return {
     stats,
     delayTypeChart,
@@ -355,6 +432,8 @@ export function transformDelayAnalysisReport(
     delayTasks,
     delayedMemberChart,
     warningMemberChart,
+    workloadVsDelay,
+    activityVsDelay,
   };
 }
 
@@ -401,12 +480,12 @@ export function transformMemberAnalysisReport(
     },
   ];
 
-  // 负荷分布（柱状图）
+  // 负荷分布（柱状图）- 仅展示全职比（%），任务数通过tooltip展示
+  // 注：全职比和任务数量级差异大，合并展示会导致任务数柱子不可见
   const workloadChart: BarChartData = {
     labels: report.workloadDistribution.map(d => d.memberName),
     datasets: [
-      { label: '任务数', values: report.workloadDistribution.map(d => d.taskCount), color: C.indigo },
-      { label: '全职比', values: report.workloadDistribution.map(d => d.fullTimeRatio), color: C.green },
+      { label: '全职比 (%)', values: report.workloadDistribution.map(d => d.fullTimeRatio), color: C.indigo },
     ],
   };
 
@@ -435,21 +514,22 @@ export function transformMemberAnalysisReport(
     ],
   } : generateEmptyTrend();
 
-  // 完成趋势 - 使用后端 workloadTrend 数据
+  // 负载趋势（任务数） - 使用后端 workloadTrend 数据
+  // 注：taskCount 是"未完成任务数"（NOT_COMPLETED），不是"完成任务数"
   const completionTrend: LineChartData = report.workloadTrend && report.workloadTrend.length > 0 ? {
     labels: report.workloadTrend.map(d => d.period),
     datasets: [
-      { label: '任务数', values: report.workloadTrend.map(d => d.taskCount), color: C.green },
+      { label: '未完成任务数', values: report.workloadTrend.map(d => d.taskCount), color: C.green },
     ],
   } : generateEmptyTrend();
 
-  // 预估准确性趋势 - 使用后端 estimationDistribution 数据
-  const estimationTrend: LineChartData = report.estimationDistribution && report.estimationDistribution.length > 0 ? {
+  // 预估准确性分布（柱状图）- 使用 estimationDistribution 数据（分类数据，非时间序列）
+  const estimationTrend: BarChartData = report.estimationDistribution && report.estimationDistribution.length > 0 ? {
     labels: report.estimationDistribution.map(e => e.category),
     datasets: [
       { label: '数量', values: report.estimationDistribution.map(e => e.count), color: C.indigo },
     ],
-  } : generateEmptyTrend();
+  } : { labels: [], datasets: [] };
 
   // 成员任务列表 - 使用后端提供的真实数据
   const memberTasks: MemberTaskItem[] = report.memberTasks.map(task => ({
@@ -463,7 +543,7 @@ export function transformMemberAnalysisReport(
     plannedDuration: task.plannedDuration ?? 0,
     actualDuration: task.actualDuration ?? 0,
     estimationAccuracy: task.estimationAccuracy ?? 0,
-    lastUpdated: (task as any).updatedAt || new Date().toISOString(),
+    lastUpdated: ('updatedAt' in task ? (task as Record<string, unknown>).updatedAt : null) as string | null || new Date().toISOString(),
   }));
 
   // 成员能力汇总 - 使用后端提供的真实数据
@@ -560,8 +640,35 @@ export function transformResourceEfficiencyReport(
     datasets: [{
       label: '产能',
       values: report.memberEfficiencyList.slice(0, DISPLAY_LIMITS.memberEfficiency).map(m => m.productivity),
+      color: C.indigo,
     }],
   };
+
+  // 成员效能分布（散点图：产能 × 预估准确性）
+  const efficiencyChart: ScatterChartData | undefined = report.memberEfficiencyList.length > 0 ? {
+    points: report.memberEfficiencyList.map(m => ({
+      id: String(m.memberId),
+      label: m.memberName,
+      x: m.productivity,
+      y: m.estimationAccuracy,
+      size: m.completedTasks,
+      color: m.productivity >= PRODUCTIVITY_THRESHOLDS.good ? C.green : m.productivity >= PRODUCTIVITY_THRESHOLDS.medium ? C.indigo : C.red,
+    })),
+    xAxis: {
+      label: '产能',
+      min: 0,
+      max: Math.ceil(Math.max(...report.memberEfficiencyList.map(m => m.productivity), 1) * 1.2),
+    },
+    yAxis: {
+      label: '预估准确性 (%)',
+      min: 0,
+      max: 110,
+    },
+    quadrantLines: {
+      x: PRODUCTIVITY_THRESHOLDS.medium,
+      y: ESTIMATION_THRESHOLDS.good,
+    },
+  } : undefined;
 
   // 产能趋势
   const productivityTrend: LineChartData = report.productivityTrend && report.productivityTrend.length > 0 ? {
@@ -590,27 +697,60 @@ export function transformResourceEfficiencyReport(
     productivity: m.productivity,
     estimationAccuracy: m.estimationAccuracy,
     reworkRate: m.reworkRate,
-    activityRate: m.fulltimeUtilization, // 用利用率替代活跃度
+    activityRate: m.fulltimeUtilization, // 利用率（FTE）作为活跃度指标
     efficiencyLevel: m.productivity > PRODUCTIVITY_THRESHOLDS.good ? 'high' : m.productivity > PRODUCTIVITY_THRESHOLDS.medium ? 'medium' : 'low',
   }));
 
-  // 效能建议
+  // 效能建议 — 覆盖4种类型：产能低、预估偏差大、返工率高、高效能
   const efficiencySuggestions: EfficiencySuggestion[] = report.memberEfficiencyList
-    .filter(m => m.productivity < PRODUCTIVITY_THRESHOLDS.medium || m.reworkRate > REWORK_RATE_THRESHOLDS.warning)
+    .filter(m =>
+      m.productivity < PRODUCTIVITY_THRESHOLDS.medium ||
+      m.estimationAccuracy < ESTIMATION_THRESHOLDS.medium ||
+      m.reworkRate > REWORK_RATE_THRESHOLDS.warning ||
+      (m.productivity >= PRODUCTIVITY_THRESHOLDS.good && m.estimationAccuracy >= ESTIMATION_THRESHOLDS.good)
+    )
     .slice(0, DISPLAY_LIMITS.efficiencySuggestions)
-    .map(m => ({
-      type: m.productivity < PRODUCTIVITY_THRESHOLDS.medium ? 'low_productivity' as const : 'high_rework' as const,
-      memberName: m.memberName,
-      currentValue: m.productivity < PRODUCTIVITY_THRESHOLDS.medium ? m.productivity : m.reworkRate,
-      threshold: m.productivity < PRODUCTIVITY_THRESHOLDS.medium ? PRODUCTIVITY_THRESHOLDS.medium : REWORK_RATE_THRESHOLDS.warning,
-      suggestion: m.productivity < PRODUCTIVITY_THRESHOLDS.medium
-        ? '产能偏低，建议优化工作方式或减少并行任务'
-        : '返工率较高，建议关注代码质量或加强需求理解',
-    }));
+    .map(m => {
+      if (m.productivity >= PRODUCTIVITY_THRESHOLDS.good && m.estimationAccuracy >= ESTIMATION_THRESHOLDS.good) {
+        return {
+          type: 'high_potential' as const,
+          memberName: m.memberName,
+          currentValue: m.productivity,
+          threshold: PRODUCTIVITY_THRESHOLDS.good,
+          suggestion: '高效能成员，可承担更多核心任务或担任导师角色',
+        };
+      }
+      if (m.productivity < PRODUCTIVITY_THRESHOLDS.medium) {
+        return {
+          type: 'low_productivity' as const,
+          memberName: m.memberName,
+          currentValue: m.productivity,
+          threshold: PRODUCTIVITY_THRESHOLDS.medium,
+          suggestion: '产能偏低，建议优化工作方式或减少并行任务',
+        };
+      }
+      if (m.estimationAccuracy < ESTIMATION_THRESHOLDS.medium) {
+        return {
+          type: 'low_accuracy' as const,
+          memberName: m.memberName,
+          currentValue: m.estimationAccuracy,
+          threshold: ESTIMATION_THRESHOLDS.medium,
+          suggestion: '预估偏差较大，建议加强需求理解或参考历史数据进行预估',
+        };
+      }
+      return {
+        type: 'high_rework' as const,
+        memberName: m.memberName,
+        currentValue: m.reworkRate,
+        threshold: REWORK_RATE_THRESHOLDS.warning,
+        suggestion: '返工率较高，建议关注代码质量或加强需求理解',
+      };
+    });
 
   return {
     stats,
     productivityChart,
+    efficiencyChart,
     productivityTrend,
     teamComparison,
     memberEfficiency,
@@ -682,11 +822,18 @@ export function transformProjectProgressReport(
     ],
   } : generateEmptyTrend();
 
-  // 进度速度 - 使用里程碑数据计算
+  // 进度速度 - 使用里程碑间进度增量（差值），而非直接复用完成率
   const progressSpeedChart: LineChartData = report.milestones.length > 0 ? {
     labels: report.milestones.map(m => m.name),
     datasets: [
-      { label: '完成百分比', values: report.milestones.map(m => m.completionPercentage), color: C.green },
+      {
+        label: '进度增量',
+        values: report.milestones.map((m, i) => {
+          if (i === 0) return m.completionPercentage;
+          return Math.max(0, m.completionPercentage - report.milestones[i - 1].completionPercentage);
+        }),
+        color: C.green,
+      },
     ],
   } : generateEmptyTrend();
 
@@ -813,7 +960,43 @@ function transformPriorityTrendData(
   };
 }
 
-// ==================== 辅助函数 ====================
+/**
+ * 转换活跃度趋势（长表 → 多系列折线）
+ * 后端返回扁平 [{period, entityName, value}]，透视成每实体一系列
+ */
+export function transformActivityTrend(
+  points: ActivityTrendPoint[],
+  entityNames?: string[]
+): LineChartData {
+  if (!points || points.length === 0) return generateEmptyTrend();
+
+  // period 为周一起始日(YYYY-MM-DD)，按完整日期排序保证跨年正确
+  const periods = [...new Set(points.map(p => p.period))].sort();
+
+  // 横轴标签截取为 MM-DD（更直观），数据匹配仍用完整 period
+  const labels = periods.map(p => p.slice(5));
+
+  // 实体顺序：优先用传入的 entityNames（保持稳定），否则按 points 出现顺序
+  const names = entityNames && entityNames.length > 0
+    ? entityNames
+    : [...new Set(points.map(p => p.entityName))];
+
+  const palette = [C.indigo, C.green, C.amber, C.red, C.violet, C.pink, C.cyan, C.lime];
+
+  const datasets = names.map((name, i) => {
+    const entityData = points.filter(p => p.entityName === name);
+    const valueMap = new Map(entityData.map(p => [p.period, p.value]));
+    return {
+      label: name,
+      values: periods.map(period => valueMap.get(period) ?? 0),
+      color: palette[i % palette.length],
+    };
+  });
+
+  return { labels, datasets };
+}
+
+// ==================== 图表工具函数 ====================
 
 function generateEmptyTrend(): LineChartData {
   return {

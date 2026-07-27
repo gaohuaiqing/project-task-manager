@@ -134,7 +134,7 @@ export const MEMBER_EFFICIENCY_COLUMNS: TableColumn[] = [
   { key: 'productivity', label: '产能', width: 100, sortable: true, type: 'number' },
   { key: 'estimationAccuracy', label: '预估准确性', width: 100, sortable: true, type: 'progress' },
   { key: 'reworkRate', label: '返工率', width: 80, sortable: true, type: 'progress' },
-  { key: 'activityRate', label: '活跃度', width: 80, sortable: true, type: 'progress' },
+  { key: 'activityRate', label: '利用率', width: 80, sortable: true, type: 'progress' },
   { key: 'efficiencyLevel', label: '效能等级', width: 80, sortable: true, type: 'enum' },
 ];
 

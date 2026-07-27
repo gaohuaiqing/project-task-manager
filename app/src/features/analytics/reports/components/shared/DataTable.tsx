@@ -3,7 +3,7 @@
  * 支持排序、分页
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Table,
   TableBody,
@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import { escapeHtml } from '@/utils/sanitize';
 import type { TableColumn, Pagination } from '../../types';
 
-export interface DataTableProps<T extends Record<string, unknown>> {
+export interface DataTableProps<T extends object> {
   columns: TableColumn[];
   data: T[];
   pagination?: Pagination;
@@ -30,7 +30,7 @@ export interface DataTableProps<T extends Record<string, unknown>> {
 
 type SortDirection = 'asc' | 'desc' | null;
 
-export function DataTable<T extends Record<string, unknown>>({
+export function DataTable<T extends object>({
   columns,
   data,
   pagination,
@@ -45,6 +45,9 @@ export function DataTable<T extends Record<string, unknown>>({
 
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  // 跟踪数据引用变化，用于重置分页
+  const dataRef = useRef(safeData);
+  const columnsRef = useRef(safeColumns);
 
   // 排序处理
   const handleSort = (key: string) => {
@@ -59,6 +62,8 @@ export function DataTable<T extends Record<string, unknown>>({
       setSortKey(key);
       setSortDirection('asc');
     }
+    // 排序变化时重置到第1页
+    setCurrentPage(1);
   };
 
   // 排序后的数据
@@ -66,8 +71,9 @@ export function DataTable<T extends Record<string, unknown>>({
     if (!sortKey || !sortDirection) return safeData;
 
     return [...safeData].sort((a, b) => {
-      const aVal = a[sortKey];
-      const bVal = b[sortKey];
+      // 动态按列key取值：T 已放宽为 object，此处用 Record 断言访问（运行时由真实字段保证）
+      const aVal = (a as Record<string, unknown>)[sortKey];
+      const bVal = (b as Record<string, unknown>)[sortKey];
 
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
@@ -83,6 +89,38 @@ export function DataTable<T extends Record<string, unknown>>({
         : bStr.localeCompare(aStr, 'zh-CN');
     });
   }, [safeData, sortKey, sortDirection]);
+
+  // 内置分页：使用方传 pagination 即生效，DataTable 自管 page/pageSize 状态 + 切片
+  // （使用方传的 pagination.page/pageSize 仅作初始值，避免硬编码 page=1 导致翻页无效）
+  const [currentPage, setCurrentPage] = useState(pagination?.page ?? 1);
+  const [currentPageSize, setCurrentPageSize] = useState(pagination?.pageSize ?? 10);
+
+  // 数据变化或筛选变化时重置分页到第1页，避免空白页
+  useEffect(() => {
+    if (safeData !== dataRef.current || safeColumns !== columnsRef.current) {
+      dataRef.current = safeData;
+      columnsRef.current = safeColumns;
+      setCurrentPage(1);
+    }
+  }, [safeData, safeColumns]);
+  const total = pagination?.total ?? sortedData.length;
+  const totalPages = Math.max(1, Math.ceil(total / currentPageSize));
+  const safePage = Math.max(1, Math.min(currentPage, totalPages));
+  const pagedData = useMemo(() => {
+    if (!pagination) return sortedData;
+    const start = (safePage - 1) * currentPageSize;
+    return sortedData.slice(start, start + currentPageSize);
+  }, [sortedData, safePage, currentPageSize, pagination]);
+  const handlePageChange = (page: number) => {
+    const next = Math.max(1, Math.min(page, totalPages));
+    setCurrentPage(next);
+    onPageChange?.(next);
+  };
+  const handlePageSizeChange = (size: number) => {
+    setCurrentPageSize(size);
+    setCurrentPage(1);
+    onPageSizeChange?.(size);
+  };
 
   // 渲染排序图标
   const renderSortIcon = (column: TableColumn) => {
@@ -101,7 +139,7 @@ export function DataTable<T extends Record<string, unknown>>({
 
   // 默认单元格渲染
   const defaultRenderCell = (item: T, column: TableColumn): React.ReactNode => {
-    const value = item[column.key];
+    const value = (item as Record<string, unknown>)[column.key];
 
     if (value === null || value === undefined) {
       return <span className="text-muted-foreground">-</span>;
@@ -238,9 +276,9 @@ export function DataTable<T extends Record<string, unknown>>({
                 </TableCell>
               </TableRow>
             ) : (
-              sortedData.map((item, index) => (
+              pagedData.map((item, index) => (
                 <TableRow
-                  key={index}
+                  key={(item as { id?: string | number }).id ?? index}
                   className="hover:bg-muted/30 transition-colors"
                 >
                   {safeColumns.map((column) => (
@@ -262,10 +300,10 @@ export function DataTable<T extends Record<string, unknown>>({
         <div className="flex items-center justify-between px-4 py-3 border-t border-border/50">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>
-              共 {pagination.total} 条，每页
+              共 {total} 条，每页
               <select
-                value={pagination.pageSize}
-                onChange={(e) => onPageSizeChange?.(Number(e.target.value))}
+                value={currentPageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
                 className="mx-1 px-2 py-0.5 border rounded bg-background"
               >
                 <option value={10}>10</option>
@@ -280,19 +318,19 @@ export function DataTable<T extends Record<string, unknown>>({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => onPageChange?.(pagination.page - 1)}
-              disabled={pagination.page <= 1}
+              onClick={() => handlePageChange(safePage - 1)}
+              disabled={safePage <= 1}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <span className="px-3 text-sm">
-              {pagination.page} / {Math.ceil(pagination.total / pagination.pageSize)}
+              {safePage} / {totalPages}
             </span>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => onPageChange?.(pagination.page + 1)}
-              disabled={pagination.page >= Math.ceil(pagination.total / pagination.pageSize)}
+              onClick={() => handlePageChange(safePage + 1)}
+              disabled={safePage >= totalPages}
             >
               <ChevronRight className="h-4 w-4" />
             </Button>

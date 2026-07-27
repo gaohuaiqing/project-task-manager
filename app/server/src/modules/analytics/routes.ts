@@ -4,7 +4,7 @@ import { AnalyticsService } from './service';
 import { ValidationError } from '../../core/errors';
 import { requirePermission, requireRole } from '../../core/middleware/permission-middleware';
 import type { User } from '../../core/types';
-import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig, ResourceEfficiencyQueryOptions, MemberAnalysisQueryOptions } from './types';
+import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig, ResourceEfficiencyQueryOptions, MemberAnalysisQueryOptions, ActivityTrendQueryOptions } from './types';
 import { auditService } from '../../core/audit';
 import type { AuditCategory } from '../../core/types';
 
@@ -99,8 +99,8 @@ router.get('/reports/task-statistics', requirePermission('REPORT_VIEW'), async (
 router.get('/reports/delay-analysis', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = getCurrentUser(req)!;
-    // 验证 delay_type 参数
-    const validDelayTypes = ['internal', 'external', 'requirement', 'resource', 'technical', 'other'];
+    // delay_type 筛选：delay_warning=延期预警, delayed=已延期, overdue_completed=超期完成
+    const validDelayTypes = ['delay_warning', 'delayed', 'overdue_completed'];
     const delayType = req.query.delay_type as string | undefined;
     if (delayType && !validDelayTypes.includes(delayType)) {
       throw new ValidationError(`无效的延期类型: ${delayType}，有效值为: ${validDelayTypes.join(', ')}`);
@@ -244,6 +244,31 @@ router.get('/reports/trend', requirePermission('REPORT_VIEW'), async (req: Reque
     const projectId = req.query.project_id as string;
 
     const result = await analyticsService.getReportTrend(currentUser, metric, startDate, endDate, granularity, projectId);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 活跃度趋势报表（团队/个人 维护活动时间曲线）
+router.get('/reports/activity-trend', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req)!;
+    const dimension = req.query.dimension as ActivityTrendQueryOptions['dimension'];
+    const metric = req.query.metric as ActivityTrendQueryOptions['metric'];
+    if (!dimension || !metric) {
+      throw new ValidationError('dimension 和 metric 参数不能为空');
+    }
+    const result = await analyticsService.getActivityTrendReport({
+      dimension,
+      metric,
+      start_date: req.query.start_date as string | undefined,
+      end_date: req.query.end_date as string | undefined,
+      project_id: req.query.project_id as string | undefined,
+      department_id: req.query.department_id ? Number(req.query.department_id) : undefined,
+      assignee_id: req.query.assignee_id ? Number(req.query.assignee_id) : undefined,
+      top_n: req.query.top_n ? Number(req.query.top_n) : undefined,
+    }, currentUser);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);

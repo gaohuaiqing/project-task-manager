@@ -11,7 +11,8 @@ export type ReportType =
   | 'task-statistics'
   | 'delay-analysis'
   | 'member-analysis'
-  | 'resource-efficiency';
+  | 'resource-efficiency'
+  | 'activity-trend';
 
 /** 用户角色 */
 export type UserRole = 'admin' | 'dept_manager' | 'tech_manager' | 'engineer';
@@ -118,6 +119,12 @@ export interface LineDataset {
   label: string;
   values: number[];
   color?: string;
+}
+
+/** 活跃度分析 Tab 数据（2 条折线：团队占比 / 个人占比） */
+export interface ActivityTrendData {
+  teamRatio: LineChartData;
+  memberRatio: LineChartData;
 }
 
 /** 散点图数据 */
@@ -304,8 +311,8 @@ export interface MemberAnalysisData {
   workloadTrend: LineChartData;
   /** 任务完成趋势 */
   completionTrend: LineChartData;
-  /** 预估准确性变化趋势 */
-  estimationTrend: LineChartData;
+  /** 预估准确性分布（柱状图，非时间序列） */
+  estimationTrend: BarChartData;
   memberTasks: MemberTaskItem[];
   /** 成员能力概览（按成员汇总） */
   memberCapabilities?: MemberCapabilitySummary[];
@@ -425,4 +432,5 @@ export const REPORT_TABS: ReportTab[] = [
   { value: 'delay-analysis', label: '延期分析报表', path: '/reports/delay-analysis' },
   { value: 'member-analysis', label: '成员任务分析', path: '/reports/member-analysis' },
   { value: 'resource-efficiency', label: '资源效能分析', path: '/reports/resource-efficiency' },
+  { value: 'activity-trend', label: '活跃度分析', path: '/reports/activity-trend' },
 ];

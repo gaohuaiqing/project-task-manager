@@ -77,8 +77,8 @@ export function MemberAnalysisTab({ filters }: MemberAnalysisTabProps) {
       {/* 图表区域 - 左静右动布局 */}
       {/* 第一行：静态分布图 */}
       <ChartGroup>
-        <ChartContainer title="成员任务负载分布" subtitle="各成员任务状态">
-          <BarChart data={data.workloadChart} stacked height={320} yAxisLabel="任务数量" />
+        <ChartContainer title="成员任务负载分布" subtitle="各成员全职比(%)">
+          <BarChart data={data.workloadChart} height={320} yAxisLabel="全职比 (%)" />
         </ChartContainer>
 
         <ChartContainer title="任务状态分布" subtitle="整体状态占比">
@@ -99,12 +99,12 @@ export function MemberAnalysisTab({ filters }: MemberAnalysisTabProps) {
 
       {/* 第三行：动态趋势图 */}
       <ChartGroup>
-        <ChartContainer title="任务完成趋势" subtitle="各成员完成数量变化">
-          <LineChart data={data.completionTrend} yAxisLabel="完成任务数" />
+        <ChartContainer title="未完成任务趋势" subtitle="各成员未完成任务数变化">
+          <LineChart data={data.completionTrend} yAxisLabel="任务数" />
         </ChartContainer>
 
-        <ChartContainer title="预估准确性变化趋势" subtitle="各成员准确性动态变化">
-          <LineChart data={data.estimationTrend} yAxisLabel="准确率 (%)" />
+        <ChartContainer title="预估准确性分布" subtitle="偏差率分类统计">
+          <BarChart data={data.estimationTrend} yAxisLabel="数量" />
         </ChartContainer>
       </ChartGroup>
 

@@ -92,6 +92,7 @@ export interface TaskStatisticsReport {
   urgentCount: number;
   priorityDistribution: Record<string, number>;
   assigneeDistribution: AssigneeTaskCount[];
+  statusDistribution: StatusDistributionItem[];  // 任务状态分布（互斥状态分类）
   taskTypeDistribution: TaskTypeDistributionItem[];
   taskList: TaskStatisticsItem[];
   taskTrend?: TrendDataPoint[];
@@ -344,4 +345,38 @@ export interface ResourceEfficiencyQueryOptions extends ReportQueryOptions {
   departmentId?: number;
   techGroupId?: number;
   productivityThreshold?: number;
+}
+
+// ============ 活跃度趋势报表（团队/个人 维护活动时间曲线） ============
+
+export type ActivityTrendDimension = 'team' | 'assignee';
+export type ActivityTrendMetric = 'active_task_ratio' | 'progress_record_count';
+
+export interface ActivityTrendQueryOptions {
+  dimension: ActivityTrendDimension;
+  metric: ActivityTrendMetric;
+  startDate?: string;
+  endDate?: string;
+  projectId?: string;
+  departmentId?: number;
+  assigneeId?: number;
+  topN?: number;
+}
+
+export interface ActivityTrendPoint {
+  period: string;
+  entityName: string;
+  value: number;
+}
+
+export interface ActivityTrendEntity {
+  id: number | null;
+  name: string;
+}
+
+export interface ActivityTrendResponse {
+  dimension: ActivityTrendDimension;
+  metric: ActivityTrendMetric;
+  series: ActivityTrendPoint[];
+  entities: ActivityTrendEntity[];
 }

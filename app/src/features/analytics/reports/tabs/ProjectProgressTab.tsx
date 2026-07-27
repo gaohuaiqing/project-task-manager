@@ -9,7 +9,7 @@ import { StatsCardGroup, ChartContainer, ChartGroup, DataTable } from '../compon
 import { PieChart, BarChart, LineChart } from '../components/charts';
 import { MILESTONE_COLUMNS } from '../config';
 import { useProjectProgressData } from '../data';
-import type { ReportFilters, MilestoneItem, ProjectProgressSummaryData, ProjectProgressData, ProjectProgressCard } from '../types';
+import type { ReportFilters, MilestoneItem, ProjectProgressSummaryData, ProjectProgressData, ProjectProgressCard, BarChartData } from '../types';
 import { cn } from '@/lib/utils';
 
 /** 图表中表示"剩余"部分的浅灰色 */
@@ -124,8 +124,8 @@ function ProjectProgressDetailView({ data }: { data: ProjectProgressData }) {
         <ChartContainer title="里程碑完成情况">
           <BarChart data={data.milestoneChart} yAxisLabel="完成百分比 (%)" />
         </ChartContainer>
-        <ChartContainer title="进度变化速度" subtitle="每周进度增量">
-          <LineChart data={data.progressSpeedChart} yAxisLabel="进度增量 (%)" />
+        <ChartContainer title="进度变化速度" subtitle="里程碑间进度增量">
+          <LineChart data={data.progressSpeedChart} yAxisLabel="增量 (%)" />
         </ChartContainer>
       </ChartGroup>
 
@@ -154,18 +154,14 @@ function ProjectProgressChart({ projects }: { projects: ProjectProgressCard[] })
     );
   }
 
-  // 构造 BarChartDataItem[] 格式的数据
-  const chartData = projects.map(p => ({
-    name: truncateName(p.projectName, 10),
-    completed: p.completedTasks,
-    remaining: p.totalTasks - p.completedTasks,
-  }));
-
-  // 数据键配置
-  const dataKeys = [
-    { key: 'completed', name: '已完成', color: PROGRESS_COMPLETED_COLOR },
-    { key: 'remaining', name: '剩余', color: CHART_MUTED_COLOR },
-  ];
+  // 构造 BarChartData 格式（已完成/剩余 堆叠横条，BarChart 仅支持此格式）
+  const chartData: BarChartData = {
+    labels: projects.map(p => truncateName(p.projectName, 10)),
+    datasets: [
+      { label: '已完成', values: projects.map(p => p.completedTasks), color: PROGRESS_COMPLETED_COLOR },
+      { label: '剩余', values: projects.map(p => p.totalTasks - p.completedTasks), color: CHART_MUTED_COLOR },
+    ],
+  };
 
   // 动态高度：每个项目 40px，上限 600px，超出时启用滚动
   const BAR_HEIGHT = 40;
@@ -176,7 +172,6 @@ function ProjectProgressChart({ projects }: { projects: ProjectProgressCard[] })
   const chartElement = (
     <BarChart
       data={chartData}
-      dataKeys={dataKeys}
       layout="vertical"
       stacked
       showLegend={false}

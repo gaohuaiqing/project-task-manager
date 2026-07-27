@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { useTaskTypeOptions } from '@/features/org/hooks/useOrg';
-import type { ReportFilters, TimeRange, ReportType } from '../../types';
+import type { ReportFilters, TimeRange, ReportType, DelayType } from '../../types';
 import { TIME_RANGE_OPTIONS, DELAY_TYPE_OPTIONS, TASK_TYPE_OPTIONS as DEFAULT_TASK_TYPE_OPTIONS } from '../../config';
 
 /** 预估准确性范围选项 */
@@ -57,24 +57,32 @@ export function FilterBar({
 }: FilterBarProps) {
   const [datePickerOpen, setDatePickerOpen] = useState(false);
 
-  // 任务类型选项（优先从 API 获取，后备使用常量）
+  // 任务类型选项：使用 {value, label} 格式，value=英文枚举值(发后端), label=中文名(显示)
   const { options: taskTypeOptionsFromApi, hasApiData } = useTaskTypeOptions();
-  // 报表筛选需要的是中文名称数组
-  const taskTypeOptions = hasApiData
-    ? taskTypeOptionsFromApi.map(opt => opt.label)
-    : DEFAULT_TASK_TYPE_OPTIONS;
+  const taskTypeOptions: Array<{ value: string; label: string }> = hasApiData
+    ? taskTypeOptionsFromApi
+    : DEFAULT_TASK_TYPE_OPTIONS.map(label => {
+        // 后备映射：中文 → 英文枚举值
+        const reverseMap: Record<string, string> = {
+          '固件': 'firmware', '板卡': 'board', '结构': 'structure',
+          '测试': 'test', '采购': 'procurement', '其他': 'other',
+        };
+        return { value: reverseMap[label] || label, label };
+      });
 
   const updateFilter = <K extends keyof ReportFilters>(key: K, value: ReportFilters[K]) => {
     onFiltersChange({ ...filters, [key]: value });
   };
 
   // 根据报表类型显示不同的筛选器
-  const showProjectFilter = ['project-progress', 'task-statistics', 'delay-analysis'].includes(activeTab);
-  const showAssigneeFilter = ['task-statistics', 'member-analysis'].includes(activeTab);
+  const showProjectFilter = ['project-progress', 'task-statistics', 'delay-analysis', 'activity-trend'].includes(activeTab);
+  const showAssigneeFilter = ['task-statistics', 'member-analysis', 'activity-trend'].includes(activeTab);
   const showTaskTypeFilter = ['task-statistics', 'delay-analysis'].includes(activeTab);
   const showDelayTypeFilter = activeTab === 'delay-analysis';
   const showDepartmentFilter = activeTab === 'resource-efficiency';
   const showEstimationAccuracyFilter = activeTab === 'member-analysis';
+  // 项目进度是当前状态快照，不支持时间范围筛选
+  const showTimeRangeFilter = activeTab !== 'project-progress';
 
   return (
     <div className="rounded-xl border border-border/50 bg-muted/30 p-4">
@@ -99,7 +107,8 @@ export function FilterBar({
           </Select>
         )}
 
-        {/* 时间范围 */}
+        {/* 时间范围（项目进度TAB不显示，因为是当前状态快照） */}
+        {showTimeRangeFilter && (
         <Select
           value={filters.timeRange || '30d'}
           onValueChange={(v) => updateFilter('timeRange', v as TimeRange)}
@@ -115,9 +124,10 @@ export function FilterBar({
             ))}
           </SelectContent>
         </Select>
+        )}
 
         {/* 自定义日期 */}
-        {filters.timeRange === 'custom' && (
+        {showTimeRangeFilter && filters.timeRange === 'custom' && (
           <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
@@ -183,9 +193,9 @@ export function FilterBar({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部类型</SelectItem>
-              {taskTypeOptions.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {type}
+              {taskTypeOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -196,7 +206,7 @@ export function FilterBar({
         {showDelayTypeFilter && (
           <Select
             value={filters.delayType || 'all'}
-            onValueChange={(v) => updateFilter('delayType', v === 'all' ? undefined : v as any)}
+            onValueChange={(v) => updateFilter('delayType', v === 'all' ? undefined : v as DelayType)}
           >
             <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="延期类型" />
@@ -216,7 +226,7 @@ export function FilterBar({
         {showEstimationAccuracyFilter && (
           <Select
             value={filters.estimationAccuracyRange || 'all'}
-            onValueChange={(v) => updateFilter('estimationAccuracyRange', v === 'all' ? undefined : v as any)}
+            onValueChange={(v) => updateFilter('estimationAccuracyRange', v === 'all' ? undefined : v as ReportFilters['estimationAccuracyRange'])}
           >
             <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="预估准确性" />

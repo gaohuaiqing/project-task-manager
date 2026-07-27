@@ -93,29 +93,33 @@ export function ResourceEfficiencyTab({ filters }: ResourceEfficiencyTabProps) {
       <StatsCardGroup stats={data.stats} />
 
       {/* 图表区域 */}
+      {/* 第一行：成员产能排名 + 产能变化趋势（排名与趋势左右对照） */}
       <ChartGroup>
         <ChartContainer title="成员产能排名" subtitle="按产能降序排列">
           <BarChart data={data.productivityChart} yAxisLabel="产能" />
         </ChartContainer>
 
-        {data.efficiencyChart && (
-          <ChartContainer title="成员效能分布" subtitle="产能×预估准确性">
-            <ScatterChart data={data.efficiencyChart} />
-          </ChartContainer>
-        )}
-      </ChartGroup>
-
-      <ChartGroup>
         <ChartContainer title="产能变化趋势" subtitle="平均产能与目标对比">
           <LineChart data={data.productivityTrend} yAxisLabel="产能" />
         </ChartContainer>
-
-        {data.teamComparison && (
-          <ChartContainer title="团队效能对比" subtitle="各团队产能趋势">
-            <LineChart data={data.teamComparison} yAxisLabel="产能" />
-          </ChartContainer>
-        )}
       </ChartGroup>
+
+      {/* 第二行：成员效能分布 + 团队效能对比（有数据时才渲染，避免空行） */}
+      {(data.efficiencyChart || data.teamComparison) && (
+        <ChartGroup>
+          {data.efficiencyChart && (
+            <ChartContainer title="成员效能分布" subtitle="产能×预估准确性">
+              <ScatterChart data={data.efficiencyChart} />
+            </ChartContainer>
+          )}
+
+          {data.teamComparison && (
+            <ChartContainer title="团队效能对比" subtitle="各团队产能趋势">
+              <LineChart data={data.teamComparison} yAxisLabel="产能" />
+            </ChartContainer>
+          )}
+        </ChartGroup>
+      )}
 
       {/* 效能改进建议 — 聚焦效能改进 */}
       {data.efficiencySuggestions && data.efficiencySuggestions.length > 0 && (

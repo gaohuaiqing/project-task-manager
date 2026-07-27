@@ -15,6 +15,7 @@ import type {
   MemberAnalysisExtendedResponse, MemberAnalysisQueryOptions,
   AdminDashboardDetailResponse, DeptManagerDashboardDetailResponse,
   TechManagerDashboardDetailResponse, EngineerDashboardDetailResponse,
+  ActivityTrendQueryOptions, ActivityTrendResponse,
 } from './types';
 import { MetricsService, ScopeService, TrendService } from './services';
 import type { Workbook, Worksheet, Cell } from 'exceljs';
@@ -197,11 +198,11 @@ export class AnalyticsService {
   // ========== 审计日志查询 ==========
 
   async getAuditLogs(options: AuditLogQueryOptions, currentUser: User): Promise<{ items: unknown[]; total: number }> {
-    if (currentUser.role !== 'admin') {
-      // 非管理员只能查看自己的日志
-      options.user_id = currentUser.id;
-    }
-    return this.repo.getAuditLogs(options);
+    // 非管理员只能查看自己的日志（不可变性：创建新对象而非修改传入参数）
+    const filteredOptions = currentUser.role !== 'admin'
+      ? { ...options, user_id: currentUser.id }
+      : options;
+    return this.repo.getAuditLogs(filteredOptions);
   }
 
   // ========== 趋势指标 ==========
@@ -243,6 +244,13 @@ export class AnalyticsService {
     projectId?: string,
   ): Promise<TimeSeriesPoint[]> {
     return this.repo.getTimeSeries(user, metric, startDate, endDate, granularity, projectId);
+  }
+
+  /**
+   * 活跃度趋势报表（团队/个人 维护活动时间曲线）
+   */
+  async getActivityTrendReport(options: ActivityTrendQueryOptions, user: User): Promise<ActivityTrendResponse> {
+    return this.repo.getActivityTrend(options, user);
   }
 
   // ========== 导入导出 ==========
@@ -606,8 +614,7 @@ export class AnalyticsService {
 
     switch (domain) {
       case 'tasks': {
-        const { TaskService } = await import('../task/service');
-        const taskService = new TaskService();
+        const { taskService } = await import('../task/service');
 
         for (let i = 0; i < data.length; i++) {
           const row = data[i] as Record<string, unknown>;

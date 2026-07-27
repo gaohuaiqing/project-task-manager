@@ -21,6 +21,7 @@ import type {
   DepartmentEfficiencyItem, DepartmentDelayTrendPoint, UtilizationTrendPoint,
   HighRiskProjectItem, GroupEfficiencyItem, MemberStatusItem,
   GroupActivityTrendPoint, MemberActivityTrendPoint, TodoTaskItem,
+  ActivityTrendQueryOptions, ActivityTrendPoint, ActivityTrendEntity, ActivityTrendResponse,
 } from './types';
 import { buildTaskScopeFilter, buildProjectScopeFilter, buildUserDepartmentScopeFilter, ScopeFilter, getManagedDepartmentIds as getManagedDepartmentIdsSafe, getTechManagerGroupIds as getTechManagerGroupIdsSafe } from './query-builder';
 import { QUERY_LIMITS, TIME_INTERVALS, ACTIVITY_PERCENTAGES, STATUS_THRESHOLDS, ESTIMATION_THRESHOLDS, WBS_COMPLEXITY, DEFAULTS, STATUS_CONDITIONS, MUTEX_STATUS_CONDITIONS } from './constants';
@@ -40,61 +41,11 @@ export class AnalyticsRepository {
    * @param user 当前用户（用于权限过滤和缓存键）
    * @returns taskId -> wbsCode 映射
    */
-  private async getWbsCodesFromCache(user: User): Promise<Map<string, string>> {
-    // 尝试从缓存获取
-    const cached = await wbsCodeCache.get(user.id, 'global');
-    if (cached && cached.codeMap.size > 0) {
-      return cached.codeMap;
-    }
-
-    // 缓存不存在，需要计算并填充
-    // 获取用户可访问的项目ID列表（与任务管理模块保持一致）
-    // admin 返回 undefined 表示不过滤（查询所有任务）
-    const { TaskService } = await import('../task/service');
-    const taskService = new TaskService();
-    const accessibleProjectIds = await taskService.getAccessibleProjectIds(user);
-
-    // 查询任务数据用于计算 WBS 编码
-    const pool = getPool();
-    let tasksForCalculation: Array<{
-      id: string;
-      parent_id: string | null;
-      wbs_level: number;
-      sort_order: number | null;
-      created_at: Date;
-      project_id: string;
-    }> = [];
-
-    if (accessibleProjectIds === undefined) {
-      // admin 用户：查询所有任务
-      const [taskRows] = await pool.execute<RowDataPacket[]>(
-        `SELECT t.id, t.parent_id, t.wbs_level, t.sort_order, t.created_at, t.project_id
-         FROM wbs_tasks t
-         ORDER BY t.project_id, t.sort_order ASC, t.created_at ASC`
-      );
-      tasksForCalculation = taskRows as typeof tasksForCalculation;
-    } else if (accessibleProjectIds.length > 0) {
-      // 非 admin 用户：查询可访问项目的任务
-      const placeholders = accessibleProjectIds.map(() => '?').join(',');
-      const [taskRows] = await pool.execute<RowDataPacket[]>(
-        `SELECT t.id, t.parent_id, t.wbs_level, t.sort_order, t.created_at, t.project_id
-         FROM wbs_tasks t
-         WHERE t.project_id IN (${placeholders})
-         ORDER BY t.project_id, t.sort_order ASC, t.created_at ASC`,
-        accessibleProjectIds
-      );
-      tasksForCalculation = taskRows as typeof tasksForCalculation;
-    }
-
-    // 计算 WBS 编码
-    const { WbsCodeService } = await import('../../core/wbs/WbsCodeService');
-    const wbsCodeService = new WbsCodeService();
-    const { codeMap } = wbsCodeService.calculateCodes(tasksForCalculation);
-
-    // 填充缓存
-    await wbsCodeCache.set(user.id, 'global', { codeMap, idMap: new Map() });
-
-    return codeMap;
+  private async getWbsCodeMap(user: User): Promise<Map<string, string>> {
+    // 引用任务管理模块的全局 WBS 编码源头（getUserWbsCodeMap）
+    // 确保 task_list / delayed_tasks 等报表编码 = WBS 表编码（同 UUID 一致）
+    const { taskService } = await import('../task/service');
+    return taskService.getUserWbsCodeMap(user);
   }
   // ========== 仪表板统计（优化版：角色感知数据隔离 + 缓存）==========
 
@@ -728,6 +679,32 @@ export class AnalyticsRepository {
     const priority_distribution: Record<string, number> = {};
     priorityRows.forEach(r => { priority_distribution[r.priority] = Number(r.count); });
 
+    // 任务状态分布（使用互斥状态条件，与仪表板和成员分析口径一致）
+    const [statusRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT status, COUNT(*) as count
+       FROM (
+         SELECT
+           CASE
+             WHEN ${MUTEX_STATUS_CONDITIONS.pendingApproval} THEN 'pending_approval'
+             WHEN ${MUTEX_STATUS_CONDITIONS.completed} THEN 'completed'
+             WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 'delayed'
+             WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 'delay_warning'
+             WHEN ${MUTEX_STATUS_CONDITIONS.inProgress} THEN 'in_progress'
+             ELSE 'not_started'
+           END as status
+         FROM wbs_tasks t
+         JOIN projects p ON t.project_id = p.id
+         ${whereClause}
+       ) sub
+       GROUP BY status
+       ORDER BY count DESC`,
+      params
+    );
+    const status_distribution: StatusDistributionItem[] = statusRows.map((r: RowDataPacket) => ({
+      status: r.status,
+      count: Number(r.count) || 0,
+    }));
+
     // 负责人分布
     const [assigneeRows] = await pool.execute<RowDataPacket[]>(
       `SELECT t.assignee_id, u.real_name as assignee_name,
@@ -773,7 +750,7 @@ export class AnalyticsRepository {
     );
 
     // 从缓存获取 WBS 编码（由任务管理模块维护）
-    const wbsCodeMap = await this.getWbsCodesFromCache(user);
+    const wbsCodeMap = await this.getWbsCodeMap(user);
 
     // 获取任务类型分布（基于根任务）
     const [taskTypeRows] = await pool.execute<RowDataPacket[]>(
@@ -903,6 +880,7 @@ export class AnalyticsRepository {
         completed_count: Number(r.completed_count) || 0,
         delayed_count: Number(r.delayed_count) || 0,
       })),
+      status_distribution: status_distribution,
       task_type_distribution,
       task_list: taskListRows.map(t => ({
         id: t.id,
@@ -1035,7 +1013,7 @@ export class AnalyticsRepository {
     );
 
     // 从缓存获取 WBS 编码（自动填充缓存）
-    const delayedWbsCodeMap = await this.getWbsCodesFromCache(user);
+    const delayedWbsCodeMap = await this.getWbsCodeMap(user);
 
     // 获取延期趋势数据：基于日期条件的累计延期/解决统计
     const trendDays = TIME_INTERVALS.MONTH_DAYS;
@@ -3090,6 +3068,210 @@ export class AnalyticsRepository {
     return Array.from(periodMap.values()) as MemberActivityTrendPoint[];
   }
 
+  // ========== 活跃度趋势报表（团队/个人 维护活动时间曲线） ==========
+
+  /**
+   * 活跃度趋势：按团队(team=部门)或个人(assignee) × 周聚合维护活动
+   * - active_task_ratio: 本周被更新过的任务数 / 该实体总任务数 (%)
+   * - progress_record_count: 本周新增进度记录数
+   * 角色scope: admin全部 / dept_manager管理部门子部门 / tech_manager本组
+   */
+  async getActivityTrend(options: ActivityTrendQueryOptions, user: User): Promise<ActivityTrendResponse> {
+    const pool = getPool();
+    const { dimension, metric } = options;
+
+    // 时间范围（默认近 QUARTER_WEEKS 周）
+    const endDate = options.end_date || new Date().toISOString().split('T')[0];
+    const startDate = options.start_date
+      || new Date(Date.now() - TIME_INTERVALS.QUARTER_WEEKS * TIME_INTERVALS.WEEK_DAYS * TIME_INTERVALS.MS_PER_DAY).toISOString().split('T')[0];
+
+    // 任务 scope（含 project_id）
+    const taskScope = await buildTaskScopeFilter(user, 't', true, options.project_id);
+
+    // 确定实体列表
+    const entities = dimension === 'team'
+      ? await this.resolveTeamEntitiesForActivity(pool, user, options.department_id)
+      : await this.resolveMemberEntitiesForActivity(pool, user, taskScope, options.assignee_id, options.top_n ?? QUERY_LIMITS.TOP_MEMBERS);
+
+    if (entities.length === 0) {
+      return { dimension, metric, series: [], entities: [] };
+    }
+
+    // 查周聚合
+    const series = metric === 'progress_record_count'
+      ? await this.queryProgressRecordTrend(pool, dimension, entities, startDate, endDate, taskScope)
+      : await this.queryActiveRatioTrend(pool, dimension, entities, startDate, endDate, taskScope);
+
+    return {
+      dimension,
+      metric,
+      series,
+      entities: entities.map(e => ({ id: e.id, name: e.name })),
+    };
+  }
+
+  /** 解析团队实体（部门）：admin全部 / dept_manager子部门 / tech_manager本组，支持 department_id 下钻 */
+  private async resolveTeamEntitiesForActivity(
+    pool: ReturnType<typeof getPool>,
+    user: User,
+    departmentId?: number,
+  ): Promise<ActivityTrendEntity[]> {
+    if (user.role === 'admin') {
+      const [rows] = await pool.execute<RowDataPacket[]>(
+        `SELECT id, name FROM departments ORDER BY id`
+      );
+      const depts = departmentId ? rows.filter(d => d.id === departmentId) : rows;
+      return depts.map(d => ({ id: d.id, name: d.name }));
+    }
+
+    if (!user.department_id) return [];
+    const managedIds = user.role === 'tech_manager'
+      ? await getTechManagerGroupIdsSafe(user.id, user.department_id)
+      : await getManagedDepartmentIdsSafe(user.id, user.department_id);
+    if (managedIds.length === 0) return [];
+
+    const placeholders = managedIds.map(() => '?').join(',');
+    const [childDepts] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, name FROM departments WHERE parent_id IN (${placeholders})`,
+      managedIds
+    );
+    let groups: RowDataPacket[] = childDepts.length > 0
+      ? childDepts
+      : (await pool.execute<RowDataPacket[]>(`SELECT id, name FROM departments WHERE id IN (${placeholders})`, managedIds))[0];
+    if (departmentId) groups = groups.filter(g => g.id === departmentId);
+    return groups.map(g => ({ id: g.id, name: g.name }));
+  }
+
+  /** 解析成员实体：范围内 top N 活跃成员，支持 assignee_id 下钻 */
+  private async resolveMemberEntitiesForActivity(
+    pool: ReturnType<typeof getPool>,
+    user: User,
+    taskScope: ScopeFilter,
+    assigneeId?: number,
+    topN: number = QUERY_LIMITS.TOP_MEMBERS,
+  ): Promise<ActivityTrendEntity[]> {
+    if (assigneeId) {
+      const [rows] = await pool.execute<RowDataPacket[]>(
+        `SELECT id, IFNULL(real_name, '未分配') as name FROM users WHERE id = ?`,
+        [assigneeId]
+      );
+      return rows.map(u => ({ id: u.id, name: u.name }));
+    }
+
+    const userScope = await buildUserDepartmentScopeFilter(user);
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT u.id, IFNULL(u.real_name, '未分配') as name
+       FROM users u
+       JOIN wbs_tasks t ON u.id = t.assignee_id AND (${taskScope.clause})
+       WHERE u.is_active = 1 AND (${userScope.clause})
+       GROUP BY u.id, u.real_name
+       ORDER BY COUNT(t.id) DESC
+       LIMIT ${topN}`,
+      [...taskScope.params, ...userScope.params]
+    );
+    return rows.map(u => ({ id: u.id, name: u.name }));
+  }
+
+  /** 每周每实体本周被更新过的任务数占比%（分子=updated_at本周 COUNT DISTINCT，分母=该实体总任务数快照） */
+  private async queryActiveRatioTrend(
+    pool: ReturnType<typeof getPool>,
+    dimension: 'team' | 'assignee',
+    entities: ActivityTrendEntity[],
+    startDate: string,
+    endDate: string,
+    taskScope: ScopeFilter,
+  ): Promise<ActivityTrendPoint[]> {
+    const isTeam = dimension === 'team';
+    const entityIds = entities.map(e => e.id).filter((id): id is number => id !== null);
+    if (entityIds.length === 0) return [];
+    const placeholders = entityIds.map(() => '?').join(',');
+    const joinDept = isTeam ? 'JOIN departments d ON u.department_id = d.id' : '';
+    const entityExpr = isTeam ? 'd.name' : "IFNULL(u.real_name, '未分配')";
+    const entityFilter = isTeam ? `d.id IN (${placeholders})` : `u.id IN (${placeholders})`;
+
+    const [actRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT
+        DATE_FORMAT(DATE_SUB(DATE(t.updated_at), INTERVAL WEEKDAY(t.updated_at) DAY), '%Y-%m-%d') as period,
+        ${entityExpr} as entity_name,
+        COUNT(DISTINCT t.id) as active
+       FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
+       JOIN users u ON t.assignee_id = u.id
+       ${joinDept}
+       WHERE ${entityFilter}
+         AND t.updated_at >= ? AND t.updated_at < DATE_ADD(?, INTERVAL 1 DAY)
+         AND (${taskScope.clause})
+       GROUP BY period, entity_name
+       ORDER BY period`,
+      [...entityIds, startDate, endDate, ...taskScope.params]
+    );
+
+    const [totalRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT ${entityExpr} as entity_name, COUNT(DISTINCT t.id) as total
+       FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
+       JOIN users u ON t.assignee_id = u.id
+       ${joinDept}
+       WHERE ${entityFilter} AND (${taskScope.clause})
+       GROUP BY entity_name`,
+      [...entityIds, ...taskScope.params]
+    );
+    const totalMap = new Map<string, number>();
+    totalRows.forEach(r => { totalMap.set(r.entity_name, Number(r.total) || 0); });
+
+    return actRows.map(r => {
+      const total = totalMap.get(r.entity_name) || 0;
+      const active = Number(r.active) || 0;
+      return {
+        period: r.period,
+        entityName: r.entity_name,
+        value: total > 0 ? Math.round((active / total) * 100) : 0,
+      };
+    });
+  }
+
+  /** 每周每实体新增进度记录数 */
+  private async queryProgressRecordTrend(
+    pool: ReturnType<typeof getPool>,
+    dimension: 'team' | 'assignee',
+    entities: ActivityTrendEntity[],
+    startDate: string,
+    endDate: string,
+    taskScope: ScopeFilter,
+  ): Promise<ActivityTrendPoint[]> {
+    const isTeam = dimension === 'team';
+    const entityIds = entities.map(e => e.id).filter((id): id is number => id !== null);
+    if (entityIds.length === 0) return [];
+    const placeholders = entityIds.map(() => '?').join(',');
+    const joinDept = isTeam ? 'JOIN departments d ON u.department_id = d.id' : '';
+    const entityExpr = isTeam ? 'd.name' : "IFNULL(u.real_name, '未分配')";
+    const entityFilter = isTeam ? `d.id IN (${placeholders})` : `u.id IN (${placeholders})`;
+
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT
+        DATE_FORMAT(DATE_SUB(DATE(pr.created_at), INTERVAL WEEKDAY(pr.created_at) DAY), '%Y-%m-%d') as period,
+        ${entityExpr} as entity_name,
+        COUNT(*) as cnt
+       FROM progress_records pr
+       JOIN wbs_tasks t ON pr.task_id = t.id
+       JOIN projects p ON t.project_id = p.id
+       JOIN users u ON t.assignee_id = u.id
+       ${joinDept}
+       WHERE ${entityFilter}
+         AND pr.created_at >= ? AND pr.created_at < DATE_ADD(?, INTERVAL 1 DAY)
+         AND (${taskScope.clause})
+       GROUP BY period, entity_name
+       ORDER BY period`,
+      [...entityIds, startDate, endDate, ...taskScope.params]
+    );
+
+    return rows.map(r => ({
+      period: r.period,
+      entityName: r.entity_name,
+      value: Number(r.cnt) || 0,
+    }));
+  }
+
   /**
    * Engineer: 待办任务（未完成，按优先级和到期日排序）
    * projectId 用于项目筛选
@@ -3173,22 +3355,23 @@ export class AnalyticsRepository {
    * projectId 用于项目筛选
    */
   private async getUserTaskStatusDistribution(pool: ReturnType<typeof getPool>, userId: number, projectId?: string): Promise<StatusDistributionItem[]> {
-    const projectFilter = projectId ? 'AND project_id = ?' : '';
+    const projectFilter = projectId ? 'AND t.project_id = ?' : '';
     const params: (string | number)[] = [userId];
     if (projectId) params.push(projectId);
 
     // 使用 MUTEX_STATUS_CONDITIONS 实时计算互斥状态分布（与主卡片/admin 口径一致），
     // 不依赖 DB status 字段——后者由 cron 每日凌晨刷新，今日过期的任务尚未被标记
+    // 注意：MUTEX_STATUS_CONDITIONS 内部用 t. 别名，FROM 必须带 t 别名
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.pendingApproval} THEN 1 ELSE 0 END) as pending_approval,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed_count,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 1 ELSE 0 END) as delay_warning,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.inProgress} THEN 1 ELSE 0 END) as in_progress,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.notStarted} THEN 1 ELSE 0 END) as not_started
-       FROM wbs_tasks
-       WHERE assignee_id = ?
+       FROM wbs_tasks t
+       WHERE t.assignee_id = ?
          ${projectFilter}`,
       params
     );
@@ -3200,7 +3383,7 @@ export class AnalyticsRepository {
       { status: 'in_progress', count: Number(r.in_progress) || 0 },
       { status: 'completed', count: Number(r.completed) || 0 },
       { status: 'delay_warning', count: Number(r.delay_warning) || 0 },
-      { status: 'delayed', count: Number(r.delayed) || 0 },
+      { status: 'delayed', count: Number(r.delayed_count) || 0 },
     ].filter((item) => item.count > 0);
   }
 }

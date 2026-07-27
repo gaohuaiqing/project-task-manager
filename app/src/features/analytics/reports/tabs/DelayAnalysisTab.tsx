@@ -16,9 +16,6 @@ export interface DelayAnalysisTabProps {
 export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
   const { data, isLoading, error } = useDelayAnalysisData(filters);
   const [activeTable, setActiveTable] = useState<'tasks' | 'members'>('tasks');
-  // 延期任务列表分页状态（DataTable 为受控分页：外部管理 page/pageSize 并切片当前页数据）
-  const [taskPage, setTaskPage] = useState(1);
-  const [taskPageSize, setTaskPageSize] = useState(10);
 
   if (isLoading) {
     return (
@@ -35,11 +32,6 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
       </div>
     );
   }
-
-  // 分页页码保护：切换筛选条件后数据变少时，防止 taskPage 越界导致空白页
-  const taskTotal = data.delayTasks.length;
-  const taskMaxPage = Math.max(1, Math.ceil(taskTotal / taskPageSize));
-  const safeTaskPage = Math.min(taskPage, taskMaxPage);
 
   const handlePointClick = (_point: ScatterPoint) => {
     // TODO: 跳转到该成员的延期任务列表
@@ -67,7 +59,7 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
           <LineChart data={data.delayTrend} yAxisLabel="延期任务数" />
         </ChartContainer>
 
-        <ChartContainer title="延期收敛/扩散趋势" subtitle="新增vs已解决">
+        <ChartContainer title="延期收敛/扩散趋势" subtitle="未解决vs已解决">
           <LineChart data={data.delayResolvedTrend} yAxisLabel="任务数" />
         </ChartContainer>
       </ChartGroup>
@@ -154,10 +146,8 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
         {activeTable === 'tasks' ? (
           <DataTable
             columns={DELAY_TASK_COLUMNS}
-            data={data.delayTasks.slice((safeTaskPage - 1) * taskPageSize, safeTaskPage * taskPageSize)}
-            pagination={{ page: safeTaskPage, pageSize: taskPageSize, total: data.delayTasks.length }}
-            onPageChange={setTaskPage}
-            onPageSizeChange={(ps) => { setTaskPageSize(ps); setTaskPage(1); }}
+            data={data.delayTasks}
+            pagination={{ page: 1, pageSize: 10, total: data.delayTasks.length }}
           />
         ) : data.memberDelayStats ? (
           <DataTable
