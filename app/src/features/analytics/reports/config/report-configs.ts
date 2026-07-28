@@ -98,7 +98,10 @@ export const DELAY_TASK_COLUMNS: TableColumn[] = [
   { key: 'riskLevel', label: '风险等级', width: 80, sortable: true, type: 'enum' },
 ];
 
-/** 成员延期统计列 */
+/**
+ * 成员延期统计列 — 服务于 MemberDelayItem（DelayAnalysisTab 旧版直接渲染成员维度）
+ * 字段：memberName/teamName/totalTasks/delayedTasks/delayRate/workload/activityRate/riskLevel
+ */
 export const MEMBER_DELAY_COLUMNS: TableColumn[] = [
   { key: 'memberName', label: '成员姓名', width: 100, sortable: true },
   { key: 'teamName', label: '所属组', width: 100, sortable: true },
@@ -108,6 +111,19 @@ export const MEMBER_DELAY_COLUMNS: TableColumn[] = [
   { key: 'workload', label: '任务负荷', width: 80, sortable: true, type: 'number' },
   { key: 'activityRate', label: '活跃度', width: 80, sortable: true, type: 'progress' },
   { key: 'riskLevel', label: '风险等级', width: 80, sortable: true, type: 'enum' },
+];
+
+/**
+ * 成员延期排行列 — 服务于 MemberRankingData（DelayDetailSection 成员统计 Tab）
+ * 字段：assigneeName/delayedTaskCount/totalDelayCount/planChangeCount/avgDelayDays
+ * 来源：transformDelayAnalysisReport → report.memberRanking
+ */
+export const MEMBER_RANKING_COLUMNS: TableColumn[] = [
+  { key: 'assigneeName', label: '成员', width: 120, sortable: true },
+  { key: 'delayedTaskCount', label: '当前延期', width: 90, sortable: true, type: 'number' },
+  { key: 'totalDelayCount', label: '累计延期', width: 90, sortable: true, type: 'number' },
+  { key: 'planChangeCount', label: '计划变更', width: 90, sortable: true, type: 'number' },
+  { key: 'avgDelayDays', label: '平均天数', width: 90, sortable: true, type: 'number' },
 ];
 
 /** 成员任务明细列 */

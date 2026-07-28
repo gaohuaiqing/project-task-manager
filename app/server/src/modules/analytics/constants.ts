@@ -41,6 +41,18 @@ export const QUERY_LIMITS = {
   MEMBER_TASKS_DETAIL: 100,
   /** 延期/预警责任人排行 Top N */
   DELAY_MEMBERS: 10,
+  /** T1 组对比 Top N */
+  TEAM_COMPARISON: 10,
+  /** P5 成员趋势 Top N */
+  MEMBER_TRENDS: 10,
+  /** K1/K2 问题任务 Top N */
+  PROBLEM_TASKS: 10,
+  /** T6 项目维度 Top N */
+  PROJECT_DELAY: 10,
+  /** T7 任务类型（全量，上限12） */
+  TASK_TYPE_DELAY: 12,
+  /** P2 原因×责任人交叉 Top N */
+  REASON_MEMBER: 50,
 } as const;
 
 // ============ 时间区间（天/周） ============

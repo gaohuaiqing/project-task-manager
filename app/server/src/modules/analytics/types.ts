@@ -206,6 +206,88 @@ export interface WarningMemberStat {
   warning_task_count: number;
 }
 
+/** T1：各部门（技术组）延期对比统计 */
+export interface DepartmentDelayStat {
+  dept_id: number;
+  dept_name: string;
+  total_tasks: number;
+  delayed_count: number;
+  delay_rate: number;            // 百分比 0-100
+  avg_delay_days: number;
+  total_delay_count: number;     // 累计延期次数（SUM delay_count）
+  plan_change_count: number;
+}
+
+/** P1：成员延期排名（增强列，区别于 DelayedMemberStat） */
+export interface MemberDelayStat {
+  assignee_id: number;
+  assignee_name: string;
+  delayed_task_count: number;    // 当前延期任务数
+  total_delay_count: number;     // 累计延期次数
+  plan_change_count: number;
+  avg_delay_days: number;
+  /** assignee 所属部门 id（未分配=0，便于前端按 dept_manager 选组下钻筛选） */
+  dept_id: number;
+}
+
+/** T6：项目延期统计 */
+export interface ProjectDelayStat {
+  project_id: string;
+  project_name: string;
+  total_tasks: number;
+  delayed_count: number;
+  delay_rate: number;
+}
+
+/** T7：任务类型延期统计 */
+export interface TaskTypeDelayStat {
+  task_type: string;
+  total_tasks: number;
+  delayed_count: number;
+  delay_rate: number;
+}
+
+/** T3：延期严重度分布 */
+export interface SeverityDistribution {
+  mild: number;       // <7天
+  moderate: number;   // 7-30天
+  severe: number;     // >30天
+  avg_delay_days: number;
+}
+
+/** T8：预估偏差 */
+export interface EstimationDeviation {
+  avg_deviation_days: number;    // 实际-计划均值（完成延期任务）
+  accurate: number;              // ±10%
+  slight: number;                // 10-30%
+  obvious: number;               // 30-50%
+  serious: number;               // >50%
+  sample_count: number;          // 样本量（完成延期任务数）
+}
+
+/** T5：改善环比 */
+export interface ImprovementTrend {
+  current_delayed: number;       // 本期新增延期
+  previous_delayed: number;      // 上期新增延期
+  delta: number;                 // current - previous
+  direction: 'improving' | 'worsening' | 'flat';
+}
+
+/** P5：成员个人趋势（单成员时间序列） */
+export interface MemberTrendPoint {
+  assignee_id: number;
+  assignee_name: string;
+  points: { date: string; delayed: number }[];
+}
+
+/** P2：原因×责任人交叉单元 */
+export interface ReasonMemberCell {
+  reason: string;
+  assignee_id: number;
+  assignee_name: string;
+  count: number;
+}
+
 export interface DelayAnalysisReport {
   total_delayed: number;
   warning_count: number;
@@ -218,6 +300,20 @@ export interface DelayAnalysisReport {
   delayed_member_stats: DelayedMemberStat[];
   /** 图表②：延期预警责任人排行 */
   warning_member_stats: WarningMemberStat[];
+  // —— 团队视角（T1~T8）——
+  team_comparison: DepartmentDelayStat[];
+  severity_distribution: SeverityDistribution;
+  project_delay_stats: ProjectDelayStat[];
+  task_type_delay_stats: TaskTypeDelayStat[];
+  estimation_deviation: EstimationDeviation;
+  improvement_trend: ImprovementTrend;
+  // —— 个人视角（P1~P5）——
+  member_ranking: MemberDelayStat[];
+  member_trends: MemberTrendPoint[];
+  reason_member_matrix: ReasonMemberCell[];
+  // —— 任务视角（K1~K2）——
+  repeat_delay_tasks: DelayedTaskItem[];
+  frequent_change_tasks: DelayedTaskItem[];
 }
 
 export interface DelayedTaskItem {

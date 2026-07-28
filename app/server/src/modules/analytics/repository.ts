@@ -7,6 +7,9 @@ import type {
   DashboardStats, ProjectProgressReport, TaskStatisticsReport,
   DelayAnalysisReport, DelayedMemberStat, WarningMemberStat, MemberAnalysisReport, ReportQueryOptions,
   ProjectTypeConfig, TaskTypeConfig, HolidayConfig,
+  DepartmentDelayStat, SeverityDistribution, ProjectDelayStat, TaskTypeDelayStat,
+  EstimationDeviation, ImprovementTrend, MemberDelayStat, MemberTrendPoint,
+  ReasonMemberCell, DelayedTaskItem,
   MilestoneProgress, AssigneeTaskCount, DelayReasonCount, MemberTask,
   TrendDataPoint, ProjectProgressItem, MemberInfo,
   TrendIndicator, StatsWithTrend, TimeSeriesPoint,
@@ -1050,9 +1053,9 @@ export class AnalyticsRepository {
 
     const delayTrend = trendRows.map((r: RowDataPacket) => ({
       date: r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date),
-      created: r.created || 0,
-      completed: r.completed || 0,
-      delayed: (r.created || 0) - (r.completed || 0),  // 净增延期（未解决数）
+      created: Number(r.created) || 0,
+      completed: Number(r.completed) || 0,
+      delayed: (Number(r.created) || 0) - (Number(r.completed) || 0),  // 净增延期（未解决数）
     }));
 
     // ========== 责任人维度横条排行（v1.x 新增）==========
@@ -1118,6 +1121,314 @@ export class AnalyticsRepository {
       warning_task_count: Number(r.warning_task_count) || 0,
     }));
 
+    // ========== 团队视角（T1/T3/T6/T7/T8/T5）==========
+
+    // T1：各组（部门）延期对比 —— 仅 admin/dept_manager 有多组意义
+    // 用 buildUserDepartmentScopeFilter 拿可见部门 id，再按 assignee 的 department_id 聚合
+    const teamComparison: DepartmentDelayStat[] = [];
+    if (user.role === 'admin' || user.role === 'dept_manager') {
+      const deptScope = await buildUserDepartmentScopeFilter(user);
+      if (deptScope.clause !== '1=0') {
+        const [deptRows] = await pool.execute<RowDataPacket[]>(
+          `SELECT d.id AS dept_id, d.name AS dept_name,
+                  COUNT(t.id) AS total_tasks,
+                  SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_count,
+                  SUM(COALESCE(t.delay_count, 0)) AS total_delay_count,
+                  SUM(COALESCE(t.plan_change_count, 0)) AS plan_change_count,
+                  ROUND(AVG(CASE WHEN ${DELAY_CONDITIONS.delayed} AND t.end_date IS NOT NULL
+                      THEN DATEDIFF(CURDATE(), t.end_date) END), 1) AS avg_delay_days
+           FROM departments d
+           JOIN users u ON u.department_id = d.id AND u.is_active = 1
+           JOIN wbs_tasks t ON t.assignee_id = u.id
+           JOIN projects p ON t.project_id = p.id
+           WHERE d.id IN (SELECT sub_u.department_id FROM users sub_u WHERE ${deptScope.clause.replace(/u\./g, 'sub_u.')})
+           GROUP BY d.id, d.name
+           ORDER BY delayed_count DESC, total_delay_count DESC
+           LIMIT ${QUERY_LIMITS.TEAM_COMPARISON}`,
+          deptScope.params
+        );
+        for (const r of deptRows as RowDataPacket[]) {
+          const total = Number(r.total_tasks) || 0;
+          const delayed = Number(r.delayed_count) || 0;
+          teamComparison.push({
+            dept_id: Number(r.dept_id),
+            dept_name: String(r.dept_name ?? '未知'),
+            total_tasks: total,
+            delayed_count: delayed,
+            delay_rate: total > 0 ? Math.round((delayed / total) * 1000) / 10 : 0,
+            avg_delay_days: Number(r.avg_delay_days) || 0,
+            total_delay_count: Number(r.total_delay_count) || 0,
+            plan_change_count: Number(r.plan_change_count) || 0,
+          });
+        }
+      }
+    }
+
+    // T3：严重度分布（基于当前已延期任务 delay_days 分桶）
+    const [sevRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT
+         SUM(CASE WHEN DATEDIFF(CURDATE(), t.end_date) < 7 THEN 1 ELSE 0 END) AS mild,
+         SUM(CASE WHEN DATEDIFF(CURDATE(), t.end_date) BETWEEN 7 AND 30 THEN 1 ELSE 0 END) AS moderate,
+         SUM(CASE WHEN DATEDIFF(CURDATE(), t.end_date) > 30 THEN 1 ELSE 0 END) AS severe,
+         ROUND(AVG(DATEDIFF(CURDATE(), t.end_date)), 1) AS avg_delay_days
+       FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
+       ${listWhereClause}`,
+      listParams
+    );
+    const sev = (sevRows as RowDataPacket[])[0] || {};
+    const severity_distribution: SeverityDistribution = {
+      mild: Number(sev.mild) || 0,
+      moderate: Number(sev.moderate) || 0,
+      severe: Number(sev.severe) || 0,
+      avg_delay_days: Number(sev.avg_delay_days) || 0,
+    };
+
+    // T6：项目延期排名
+    const [projRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.project_id, p.name AS project_name,
+              COUNT(*) AS total_tasks,
+              SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_count
+       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
+       ${listWhereClause}
+       GROUP BY t.project_id, p.name
+       ORDER BY delayed_count DESC
+       LIMIT ${QUERY_LIMITS.PROJECT_DELAY}`,
+      listParams
+    );
+    const project_delay_stats: ProjectDelayStat[] = (projRows as RowDataPacket[]).map((r) => {
+      const total = Number(r.total_tasks) || 0;
+      const delayed = Number(r.delayed_count) || 0;
+      return {
+        project_id: String(r.project_id),
+        project_name: String(r.project_name ?? '未知'),
+        total_tasks: total,
+        delayed_count: delayed,
+        delay_rate: total > 0 ? Math.round((delayed / total) * 1000) / 10 : 0,
+      };
+    });
+
+    // T7：任务类型延期（基于延期任务列表口径 listWhereClause，按 task_type 聚合）
+    const [typeRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT COALESCE(NULLIF(t.task_type, ''), '未分类') AS task_type,
+              COUNT(*) AS total_tasks,
+              SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_count
+       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
+       ${listWhereClause}
+       GROUP BY task_type
+       ORDER BY delayed_count DESC
+       LIMIT ${QUERY_LIMITS.TASK_TYPE_DELAY}`,
+      listParams
+    );
+    const task_type_delay_stats: TaskTypeDelayStat[] = (typeRows as RowDataPacket[]).map((r) => {
+      const total = Number(r.total_tasks) || 0;
+      const delayed = Number(r.delayed_count) || 0;
+      return {
+        task_type: String(r.task_type),
+        total_tasks: total,
+        delayed_count: delayed,
+        delay_rate: total > 0 ? Math.round((delayed / total) * 1000) / 10 : 0,
+      };
+    });
+
+    // T8：预估偏差（仅完成延期任务有 actual_duration）
+    const [estRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS sample_count,
+              ROUND(AVG(t.actual_duration - t.planned_duration), 1) AS avg_deviation_days,
+              SUM(CASE WHEN ABS(t.actual_duration - t.planned_duration) <= t.planned_duration * 0.1 THEN 1 ELSE 0 END) AS accurate,
+              SUM(CASE WHEN ABS(t.actual_duration - t.planned_duration) BETWEEN t.planned_duration * 0.1 AND t.planned_duration * 0.3 THEN 1 ELSE 0 END) AS slight,
+              SUM(CASE WHEN ABS(t.actual_duration - t.planned_duration) BETWEEN t.planned_duration * 0.3 AND t.planned_duration * 0.5 THEN 1 ELSE 0 END) AS obvious,
+              SUM(CASE WHEN ABS(t.actual_duration - t.planned_duration) > t.planned_duration * 0.5 THEN 1 ELSE 0 END) AS serious
+       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
+       WHERE ${scopeFilter.clause} AND ${DELAY_CONDITIONS.overdue_completed}
+         AND t.actual_duration IS NOT NULL AND t.planned_duration IS NOT NULL AND t.planned_duration > 0`,
+      scopeFilter.params
+    );
+    const est = (estRows as RowDataPacket[])[0] || {};
+    const estimation_deviation: EstimationDeviation = {
+      avg_deviation_days: Number(est.avg_deviation_days) || 0,
+      accurate: Number(est.accurate) || 0,
+      slight: Number(est.slight) || 0,
+      obvious: Number(est.obvious) || 0,
+      serious: Number(est.serious) || 0,
+      sample_count: Number(est.sample_count) || 0,
+    };
+
+    // T5：改善环比（delay_trend 最后一周 vs 前一周的 created）
+    // 注意：mysql2 的 SUM 返回 DECIMAL 字符串，必须 Number() 强转，否则 + 变字符串拼接
+    const trendLen = delayTrend.length;
+    const lastWeekStart = Math.max(0, trendLen - 7);
+    const prevWeekStart = Math.max(0, trendLen - 14);
+    const current_delayed = trendLen > 0
+      ? delayTrend.slice(lastWeekStart).reduce((s, p) => s + (Number(p.created) || 0), 0) : 0;
+    const previous_delayed = trendLen >= 7
+      ? delayTrend.slice(prevWeekStart, lastWeekStart).reduce((s, p) => s + (Number(p.created) || 0), 0) : 0;
+    const delta = current_delayed - previous_delayed;
+    const improvement_trend: ImprovementTrend = {
+      current_delayed,
+      previous_delayed,
+      delta,
+      direction: previous_delayed === 0 ? (current_delayed === 0 ? 'flat' : 'worsening')
+        : delta < 0 ? 'improving' : delta > 0 ? 'worsening' : 'flat',
+    };
+
+    // ========== 个人视角（P1/P2/P5）==========
+
+    // P1：成员延期排名（增强：当前延期数 + 累计 + 计划变更 + 平均天数 + 部门 id）
+    // dept_id 用于前端 dept_manager 选组下钻时按部门筛选成员
+    const [rankRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.assignee_id,
+              IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS assignee_name,
+              u.department_id AS dept_id,
+              SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_task_count,
+              SUM(COALESCE(t.delay_count, 0)) AS total_delay_count,
+              SUM(COALESCE(t.plan_change_count, 0)) AS plan_change_count,
+              ROUND(AVG(CASE WHEN ${DELAY_CONDITIONS.delayed} AND t.end_date IS NOT NULL
+                  THEN DATEDIFF(CURDATE(), t.end_date) END), 1) AS avg_delay_days
+       FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE ${memberConds1.join(' AND ')}
+       GROUP BY t.assignee_id, u.real_name, u.username, u.department_id
+       HAVING delayed_task_count > 0
+       ORDER BY total_delay_count DESC, delayed_task_count DESC
+       LIMIT ${QUERY_LIMITS.DELAY_MEMBERS}`,
+      memberParams1
+    );
+    const member_ranking: MemberDelayStat[] = (rankRows as RowDataPacket[]).map((r) => ({
+      assignee_id: Number(r.assignee_id),
+      assignee_name: String(r.assignee_name ?? '未分配'),
+      delayed_task_count: Number(r.delayed_task_count) || 0,
+      total_delay_count: Number(r.total_delay_count) || 0,
+      plan_change_count: Number(r.plan_change_count) || 0,
+      avg_delay_days: Number(r.avg_delay_days) || 0,
+      // 未分配成员 assignee_id IS NULL → u.department_id 也 NULL，||0 兜底
+      dept_id: Number(r.dept_id) || 0,
+    }));
+
+    // P2：原因×责任人交叉（Top N 单元）
+    const [rmRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT dr.reason,
+              t.assignee_id,
+              IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS assignee_name,
+              COUNT(*) AS count
+       FROM delay_records dr
+       JOIN wbs_tasks t ON dr.task_id = t.id
+       JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE ${memberConds1.join(' AND ')}
+       GROUP BY dr.reason, t.assignee_id, u.real_name, u.username
+       ORDER BY count DESC
+       LIMIT ${QUERY_LIMITS.REASON_MEMBER}`,
+      memberParams1
+    );
+    const reason_member_matrix: ReasonMemberCell[] = (rmRows as RowDataPacket[]).map((r) => ({
+      reason: String(r.reason ?? '未填写'),
+      assignee_id: Number(r.assignee_id),
+      assignee_name: String(r.assignee_name ?? '未分配'),
+      count: Number(r.count) || 0,
+    }));
+
+    // P5：成员个人延期趋势（取 member_ranking 前 N 人，查 per-week 当前延期数）
+    const topMemberIds = member_ranking
+      .filter((m) => !Number.isNaN(m.assignee_id) && m.assignee_name !== '未分配')
+      .slice(0, QUERY_LIMITS.MEMBER_TRENDS);
+    const member_trends: MemberTrendPoint[] = [];
+    if (topMemberIds.length > 0) {
+      const idList = topMemberIds.map((m) => m.assignee_id).join(',');
+      const [mtRows] = await pool.execute<RowDataPacket[]>(
+        `WITH RECURSIVE week_series AS (
+            SELECT DATE_SUB(CURDATE(), INTERVAL ${Math.floor(trendDays / 7) - 1} WEEK) AS week_start
+            UNION ALL
+            SELECT DATE_ADD(week_start, INTERVAL 7 DAY) FROM week_series
+              WHERE week_start < DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+          )
+          SELECT ws.week_start,
+                 t.assignee_id,
+                 SUM(CASE WHEN t.end_date <= ws.week_start + INTERVAL 6 DAY
+                     AND t.actual_end_date IS NULL THEN 1 ELSE 0 END) AS 'delayed'
+          FROM week_series ws
+          JOIN wbs_tasks t ON t.assignee_id IN (${idList})
+            AND t.end_date IS NOT NULL
+            AND (${scopeFilter.clause})
+          JOIN projects p ON t.project_id = p.id
+          GROUP BY ws.week_start, t.assignee_id
+          ORDER BY ws.week_start, t.assignee_id`,
+        scopeFilter.params
+      );
+      const byMember = new Map<number, MemberTrendPoint>();
+      for (const m of topMemberIds) {
+        byMember.set(m.assignee_id, {
+          assignee_id: m.assignee_id,
+          assignee_name: m.assignee_name,
+          points: [],
+        });
+      }
+      for (const r of mtRows as RowDataPacket[]) {
+        const aid = Number(r.assignee_id);
+        const pt = byMember.get(aid);
+        if (pt) {
+          pt.points.push({
+            date: r.week_start instanceof Date ? r.week_start.toISOString().split('T')[0] : String(r.week_start),
+            delayed: Number(r.delayed) || 0,
+          });
+        }
+      }
+      member_trends.push(...byMember.values());
+    }
+
+    // ========== 任务视角（K1/K2）==========
+
+    // 复用一个辅助：把任务行映射为 DelayedTaskItem（含 wbs_code、delay_days、reason）
+    const mapToDelayedItem = (r: RowDataPacket): DelayedTaskItem => ({
+      id: String(r.id),
+      description: String(r.description ?? ''),
+      wbs_code: delayedWbsCodeMap.get(String(r.id)) ?? null,
+      project_name: String(r.project_name ?? ''),
+      assignee_name: String(r.assignee_name ?? '未分配'),
+      delay_type: String(r.delay_type ?? 'delayed'),
+      planned_end_date: r.planned_end_date instanceof Date
+        ? r.planned_end_date.toISOString().split('T')[0]
+        : (r.planned_end_date ? String(r.planned_end_date) : null),
+      delay_days: Number(r.delay_days) || 0,
+      reason: String(r.reason ?? '未填写'),
+      status: String(r.status ?? ''),
+    });
+
+    // K1：反复延期任务榜（按 delay_count 降序）
+    const [repeatRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.id, t.description, t.project_id, t.sort_order, t.created_at,
+              p.name AS project_name, u.real_name AS assignee_name,
+              ${delayTypeCase} AS delay_type, t.end_date AS planned_end_date,
+              CASE WHEN t.end_date IS NOT NULL AND t.actual_end_date IS NULL AND t.end_date < CURDATE()
+                  THEN GREATEST(0, DATEDIFF(CURDATE(), t.end_date)) ELSE 0 END AS delay_days,
+              COALESCE((SELECT dr2.reason FROM delay_records dr2 WHERE dr2.task_id = t.id ORDER BY dr2.created_at DESC LIMIT 1), '未填写') AS reason,
+              t.status
+       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE ${memberConds1.join(' AND ')} AND ${DELAY_CONDITIONS.delayed}
+       ORDER BY t.delay_count DESC, t.sort_order ASC
+       LIMIT ${QUERY_LIMITS.PROBLEM_TASKS}`,
+      memberParams1
+    );
+    const repeat_delay_tasks: DelayedTaskItem[] = (repeatRows as RowDataPacket[]).map(mapToDelayedItem);
+
+    // K2：频繁变更任务榜（按 plan_change_count 降序）
+    const [changeRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.id, t.description, t.project_id, t.sort_order, t.created_at,
+              p.name AS project_name, u.real_name AS assignee_name,
+              ${delayTypeCase} AS delay_type, t.end_date AS planned_end_date,
+              CASE WHEN t.end_date IS NOT NULL AND t.actual_end_date IS NULL AND t.end_date < CURDATE()
+                  THEN GREATEST(0, DATEDIFF(CURDATE(), t.end_date)) ELSE 0 END AS delay_days,
+              COALESCE((SELECT dr2.reason FROM delay_records dr2 WHERE dr2.task_id = t.id ORDER BY dr2.created_at DESC LIMIT 1), '未填写') AS reason,
+              t.status
+       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE ${memberConds1.join(' AND ')} AND ${DELAY_CONDITIONS.delayed}
+       ORDER BY t.plan_change_count DESC, t.sort_order ASC
+       LIMIT ${QUERY_LIMITS.PROBLEM_TASKS}`,
+      memberParams1
+    );
+    const frequent_change_tasks: DelayedTaskItem[] = (changeRows as RowDataPacket[]).map(mapToDelayedItem);
+
     return {
       total_delayed: Number(stats.total_delayed) || 0,
       warning_count: Number(stats.warning_count) || 0,
@@ -1139,6 +1450,17 @@ export class AnalyticsRepository {
       })),
       delayed_member_stats,
       warning_member_stats,
+      team_comparison: teamComparison,
+      severity_distribution,
+      project_delay_stats,
+      task_type_delay_stats,
+      estimation_deviation,
+      improvement_trend,
+      member_ranking,
+      member_trends,
+      reason_member_matrix,
+      repeat_delay_tasks,
+      frequent_change_tasks,
     };
   }
 

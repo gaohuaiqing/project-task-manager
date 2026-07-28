@@ -274,6 +274,109 @@ export interface DelayAnalysisData {
   delayedMemberChart: BarChartData;
   /** 图表②：延期预警责任人排行（预警任务数） */
   warningMemberChart: BarChartData;
+  /** 部门间延期对比（多维：延期率/平均延期天数/计划变更次数等） */
+  teamComparison: DepartmentDelayData[];
+  /** 责任人延期排行（结合历史延期次数、计划变更次数等） */
+  memberRanking: MemberRankingData[];
+  /** 严重程度分布（轻度/中度/重度 + 平均延期天数） */
+  severityDistribution: SeverityData;
+  /** 项目维度延期统计 */
+  projectDelayStats: ProjectDelayData[];
+  /** 任务类型维度延期统计 */
+  taskTypeDelayStats: TaskTypeDelayData[];
+  /** 预估偏差分布 */
+  estimationDeviation: EstimationDeviationData;
+  /** 改善趋势（本期 vs 上期） */
+  improvementTrend: ImprovementTrendData;
+  /** 责任人延期趋势曲线（多人时间序列） */
+  memberTrends: MemberTrendData[];
+  /** 延期原因 × 责任人矩阵（单元格） */
+  reasonMemberMatrix: ReasonMemberCellData[];
+  /** 反复延期任务列表 */
+  repeatDelayTasks: DelayTaskItem[];
+  /** 频繁变更任务列表 */
+  frequentChangeTasks: DelayTaskItem[];
+}
+
+/** 部门延期对比数据（team_comparison） */
+export interface DepartmentDelayData {
+  deptId: number;
+  deptName: string;
+  totalTasks: number;
+  delayedCount: number;
+  delayRate: number;
+  avgDelayDays: number;
+  totalDelayCount: number;
+  planChangeCount: number;
+}
+
+/** 责任人延期排行数据（member_ranking） */
+export interface MemberRankingData {
+  assigneeId: number;
+  assigneeName: string;
+  delayedTaskCount: number;
+  totalDelayCount: number;
+  planChangeCount: number;
+  avgDelayDays: number;
+  /** assignee 所属部门 id（未分配=0；dept_manager 选组下钻时按部门筛选成员） */
+  deptId: number;
+}
+
+/** 项目维度延期统计（project_delay_stats） */
+export interface ProjectDelayData {
+  projectId: string;
+  projectName: string;
+  totalTasks: number;
+  delayedCount: number;
+  delayRate: number;
+}
+
+/** 任务类型维度延期统计（task_type_delay_stats） */
+export interface TaskTypeDelayData {
+  taskType: string;
+  totalTasks: number;
+  delayedCount: number;
+  delayRate: number;
+}
+
+/** 严重程度分布（severity_distribution） */
+export interface SeverityData {
+  mild: number;
+  moderate: number;
+  severe: number;
+  avgDelayDays: number;
+}
+
+/** 预估偏差分布（estimation_deviation） */
+export interface EstimationDeviationData {
+  avgDeviationDays: number;
+  accurate: number;
+  slight: number;
+  obvious: number;
+  serious: number;
+  sampleCount: number;
+}
+
+/** 改善趋势（improvement_trend） */
+export interface ImprovementTrendData {
+  currentDelayed: number;
+  previousDelayed: number;
+  delta: number;
+  direction: 'improving' | 'worsening' | 'flat';
+}
+
+/** 责任人延期趋势（member_trends） */
+export interface MemberTrendData {
+  assigneeId: number;
+  assigneeName: string;
+  points: { date: string; delayed: number }[];
+}
+
+/** 延期原因 × 责任人矩阵单元格（reason_member_matrix） */
+export interface ReasonMemberCellData {
+  reason: string;
+  assigneeName: string;
+  count: number;
 }
 
 export interface DelayTaskItem {

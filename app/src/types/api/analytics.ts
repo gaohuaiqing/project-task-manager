@@ -160,6 +160,125 @@ export interface DelayAnalysisReport {
   delayedMemberStats: DelayedMemberStat[];
   /** 图表②：延期预警责任人排行 */
   warningMemberStats: WarningMemberStat[];
+  // —— 团队视角（T1~T8）——
+  /** T1：各部门（技术组）延期对比 */
+  teamComparison: DepartmentDelayStat[];
+  /** T3：延期严重度分布 */
+  severityDistribution: SeverityDistribution;
+  /** T6：项目延期统计 */
+  projectDelayStats: ProjectDelayStat[];
+  /** T7：任务类型延期统计 */
+  taskTypeDelayStats: TaskTypeDelayStat[];
+  /** T8：预估偏差 */
+  estimationDeviation: EstimationDeviation;
+  /** T5：改善环比 */
+  improvementTrend: ImprovementTrend;
+  // —— 个人视角（P1~P5）——
+  /** P1：成员延期排名（增强列） */
+  memberRanking: MemberDelayStat[];
+  /** P5：成员个人趋势 */
+  memberTrends: MemberTrendPoint[];
+  /** P2：原因×责任人交叉单元 */
+  reasonMemberMatrix: ReasonMemberCell[];
+  // —— 任务视角（K1~K2）——
+  /** K1：反复延期任务 */
+  repeatDelayTasks: DelayedTaskItem[];
+  /** K2：频繁变更任务 */
+  frequentChangeTasks: DelayedTaskItem[];
+}
+
+/** T1：各部门（技术组）延期对比（team_comparison） */
+export interface DepartmentDelayStat {
+  deptId: number;
+  deptName: string;
+  totalTasks: number;
+  delayedCount: number;
+  delayRate: number;
+  avgDelayDays: number;
+  totalDelayCount: number;
+  planChangeCount: number;
+}
+
+/** P1：成员延期排名（member_ranking，增强列区别于 DelayedMemberStat） */
+export interface MemberDelayStat {
+  assigneeId: number;
+  assigneeName: string;
+  delayedTaskCount: number;
+  totalDelayCount: number;
+  planChangeCount: number;
+  avgDelayDays: number;
+  /** assignee 所属部门 id（未分配=0；dept_manager 选组下钻时用于前端筛选） */
+  deptId: number;
+}
+
+/** T6：项目延期统计（project_delay_stats） */
+export interface ProjectDelayStat {
+  projectId: string;
+  projectName: string;
+  totalTasks: number;
+  delayedCount: number;
+  delayRate: number;
+}
+
+/** T7：任务类型延期统计（task_type_delay_stats） */
+export interface TaskTypeDelayStat {
+  taskType: string;
+  totalTasks: number;
+  delayedCount: number;
+  delayRate: number;
+}
+
+/** T3：延期严重度分布（severity_distribution） */
+export interface SeverityDistribution {
+  /** <7天 */
+  mild: number;
+  /** 7-30天 */
+  moderate: number;
+  /** >30天 */
+  severe: number;
+  avgDelayDays: number;
+}
+
+/** T8：预估偏差（estimation_deviation） */
+export interface EstimationDeviation {
+  /** 实际-计划均值（完成延期任务） */
+  avgDeviationDays: number;
+  /** ±10% */
+  accurate: number;
+  /** 10-30% */
+  slight: number;
+  /** 30-50% */
+  obvious: number;
+  /** >50% */
+  serious: number;
+  /** 样本量（完成延期任务数） */
+  sampleCount: number;
+}
+
+/** T5：改善环比（improvement_trend） */
+export interface ImprovementTrend {
+  /** 本期新增延期 */
+  currentDelayed: number;
+  /** 上期新增延期 */
+  previousDelayed: number;
+  /** current - previous */
+  delta: number;
+  direction: 'improving' | 'worsening' | 'flat';
+}
+
+/** P5：成员个人趋势（member_trends，单成员时间序列） */
+export interface MemberTrendPoint {
+  assigneeId: number;
+  assigneeName: string;
+  points: { date: string; delayed: number }[];
+}
+
+/** P2：原因×责任人交叉单元（reason_member_matrix） */
+export interface ReasonMemberCell {
+  reason: string;
+  assigneeId: number;
+  assigneeName: string;
+  count: number;
 }
 
 export interface DelayedTaskItem {

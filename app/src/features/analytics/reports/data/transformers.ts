@@ -34,6 +34,15 @@ import type {
   EfficiencySuggestion,
   MilestoneItem,
   ProjectProgressCard,
+  DepartmentDelayData,
+  MemberRankingData,
+  ProjectDelayData,
+  TaskTypeDelayData,
+  SeverityData,
+  EstimationDeviationData,
+  ImprovementTrendData,
+  MemberTrendData,
+  ReasonMemberCellData,
 } from '../types';
 import {
   DEFAULT_CHART_COLORS,
@@ -423,6 +432,78 @@ export function transformDelayAnalysisReport(
     quadrantLines: { x: 3, y: 2 },
   } : undefined;
 
+  // 多维新字段映射（后端 snake_case 经 client.ts 已转 camelCase）
+  const teamComparison: DepartmentDelayData[] = (report.teamComparison || []).map((d) => ({
+    deptId: d.deptId,
+    deptName: d.deptName,
+    totalTasks: d.totalTasks,
+    delayedCount: d.delayedCount,
+    delayRate: d.delayRate,
+    avgDelayDays: d.avgDelayDays,
+    totalDelayCount: d.totalDelayCount,
+    planChangeCount: d.planChangeCount,
+  }));
+
+  const memberRanking: MemberRankingData[] = (report.memberRanking || []).map((m) => ({
+    assigneeId: m.assigneeId,
+    assigneeName: m.assigneeName,
+    delayedTaskCount: m.delayedTaskCount,
+    totalDelayCount: m.totalDelayCount,
+    planChangeCount: m.planChangeCount,
+    avgDelayDays: m.avgDelayDays,
+    deptId: m.deptId,
+  }));
+
+  const severityDistribution: SeverityData = {
+    mild: report.severityDistribution?.mild ?? 0,
+    moderate: report.severityDistribution?.moderate ?? 0,
+    severe: report.severityDistribution?.severe ?? 0,
+    avgDelayDays: report.severityDistribution?.avgDelayDays ?? 0,
+  };
+
+  const projectDelayStats: ProjectDelayData[] = (report.projectDelayStats || []).map((p) => ({
+    projectId: p.projectId,
+    projectName: p.projectName,
+    totalTasks: p.totalTasks,
+    delayedCount: p.delayedCount,
+    delayRate: p.delayRate,
+  }));
+
+  const taskTypeDelayStats: TaskTypeDelayData[] = (report.taskTypeDelayStats || []).map((t) => ({
+    taskType: t.taskType,
+    totalTasks: t.totalTasks,
+    delayedCount: t.delayedCount,
+    delayRate: t.delayRate,
+  }));
+
+  const estimationDeviation: EstimationDeviationData = {
+    avgDeviationDays: report.estimationDeviation?.avgDeviationDays ?? 0,
+    accurate: report.estimationDeviation?.accurate ?? 0,
+    slight: report.estimationDeviation?.slight ?? 0,
+    obvious: report.estimationDeviation?.obvious ?? 0,
+    serious: report.estimationDeviation?.serious ?? 0,
+    sampleCount: report.estimationDeviation?.sampleCount ?? 0,
+  };
+
+  const improvementTrend: ImprovementTrendData = {
+    currentDelayed: report.improvementTrend?.currentDelayed ?? 0,
+    previousDelayed: report.improvementTrend?.previousDelayed ?? 0,
+    delta: report.improvementTrend?.delta ?? 0,
+    direction: report.improvementTrend?.direction ?? 'flat',
+  };
+
+  const memberTrends: MemberTrendData[] = (report.memberTrends || []).map((m) => ({
+    assigneeId: m.assigneeId,
+    assigneeName: m.assigneeName,
+    points: (m.points || []).map((p) => ({ date: p.date, delayed: p.delayed })),
+  }));
+
+  const reasonMemberMatrix: ReasonMemberCellData[] = (report.reasonMemberMatrix || []).map((c) => ({
+    reason: c.reason,
+    assigneeName: c.assigneeName,
+    count: c.count,
+  }));
+
   return {
     stats,
     delayTypeChart,
@@ -434,6 +515,39 @@ export function transformDelayAnalysisReport(
     warningMemberChart,
     workloadVsDelay,
     activityVsDelay,
+    teamComparison,
+    memberRanking,
+    severityDistribution,
+    projectDelayStats,
+    taskTypeDelayStats,
+    estimationDeviation,
+    improvementTrend,
+    memberTrends,
+    reasonMemberMatrix,
+    repeatDelayTasks: (report.repeatDelayTasks || []).map(task => ({
+      id: task.id,
+      taskName: task.description,
+      wbsCode: task.wbsCode || task.id,
+      assigneeName: task.assigneeName,
+      projectName: task.projectName,
+      plannedEndDate: task.plannedEndDate || '',
+      delayDays: task.delayDays,
+      delayType: mapDelayType(task.delayType),
+      delayReason: task.reason,
+      riskLevel: task.delayDays > DELAY_DAYS_RISK.high ? 'high' : task.delayDays > DELAY_DAYS_RISK.medium ? 'medium' : 'low',
+    })),
+    frequentChangeTasks: (report.frequentChangeTasks || []).map(task => ({
+      id: task.id,
+      taskName: task.description,
+      wbsCode: task.wbsCode || task.id,
+      assigneeName: task.assigneeName,
+      projectName: task.projectName,
+      plannedEndDate: task.plannedEndDate || '',
+      delayDays: task.delayDays,
+      delayType: mapDelayType(task.delayType),
+      delayReason: task.reason,
+      riskLevel: task.delayDays > DELAY_DAYS_RISK.high ? 'high' : task.delayDays > DELAY_DAYS_RISK.medium ? 'medium' : 'low',
+    })),
   };
 }
 
