@@ -1,10 +1,52 @@
 /**
  * T1：各技术组延期对比（admin/dept_manager 可见）
  * 表格 + 条形图：组名/总任务/延期数/延期率/平均天数/累计延期/计划变更
+ * v2: 表格末列追加"改善方向"（↑恶化/↓改善/→持平 + delta 值）
  */
 import { BarChart } from '../charts';
 import { ChartContainer } from '../shared';
 import type { DepartmentDelayData } from '../../types';
+
+/** 改善方向徽章：箭头 + 颜色 + delta 值（与 ProjectDelayView 共用同款样式） */
+function ImprovementBadge({
+  direction,
+  delta,
+}: {
+  direction: DepartmentDelayData['improvementDirection'];
+  delta: number;
+}) {
+  if (direction === 'improving') {
+    return (
+      <span className="text-green-600">
+        ↓改善
+        <span className="ml-1 text-xs">
+          ({delta > 0 ? '+' : ''}
+          {delta})
+        </span>
+      </span>
+    );
+  }
+  if (direction === 'worsening') {
+    return (
+      <span className="text-red-600">
+        ↑恶化
+        <span className="ml-1 text-xs">
+          ({delta > 0 ? '+' : ''}
+          {delta})
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="text-muted-foreground">
+      →持平
+      <span className="ml-1 text-xs">
+        ({delta > 0 ? '+' : ''}
+        {delta})
+      </span>
+    </span>
+  );
+}
 
 export interface DeptComparisonViewProps {
   data: DepartmentDelayData[];
@@ -34,8 +76,8 @@ export function DeptComparisonView({ data, onSelectDept }: DeptComparisonViewPro
         <table className="w-full text-xs">
           <thead className="bg-muted/50">
             <tr>
-              {['组名', '总任务', '延期数', '延期率', '平均天数', '累计延期', '计划变更'].map((h) => (
-                <th key={h} className="px-2 py-1.5 text-left font-medium">{h}</th>
+              {['组名', '总任务', '延期数', '延期率', '平均天数', '累计延期', '计划变更', '计划变更率', '累计延期率', '改善方向'].map((h) => (
+                <th key={h} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
@@ -53,6 +95,11 @@ export function DeptComparisonView({ data, onSelectDept }: DeptComparisonViewPro
                 <td className="px-2 py-1.5">{d.avgDelayDays}</td>
                 <td className="px-2 py-1.5 text-amber-600">{d.totalDelayCount}</td>
                 <td className="px-2 py-1.5">{d.planChangeCount}</td>
+                <td className="px-2 py-1.5 text-blue-600">{d.planChangeRate}</td>
+                <td className="px-2 py-1.5 text-amber-600">{d.avgDelayPerTask}</td>
+                <td className="px-2 py-1.5 whitespace-nowrap">
+                  <ImprovementBadge direction={d.improvementDirection} delta={d.improvementDelta} />
+                </td>
               </tr>
             ))}
           </tbody>

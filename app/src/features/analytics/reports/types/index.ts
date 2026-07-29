@@ -17,8 +17,13 @@ export type ReportType =
 /** 用户角色 */
 export type UserRole = 'admin' | 'dept_manager' | 'tech_manager' | 'engineer';
 
-/** 时间范围选项 */
-export type TimeRange = '7d' | '30d' | 'quarter' | 'custom';
+/**
+ * 时间范围选项
+ * - current: 当前实时快照（startDate/endDate = null/null，后端按 DELAY_OR_OVERDUE 当前口径）
+ * - 30d/3m/6m/1y: 时间段预设（end=今天，start=今天-N）
+ * - custom: 自定义日期范围（搭配日历选择器）
+ */
+export type TimeRange = 'current' | '30d' | '3m' | '6m' | '1y' | 'custom';
 
 /** 延期类型 */
 export type DelayType = 'delay_warning' | 'delayed' | 'overdue_completed';
@@ -296,6 +301,10 @@ export interface DelayAnalysisData {
   repeatDelayTasks: DelayTaskItem[];
   /** 频繁变更任务列表 */
   frequentChangeTasks: DelayTaskItem[];
+  /** v2: 统计总览（3指标×当前/时间段×团队/个人） */
+  statsOverview: StatsOverviewData;
+  /** v2: 超长延期天数任务榜（K3） */
+  longestDelayTasks: DelayTaskItem[];
 }
 
 /** 部门延期对比数据（team_comparison） */
@@ -308,6 +317,14 @@ export interface DepartmentDelayData {
   avgDelayDays: number;
   totalDelayCount: number;
   planChangeCount: number;
+  /** 计划变更率（次/任务） */
+  planChangeRate: number;
+  /** 累计延期率（次/任务） */
+  avgDelayPerTask: number;
+  /** v2: 本期vs上期延期数变化（含已完成） */
+  improvementDelta: number;
+  /** v2: 改善方向 */
+  improvementDirection: 'improving' | 'worsening' | 'flat';
 }
 
 /** 责任人延期排行数据（member_ranking） */
@@ -320,6 +337,8 @@ export interface MemberRankingData {
   avgDelayDays: number;
   /** assignee 所属部门 id（未分配=0；dept_manager 选组下钻时按部门筛选成员） */
   deptId: number;
+  /** v2: 改善之星排行（本期vs上期延期数变化，含已完成） */
+  improvementDelta: number;
 }
 
 /** 项目维度延期统计（project_delay_stats） */
@@ -329,6 +348,24 @@ export interface ProjectDelayData {
   totalTasks: number;
   delayedCount: number;
   delayRate: number;
+  /** v2: 本期vs上期延期数变化 */
+  improvementDelta: number;
+  /** v2: 改善方向 */
+  improvementDirection: 'improving' | 'worsening' | 'flat';
+}
+
+/** v2: 统计总览（3指标×当前/时间段×团队/个人） */
+export interface StatsOverviewData {
+  team: {
+    delayedTaskCount: { current: number; period: number };
+    totalDelayCount: { current: number; period: number };
+    planChangeCount: { current: number; period: number };
+  };
+  individual: {
+    avgDelayCountPerMember: { current: number; period: number };
+    worstMemberName: { current: string | null; period: string | null };
+    worstMemberCount: { current: number; period: number };
+  };
 }
 
 /** 任务类型维度延期统计（task_type_delay_stats） */

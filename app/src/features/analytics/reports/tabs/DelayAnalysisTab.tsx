@@ -7,21 +7,21 @@
  * 子组件层级（来自 Task 7-11）：
  *   L0 团队:  TeamSection（admin/dept_manager→DeptComparisonView, tech_manager→本组总览）
  *   L0 个人:  MemberRankingSection（成员延期排名）
- *   L0 任务:  ProblemTaskSection（反复延期 + 频繁变更）
- *   L1 静态:  StatsCardGroup + SeveritySection + EstimationDeviationView
+ *   L0 任务:  ProblemTaskSection（反复延期 + 频繁变更 + 超长延期天数）
+ *   L1 静态:  StatsOverviewSection + EstimationDeviationView
  *             + ProjectDelayView + TaskTypeDelayView + ReasonSection
  *   L2 趋势:  TrendSection
  *   L3 明细:  DelayDetailSection（任务列表 ↔ 成员统计，Tab 切换）
  */
 import { useState } from 'react';
-import { StatsCardGroup, ChartGroup } from '../components/shared';
+import { ChartGroup } from '../components/shared';
 import { useDelayAnalysisData } from '../data';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import type { ReportFilters } from '../types';
 import { TeamSection } from '../components/delay/TeamSection';
+import { StatsOverviewSection } from '../components/delay/StatsOverviewSection';
 import { MemberRankingSection } from '../components/delay/MemberRankingSection';
 import { ProblemTaskSection } from '../components/delay/ProblemTaskSection';
-import { SeveritySection } from '../components/delay/SeveritySection';
 import { ProjectDelayView } from '../components/delay/ProjectDelayView';
 import { TaskTypeDelayView } from '../components/delay/TaskTypeDelayView';
 import { EstimationDeviationView } from '../components/delay/EstimationDeviationView';
@@ -76,14 +76,12 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
       <ProblemTaskSection
         repeatDelayTasks={data.repeatDelayTasks}
         frequentChangeTasks={data.frequentChangeTasks}
+        longestDelayTasks={data.longestDelayTasks}
       />
 
       {/* L1·静态维度 */}
-      <StatsCardGroup stats={data.stats} />
-      <ChartGroup>
-        <SeveritySection data={data.severityDistribution} />
-        <EstimationDeviationView data={data.estimationDeviation} />
-      </ChartGroup>
+      <StatsOverviewSection data={data.statsOverview} />
+      <EstimationDeviationView data={data.estimationDeviation} />
       <ChartGroup>
         <ProjectDelayView data={data.projectDelayStats} />
         <TaskTypeDelayView data={data.taskTypeDelayStats} />

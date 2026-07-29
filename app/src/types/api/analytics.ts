@@ -185,6 +185,10 @@ export interface DelayAnalysisReport {
   repeatDelayTasks: DelayedTaskItem[];
   /** K2：频繁变更任务 */
   frequentChangeTasks: DelayedTaskItem[];
+  /** v2: 统计总览（3指标×当前/时间段×团队/个人） */
+  statsOverview: StatsOverview;
+  /** v2: K3 超长延期天数任务榜 */
+  longestDelayTasks: DelayedTaskItem[];
 }
 
 /** T1：各部门（技术组）延期对比（team_comparison） */
@@ -197,6 +201,13 @@ export interface DepartmentDelayStat {
   avgDelayDays: number;
   totalDelayCount: number;
   planChangeCount: number;
+  /** 计划变更率 = planChangeCount / totalTasks（"次/任务"语义） */
+  planChangeRate: number;
+  /** 累计延期率 = totalDelayCount / totalTasks */
+  avgDelayPerTask: number;
+  /** v2: 本期vs上期延期数变化 */
+  improvementDelta: number;
+  improvementDirection: 'improving' | 'worsening' | 'flat';
 }
 
 /** P1：成员延期排名（member_ranking，增强列区别于 DelayedMemberStat） */
@@ -209,6 +220,8 @@ export interface MemberDelayStat {
   avgDelayDays: number;
   /** assignee 所属部门 id（未分配=0；dept_manager 选组下钻时用于前端筛选） */
   deptId: number;
+  /** v2: 改善之星排行（本期vs上期） */
+  improvementDelta: number;
 }
 
 /** T6：项目延期统计（project_delay_stats） */
@@ -218,6 +231,22 @@ export interface ProjectDelayStat {
   totalTasks: number;
   delayedCount: number;
   delayRate: number;
+  improvementDelta: number;
+  improvementDirection: 'improving' | 'worsening' | 'flat';
+}
+
+/** v2: 统计总览（3指标×当前/时间段×团队/个人） */
+export interface StatsOverview {
+  team: {
+    delayedTaskCount: { current: number; period: number };
+    totalDelayCount: { current: number; period: number };
+    planChangeCount: { current: number; period: number };
+  };
+  individual: {
+    avgDelayCountPerMember: { current: number; period: number };
+    worstMemberName: { current: string | null; period: string | null };
+    worstMemberCount: { current: number; period: number };
+  };
 }
 
 /** T7：任务类型延期统计（task_type_delay_stats） */

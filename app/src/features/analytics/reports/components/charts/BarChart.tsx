@@ -14,6 +14,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  LabelList,
 } from 'recharts';
 import type { BarChartData } from '../../types';
 import { CHART_COLORS } from '../../config';
@@ -30,6 +31,8 @@ export interface BarChartProps {
   maxBarSize?: number;
   /** 是否显示X轴，默认true */
   showXAxis?: boolean;
+  /** 是否在柱上显示数值标签，默认 false（不影响现有调用） */
+  showValues?: boolean;
 }
 
 const COLORS = [
@@ -50,6 +53,7 @@ export function BarChart({
   yAxisLabel,
   maxBarSize = 32,
   showXAxis = true,
+  showValues = false,
 }: BarChartProps) {
   // 安全数据处理
   const safeData = data || { labels: [], datasets: [] };
@@ -180,6 +184,14 @@ export function BarChart({
                 dataset.color.map((color, cellIndex) => (
                   <Cell key={cellIndex} fill={color} />
                 ))}
+              {showValues && !stacked && (
+                <LabelList
+                  dataKey={dataset.label}
+                  position={isVertical ? 'right' : 'top'}
+                  fontSize={10}
+                  fill="hsl(var(--muted-foreground))"
+                />
+              )}
             </Bar>
           );
         })}

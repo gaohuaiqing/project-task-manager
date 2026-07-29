@@ -216,6 +216,14 @@ export interface DepartmentDelayStat {
   avg_delay_days: number;
   total_delay_count: number;     // 累计延期次数（SUM delay_count）
   plan_change_count: number;
+  /** 计划变更率 = plan_change_count / total_tasks（保留2位小数，"次/任务"语义） */
+  plan_change_rate: number;
+  /** 累计延期率 = total_delay_count / total_tasks（保留2位小数） */
+  avg_delay_per_task: number;
+  /** v2: 本期vs上期延期数变化（含已完成） */
+  improvement_delta: number;
+  /** v2: 改善方向 */
+  improvement_direction: 'improving' | 'worsening' | 'flat';
 }
 
 /** P1：成员延期排名（增强列，区别于 DelayedMemberStat） */
@@ -228,6 +236,8 @@ export interface MemberDelayStat {
   avg_delay_days: number;
   /** assignee 所属部门 id（未分配=0，便于前端按 dept_manager 选组下钻筛选） */
   dept_id: number;
+  /** v2: 用于改善之星排行（本期vs上期延期数变化，含已完成） */
+  improvement_delta: number;
 }
 
 /** T6：项目延期统计 */
@@ -237,6 +247,10 @@ export interface ProjectDelayStat {
   total_tasks: number;
   delayed_count: number;
   delay_rate: number;
+  /** v2: 本期vs上期延期数变化（含已完成） */
+  improvement_delta: number;
+  /** v2: 改善方向 */
+  improvement_direction: 'improving' | 'worsening' | 'flat';
 }
 
 /** T7：任务类型延期统计 */
@@ -288,6 +302,26 @@ export interface ReasonMemberCell {
   count: number;
 }
 
+/** v2: 报表顶部统计总览（本期 vs 上期，范围汇总 + 个人层） */
+export interface StatsOverview {
+  // 团队层（范围汇总）
+  team: {
+    /** 延期任务数（含已完成） */
+    delayed_task_count: { current: number; period: number };
+    /** 累计延期次数 */
+    total_delay_count: { current: number; period: number };
+    plan_change_count: { current: number; period: number };
+  };
+  // 个人层
+  individual: {
+    /** 人均延期次数 */
+    avg_delay_count_per_member: { current: number; period: number };
+    /** 重灾区人 */
+    worst_member_name: { current: string | null; period: string | null };
+    worst_member_count: { current: number; period: number };
+  };
+}
+
 export interface DelayAnalysisReport {
   total_delayed: number;
   warning_count: number;
@@ -302,6 +336,7 @@ export interface DelayAnalysisReport {
   warning_member_stats: WarningMemberStat[];
   // —— 团队视角（T1~T8）——
   team_comparison: DepartmentDelayStat[];
+  /** 保留字段（v2 前端不再渲染，避免破坏现有契约） */
   severity_distribution: SeverityDistribution;
   project_delay_stats: ProjectDelayStat[];
   task_type_delay_stats: TaskTypeDelayStat[];
@@ -314,6 +349,11 @@ export interface DelayAnalysisReport {
   // —— 任务视角（K1~K2）——
   repeat_delay_tasks: DelayedTaskItem[];
   frequent_change_tasks: DelayedTaskItem[];
+  // —— v2 新增 ——
+  /** 顶部统计总览（本期vs上期） */
+  stats_overview: StatsOverview;
+  /** K3：超长延期天数榜 */
+  longest_delay_tasks: DelayedTaskItem[];
 }
 
 export interface DelayedTaskItem {

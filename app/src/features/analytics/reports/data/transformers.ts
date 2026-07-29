@@ -43,6 +43,7 @@ import type {
   ImprovementTrendData,
   MemberTrendData,
   ReasonMemberCellData,
+  StatsOverviewData,
 } from '../types';
 import {
   DEFAULT_CHART_COLORS,
@@ -442,6 +443,10 @@ export function transformDelayAnalysisReport(
     avgDelayDays: d.avgDelayDays,
     totalDelayCount: d.totalDelayCount,
     planChangeCount: d.planChangeCount,
+    planChangeRate: d.planChangeRate,
+    avgDelayPerTask: d.avgDelayPerTask,
+    improvementDelta: d.improvementDelta,
+    improvementDirection: d.improvementDirection,
   }));
 
   const memberRanking: MemberRankingData[] = (report.memberRanking || []).map((m) => ({
@@ -452,6 +457,7 @@ export function transformDelayAnalysisReport(
     planChangeCount: m.planChangeCount,
     avgDelayDays: m.avgDelayDays,
     deptId: m.deptId,
+    improvementDelta: m.improvementDelta,
   }));
 
   const severityDistribution: SeverityData = {
@@ -467,6 +473,8 @@ export function transformDelayAnalysisReport(
     totalTasks: p.totalTasks,
     delayedCount: p.delayedCount,
     delayRate: p.delayRate,
+    improvementDelta: p.improvementDelta,
+    improvementDirection: p.improvementDirection,
   }));
 
   const taskTypeDelayStats: TaskTypeDelayData[] = (report.taskTypeDelayStats || []).map((t) => ({
@@ -502,6 +510,35 @@ export function transformDelayAnalysisReport(
     reason: c.reason,
     assigneeName: c.assigneeName,
     count: c.count,
+  }));
+
+  // v2: 统计总览（3指标×当前/时间段×团队/个人）
+  const so = report.statsOverview;
+  const statsOverview: StatsOverviewData = so && so.team ? {
+    team: {
+      delayedTaskCount: { current: so.team.delayedTaskCount?.current ?? 0, period: so.team.delayedTaskCount?.period ?? 0 },
+      totalDelayCount: { current: so.team.totalDelayCount?.current ?? 0, period: so.team.totalDelayCount?.period ?? 0 },
+      planChangeCount: { current: so.team.planChangeCount?.current ?? 0, period: so.team.planChangeCount?.period ?? 0 },
+    },
+    individual: {
+      avgDelayCountPerMember: { current: so.individual?.avgDelayCountPerMember?.current ?? 0, period: so.individual?.avgDelayCountPerMember?.period ?? 0 },
+      worstMemberName: { current: so.individual?.worstMemberName?.current ?? null, period: so.individual?.worstMemberName?.period ?? null },
+      worstMemberCount: { current: so.individual?.worstMemberCount?.current ?? 0, period: so.individual?.worstMemberCount?.period ?? 0 },
+    },
+  } : { team: { delayedTaskCount: { current: 0, period: 0 }, totalDelayCount: { current: 0, period: 0 }, planChangeCount: { current: 0, period: 0 } }, individual: { avgDelayCountPerMember: { current: 0, period: 0 }, worstMemberName: { current: null, period: null }, worstMemberCount: { current: 0, period: 0 } } };
+
+  // v2: K3 超长延期天数任务榜（复用 repeatDelayTasks 映射模式）
+  const longestDelayTasks: DelayTaskItem[] = (report.longestDelayTasks || []).map(task => ({
+    id: task.id,
+    taskName: task.description,
+    wbsCode: task.wbsCode || task.id,
+    assigneeName: task.assigneeName,
+    projectName: task.projectName,
+    plannedEndDate: task.plannedEndDate || '',
+    delayDays: task.delayDays,
+    delayType: mapDelayType(task.delayType),
+    delayReason: task.reason,
+    riskLevel: task.delayDays > DELAY_DAYS_RISK.high ? 'high' : task.delayDays > DELAY_DAYS_RISK.medium ? 'medium' : 'low',
   }));
 
   return {
@@ -548,6 +585,8 @@ export function transformDelayAnalysisReport(
       delayReason: task.reason,
       riskLevel: task.delayDays > DELAY_DAYS_RISK.high ? 'high' : task.delayDays > DELAY_DAYS_RISK.medium ? 'medium' : 'low',
     })),
+    statsOverview,
+    longestDelayTasks,
   };
 }
 

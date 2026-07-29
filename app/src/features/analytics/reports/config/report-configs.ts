@@ -193,11 +193,19 @@ export const CHART_COLORS = {
 
 // ==================== 筛选器配置 ====================
 
-/** 时间范围选项 */
+/**
+ * 时间范围选项 — 5 预设 + 自定义
+ * 预设选中后由 FilterBar 自动计算 startDate/endDate 并同步到 filters
+ * - current: 实时快照（startDate/endDate 留空）
+ * - 30d/3m/6m/1y: end=今天，start=今天-N（30 天/3 个月/6 个月/1 年）
+ * - custom: 自定义日期范围（搭配日历选择器）
+ */
 export const TIME_RANGE_OPTIONS = [
-  { value: '7d', label: '过去7天' },
-  { value: '30d', label: '过去30天' },
-  { value: 'quarter', label: '本季度' },
+  { value: 'current', label: '当前' },
+  { value: '30d', label: '近30天' },
+  { value: '3m', label: '近3个月' },
+  { value: '6m', label: '近半年' },
+  { value: '1y', label: '近一年' },
   { value: 'custom', label: '自定义' },
 ];
 
