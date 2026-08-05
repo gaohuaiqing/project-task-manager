@@ -193,7 +193,8 @@ export function DataTable<T extends object>({
         // 里程碑状态
         pending: 'bg-slate-100 text-slate-700',
         overdue: 'bg-red-100 text-red-700',
-        // 风险等级
+        // 风险等级 / 优先级
+        urgent: 'bg-purple-100 text-purple-700',
         high: 'bg-red-100 text-red-700',
         medium: 'bg-orange-100 text-orange-700',
         low: 'bg-green-100 text-green-700',
@@ -219,7 +220,8 @@ export function DataTable<T extends object>({
         // 里程碑状态
         pending: '待处理',
         overdue: '已逾期',
-        // 风险等级
+        // 风险等级 / 优先级
+        urgent: '紧急',
         high: '高',
         medium: '中',
         low: '低',

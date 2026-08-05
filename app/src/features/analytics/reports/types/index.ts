@@ -427,7 +427,38 @@ export interface DelayTaskItem {
   delayDays: number;
   delayType: DelayType;
   delayReason: string;
-  riskLevel: RiskLevel;
+  riskLevel?: RiskLevel;
+  // v2 交互增强：明细下钻用（可选）
+  taskType?: string;
+  projectId?: string;
+  assigneeId?: number;
+  // v2 修复：引用 WBS 表真实字段（明细 Dialog 用）
+  priority?: string;
+  progress?: number;
+  actualEndDate?: string | null;
+  status?: string;
+  // v2 修复：问题榜次数（K1/K2 metric 用）
+  delayCount?: number;
+  planChangeCount?: number;
+}
+
+/** 延期明细下钻查询参数（与后端 snake_case 对齐） */
+export interface DelayDetailQuery {
+  assignee_id?: number;
+  project_id?: string;
+  task_type?: string;
+  start_date?: string;
+  end_date?: string;
+  page?: number;
+  page_size?: number;
+}
+
+/** 延期明细下钻返回（items 已转 camelCase DelayTaskItem） */
+export interface DelayDetailResult {
+  items: DelayTaskItem[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface MemberDelayItem {

@@ -16,6 +16,7 @@ import type {
   ActivityTrendQueryOptions,
   ActivityTrendResponse,
 } from '@/types/api/analytics';
+import type { DelayDetailQuery, DelayDetailResult, DelayType } from '../types';
 
 // ==================== 类型定义 ====================
 
@@ -63,6 +64,54 @@ export async function getDelayAnalysisReport(
     `/analytics/reports/delay-analysis?${params.toString()}`
   );
   return response.data;
+}
+
+/**
+ * v2 交互增强：延期明细下钻（点击柱子查看该维度延期任务明细）
+ * 响应 snake_case → camelCase 内联转换（明细为独立小功能，不单独写 transformer）
+ */
+export async function getDelayDetailTasks(
+  options: DelayDetailQuery,
+  signal?: AbortSignal
+): Promise<DelayDetailResult> {
+  const params = new URLSearchParams();
+  if (options.assignee_id) params.set('assignee_id', String(options.assignee_id));
+  if (options.project_id) params.set('project_id', options.project_id);
+  if (options.task_type) params.set('task_type', options.task_type);
+  if (options.start_date) params.set('start_date', options.start_date);
+  if (options.end_date) params.set('end_date', options.end_date);
+  if (options.page) params.set('page', String(options.page));
+  if (options.page_size) params.set('page_size', String(options.page_size));
+
+  const response = await apiService.get<ApiResponse<any>>(
+    `/analytics/reports/delay-analysis/detail-tasks?${params.toString()}`,
+    { signal }
+  );
+  // 注意：apiService 响应拦截器已将 snake_case → camelCase，故 raw/字段均为 camelCase
+  const raw = (response.data || {}) as { items?: any[]; total?: number; page?: number; pageSize?: number };
+  return {
+    items: (raw.items || []).map((t: any) => ({
+      id: String(t.id ?? ''),
+      taskName: String(t.description ?? ''),
+      wbsCode: t.wbsCode || String(t.id ?? ''),
+      assigneeName: String(t.assigneeName ?? '未分配'),
+      assigneeId: t.assigneeId != null ? Number(t.assigneeId) : undefined,
+      projectName: String(t.projectName ?? '未分配'),
+      projectId: t.projectId != null ? String(t.projectId) : undefined,
+      taskType: t.taskType ?? undefined,
+      priority: t.priority ?? undefined,
+      progress: t.progress != null ? Number(t.progress) : undefined,
+      actualEndDate: t.actualEndDate ?? null,
+      status: t.status ?? undefined,
+      plannedEndDate: t.plannedEndDate || '',
+      delayDays: Number(t.delayDays) || 0,
+      delayType: (t.delayType ?? 'delayed') as DelayType,
+      delayReason: String(t.reason ?? '未填写'),
+    })),
+    total: Number(raw.total) || 0,
+    page: Number(raw.page) || 1,
+    pageSize: Number(raw.pageSize) || 20,
+  };
 }
 
 /**

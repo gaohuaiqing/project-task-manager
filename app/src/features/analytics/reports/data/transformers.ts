@@ -572,6 +572,8 @@ export function transformDelayAnalysisReport(
       delayType: mapDelayType(task.delayType),
       delayReason: task.reason,
       riskLevel: task.delayDays > DELAY_DAYS_RISK.high ? 'high' : task.delayDays > DELAY_DAYS_RISK.medium ? 'medium' : 'low',
+      delayCount: task.delayCount,
+      planChangeCount: task.planChangeCount,
     })),
     frequentChangeTasks: (report.frequentChangeTasks || []).map(task => ({
       id: task.id,
@@ -584,6 +586,8 @@ export function transformDelayAnalysisReport(
       delayType: mapDelayType(task.delayType),
       delayReason: task.reason,
       riskLevel: task.delayDays > DELAY_DAYS_RISK.high ? 'high' : task.delayDays > DELAY_DAYS_RISK.medium ? 'medium' : 'low',
+      delayCount: task.delayCount,
+      planChangeCount: task.planChangeCount,
     })),
     statsOverview,
     longestDelayTasks,

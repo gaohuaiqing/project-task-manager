@@ -4,7 +4,7 @@ import { AnalyticsService } from './service';
 import { ValidationError } from '../../core/errors';
 import { requirePermission, requireRole } from '../../core/middleware/permission-middleware';
 import type { User } from '../../core/types';
-import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig, ResourceEfficiencyQueryOptions, MemberAnalysisQueryOptions, ActivityTrendQueryOptions } from './types';
+import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig, ResourceEfficiencyQueryOptions, MemberAnalysisQueryOptions, ActivityTrendQueryOptions, DelayDetailQueryOptions } from './types';
 import { auditService } from '../../core/audit';
 import type { AuditCategory } from '../../core/types';
 
@@ -113,6 +113,27 @@ router.get('/reports/delay-analysis', requirePermission('REPORT_VIEW'), async (r
     };
     const report = await analyticsService.getDelayAnalysisReport(options, currentUser);
     res.json({ success: true, data: report });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// v2 交互增强：延期明细下钻（点击柱子查看该维度延期任务明细）
+router.get('/reports/delay-analysis/detail-tasks', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req)!;
+    const options: DelayDetailQueryOptions = {
+      assignee_id: req.query.assignee_id ? parseInt(req.query.assignee_id as string) : undefined,
+      project_id: req.query.project_id as string,
+      task_type: req.query.task_type as string,
+      delay_type: req.query.delay_type as DelayDetailQueryOptions['delay_type'],
+      start_date: req.query.start_date as string,
+      end_date: req.query.end_date as string,
+      page: req.query.page ? parseInt(req.query.page as string) : undefined,
+      page_size: req.query.page_size ? parseInt(req.query.page_size as string) : undefined,
+    };
+    const result = await analyticsService.getDelayDetailTasks(options, currentUser);
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }

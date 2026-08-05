@@ -17,7 +17,7 @@ import { useState } from 'react';
 import { ChartGroup } from '../components/shared';
 import { useDelayAnalysisData } from '../data';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import type { ReportFilters } from '../types';
+import type { ReportFilters, DelayDetailQuery } from '../types';
 import { TeamSection } from '../components/delay/TeamSection';
 import { StatsOverviewSection } from '../components/delay/StatsOverviewSection';
 import { MemberRankingSection } from '../components/delay/MemberRankingSection';
@@ -28,6 +28,7 @@ import { EstimationDeviationView } from '../components/delay/EstimationDeviation
 import { ReasonSection } from '../components/delay/ReasonSection';
 import { TrendSection } from '../components/delay/TrendSection';
 import { DelayDetailSection } from '../components/delay/DelayDetailSection';
+import { DelayTaskDetailDialog } from '../components/delay/DelayTaskDetailDialog';
 
 export interface DelayAnalysisTabProps {
   filters: ReportFilters;
@@ -43,6 +44,20 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
   const [selectedDeptId, setSelectedDeptId] = useState<number | null>(null);
   const [selectedDeptName, setSelectedDeptName] = useState<string | null>(null);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
+
+  // v2 交互增强：延期明细下钻弹窗（点击柱子触发，合并当前时间段筛选保证同口径）
+  const [detailDialog, setDetailDialog] = useState<{ open: boolean; title: string; filters: DelayDetailQuery }>({
+    open: false,
+    title: '',
+    filters: {},
+  });
+  const openDetail = (detailFilters: DelayDetailQuery, title: string) => {
+    setDetailDialog({
+      open: true,
+      title,
+      filters: { ...detailFilters, start_date: filters.startDate, end_date: filters.endDate },
+    });
+  };
 
   if (isLoading) {
     return (
@@ -72,6 +87,8 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
         data={data.memberRanking}
         selectedDeptName={selectedDeptName}
         selectedDeptId={selectedDeptId}
+        onDrillDown={openDetail}
+        onClearDept={() => handleSelectDept(null)}
       />
       <ProblemTaskSection
         repeatDelayTasks={data.repeatDelayTasks}
@@ -83,8 +100,8 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
       <StatsOverviewSection data={data.statsOverview} />
       <EstimationDeviationView data={data.estimationDeviation} />
       <ChartGroup>
-        <ProjectDelayView data={data.projectDelayStats} />
-        <TaskTypeDelayView data={data.taskTypeDelayStats} />
+        <ProjectDelayView data={data.projectDelayStats} onDrillDown={openDetail} />
+        <TaskTypeDelayView data={data.taskTypeDelayStats} onDrillDown={openDetail} />
       </ChartGroup>
       <ReasonSection reasonChart={data.delayReasonChart} matrix={data.reasonMemberMatrix} />
 
@@ -133,6 +150,14 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
           )}
         </div>
       )}
+
+      {/* v2 交互增强：延期明细下钻弹窗（点击成员/项目/类型柱子触发） */}
+      <DelayTaskDetailDialog
+        open={detailDialog.open}
+        onOpenChange={(open) => setDetailDialog((s) => ({ ...s, open }))}
+        title={detailDialog.title}
+        filters={detailDialog.filters}
+      />
     </div>
   );
 }

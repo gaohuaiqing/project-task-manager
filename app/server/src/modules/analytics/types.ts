@@ -367,6 +367,37 @@ export interface DelayedTaskItem {
   delay_days: number;
   reason: string;
   status: string;
+  // v2 交互增强：明细下钻用（可选；主报表 K1/K2/K3/delayed_tasks 列表不填）
+  task_type?: string;
+  project_id?: string;
+  assignee_id?: number;
+  // v2 修复：引用 WBS 表真实字段（明细 Dialog 用；priority 替代无数据源的 riskLevel）
+  priority?: string;
+  progress?: number;
+  actual_end_date?: string | null;
+  // v2 修复：问题榜次数（K1 反复延期/K2 频繁变更 metric 用）
+  delay_count?: number;
+  plan_change_count?: number;
+}
+
+/** 延期明细下钻查询参数（点击柱子查看该维度明细任务） */
+export interface DelayDetailQueryOptions {
+  assignee_id?: number;
+  project_id?: string;
+  task_type?: string;       // '未分类' 走特殊反向映射（task_type='' OR IS NULL）
+  delay_type?: 'delay_warning' | 'delayed' | 'overdue_completed';
+  start_date?: string;
+  end_date?: string;
+  page?: number;
+  page_size?: number;
+}
+
+/** 延期明细下钻返回 */
+export interface DelayDetailResult {
+  items: DelayedTaskItem[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface DelayReasonCount {

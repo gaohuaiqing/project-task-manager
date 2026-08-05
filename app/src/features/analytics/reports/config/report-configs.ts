@@ -14,7 +14,9 @@ import type {
   MemberDelayItem,
   MemberTaskItem,
   MemberEfficiencyItem,
+  TimeRange,
 } from '../types';
+import { format, subDays, subMonths, subYears } from 'date-fns';
 
 // ==================== 统计卡片配置 ====================
 
@@ -96,6 +98,24 @@ export const DELAY_TASK_COLUMNS: TableColumn[] = [
   { key: 'delayType', label: '延期类型', width: 100, sortable: true, type: 'enum' },
   { key: 'delayReason', label: '延期原因', width: 150 },
   { key: 'riskLevel', label: '风险等级', width: 80, sortable: true, type: 'enum' },
+];
+
+/**
+ * 延期明细下钻列（DelayTaskDetailDialog 用）—— 引用 WBS 表真实字段
+ * 相比 DELAY_TASK_COLUMNS：去掉无数据源的 riskLevel（wbs_tasks 无 risk_level），加 状态/优先级/进度
+ */
+export const DELAY_DETAIL_COLUMNS: TableColumn[] = [
+  { key: 'taskName', label: '任务名称', width: 200, sortable: true },
+  { key: 'wbsCode', label: 'WBS编码', width: 80, sortable: true },
+  { key: 'assigneeName', label: '负责人', width: 100, sortable: true },
+  { key: 'projectName', label: '所属项目', width: 120, sortable: true },
+  { key: 'plannedEndDate', label: '计划结束', width: 110, sortable: true, type: 'date' },
+  { key: 'status', label: '状态', width: 90, sortable: true, type: 'enum' },
+  { key: 'priority', label: '优先级', width: 80, sortable: true, type: 'enum' },
+  { key: 'progress', label: '进度', width: 100, sortable: true, type: 'progress' },
+  { key: 'delayDays', label: '延期天数', width: 80, sortable: true, type: 'number' },
+  { key: 'delayType', label: '延期类型', width: 100, sortable: true, type: 'enum' },
+  { key: 'delayReason', label: '延期原因', width: 150 },
 ];
 
 /**
@@ -208,6 +228,37 @@ export const TIME_RANGE_OPTIONS = [
   { value: '1y', label: '近一年' },
   { value: 'custom', label: '自定义' },
 ];
+
+/**
+ * 计算时间段预设对应的日期范围（单一源头：FilterBar 切换 + ReportsPage 初始共用）
+ * - current: 返回 { startDate: undefined, endDate: undefined }（实时快照，后端按当前状态查）
+ * - 30d/3m/6m/1y: end=今天，start=今天-N（29天/3个月/6个月/1年）
+ * - custom: 返回空对象（保留现有 startDate/endDate，由日历选择器覆盖）
+ */
+export function getPresetDateRange(value: TimeRange): { startDate?: string; endDate?: string } {
+  if (value === 'custom') {
+    return {};
+  }
+  if (value === 'current') {
+    return { startDate: undefined, endDate: undefined };
+  }
+
+  const today = new Date();
+  const todayStr = format(today, 'yyyy-MM-dd');
+
+  switch (value) {
+    case '30d':
+      return { startDate: format(subDays(today, 29), 'yyyy-MM-dd'), endDate: todayStr };
+    case '3m':
+      return { startDate: format(subMonths(today, 3), 'yyyy-MM-dd'), endDate: todayStr };
+    case '6m':
+      return { startDate: format(subMonths(today, 6), 'yyyy-MM-dd'), endDate: todayStr };
+    case '1y':
+      return { startDate: format(subYears(today, 1), 'yyyy-MM-dd'), endDate: todayStr };
+    default:
+      return {};
+  }
+}
 
 /** 延期类型选项 */
 export const DELAY_TYPE_OPTIONS = [

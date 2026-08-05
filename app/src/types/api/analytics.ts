@@ -321,6 +321,15 @@ export interface DelayedTaskItem {
   delayDays: number;
   reason: string;
   status: string;
+  // v2 交互增强：明细/次数（可选）
+  taskType?: string;
+  projectId?: string;
+  assigneeId?: number;
+  priority?: string;
+  progress?: number;
+  actualEndDate?: string | null;
+  delayCount?: number;
+  planChangeCount?: number;
 }
 
 export interface DelayReasonCount {

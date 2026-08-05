@@ -11,6 +11,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FilterBar } from './components/shared';
+import { getPresetDateRange } from './config';
 import { TIME_PERIODS, CACHE_TIMES } from '../shared/constants';
 import {
   ProjectProgressTab,
@@ -35,9 +36,11 @@ export function ReportsPage({ initialTab }: ReportsPageProps) {
   const location = useLocation();
   const queryClient = useQueryClient();
 
-  // 筛选条件状态
-  const [filters, setFilters] = useState<ReportFilters>({
-    timeRange: '30d',
+  // 筛选条件状态（初始默认"近30天"：timeRange + 同步计算好的 startDate/endDate，
+  // 确保首次请求即带时间参数；原先仅设 timeRange 未带日期，导致后端按"当前视角"处理）
+  const [filters, setFilters] = useState<ReportFilters>(() => {
+    const { startDate, endDate } = getPresetDateRange('30d');
+    return { timeRange: '30d', startDate, endDate };
   });
 
   // 获取项目和成员列表（用于筛选器）

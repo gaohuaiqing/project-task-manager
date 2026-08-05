@@ -26,6 +26,7 @@ import type {
   GroupActivityTrendPoint, MemberActivityTrendPoint, TodoTaskItem,
   ActivityTrendQueryOptions, ActivityTrendPoint, ActivityTrendEntity, ActivityTrendResponse,
   StatsOverview,
+  DelayDetailQueryOptions, DelayDetailResult,
 } from './types';
 import { buildTaskScopeFilter, buildProjectScopeFilter, buildUserDepartmentScopeFilter, ScopeFilter, getManagedDepartmentIds as getManagedDepartmentIdsSafe, getTechManagerGroupIds as getTechManagerGroupIdsSafe } from './query-builder';
 import { QUERY_LIMITS, TIME_INTERVALS, ACTIVITY_PERCENTAGES, STATUS_THRESHOLDS, ESTIMATION_THRESHOLDS, WBS_COMPLEXITY, DEFAULTS, STATUS_CONDITIONS, MUTEX_STATUS_CONDITIONS } from './constants';
@@ -1053,17 +1054,20 @@ export class AnalyticsRepository {
     );
     const teamAgg = (teamAggRows as RowDataPacket[])[0] || {};
 
-    // 个人层（人均 + 重灾区）
+    // 个人层（人均 + 重灾区）—— v2 需求1(b)：与 member_ranking 同口径（时间段内 end_date 任务）
+    const memberAggConds: string[] = [scopeFilter.clause, `(${DELAY_OR_OVERDUE})`];
+    const memberAggParams: (string | number)[] = [...scopeFilter.params];
+    if (sd && ed) { memberAggConds.push('t.end_date BETWEEN ? AND ?'); memberAggParams.push(sd, ed); }
     const [memberAggRows] = await pool.execute<RowDataPacket[]>(
       `SELECT t.assignee_id,
               IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS name,
               SUM(COALESCE(t.delay_count, 0)) AS delay_count
        FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
-       WHERE ${scopeFilter.clause} AND ${DELAY_OR_OVERDUE}
+       WHERE ${memberAggConds.join(' AND ')}
        GROUP BY t.assignee_id, u.real_name, u.username
        ORDER BY delay_count DESC`,
-      scopeFilter.params
+      memberAggParams
     );
     const memberAgg = memberAggRows as RowDataPacket[];
     const memberCount = Math.max(1, memberAgg.length);
@@ -1198,6 +1202,12 @@ export class AnalyticsRepository {
     if (options.project_id) {
       memberConds1.push('t.project_id = ?');
       memberParams1.push(options.project_id);
+    }
+    // v2 需求1(b)：时间段内统计（end_date 落入时间段的任务），使延期次数/计划变更排行响应时间段切换；
+    // 无时间段（当前视角）则全量，与历史行为一致。影响 member_ranking / delayed_member_stats / K1/K2/K3 任务榜
+    if (sd && ed) {
+      memberConds1.push('t.end_date BETWEEN ? AND ?');
+      memberParams1.push(sd, ed);
     }
     const [delayedMemberRows] = await pool.execute<RowDataPacket[]>(
       `SELECT t.assignee_id,
@@ -1556,11 +1566,13 @@ export class AnalyticsRepository {
       delay_days: Number(r.delay_days) || 0,
       reason: String(r.reason ?? '未填写'),
       status: String(r.status ?? ''),
+      delay_count: r.delay_count != null ? Number(r.delay_count) : undefined,
+      plan_change_count: r.plan_change_count != null ? Number(r.plan_change_count) : undefined,
     });
 
     // K1：反复延期任务榜（按 delay_count 降序，v2 含已完成口径）
     const [repeatRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, t.project_id, t.sort_order, t.created_at,
+      `SELECT t.id, t.description, t.project_id, t.delay_count, t.plan_change_count, t.sort_order, t.created_at,
               p.name AS project_name, u.real_name AS assignee_name,
               ${delayTypeCase} AS delay_type, t.end_date AS planned_end_date,
               ${delayDaysCase} AS delay_days,
@@ -1576,7 +1588,7 @@ export class AnalyticsRepository {
 
     // K2：频繁变更任务榜（按 plan_change_count 降序，v2 含已完成口径）
     const [changeRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, t.project_id, t.sort_order, t.created_at,
+      `SELECT t.id, t.description, t.project_id, t.delay_count, t.plan_change_count, t.sort_order, t.created_at,
               p.name AS project_name, u.real_name AS assignee_name,
               ${delayTypeCase} AS delay_type, t.end_date AS planned_end_date,
               ${delayDaysCase} AS delay_days,
@@ -1592,7 +1604,7 @@ export class AnalyticsRepository {
 
     // K3：超长延期天数榜（按 delay_days 降序，v2 新增，含已完成）
     const [longestRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, t.project_id, t.sort_order, t.created_at,
+      `SELECT t.id, t.description, t.project_id, t.delay_count, t.plan_change_count, t.sort_order, t.created_at,
               p.name AS project_name, u.real_name AS assignee_name,
               ${delayTypeCase} AS delay_type, t.end_date AS planned_end_date,
               ${delayDaysCase} AS delay_days,
@@ -1641,6 +1653,95 @@ export class AnalyticsRepository {
       stats_overview,
       longest_delay_tasks,
     };
+  }
+
+  /**
+   * 延期明细下钻：点击柱子查看该维度（成员/项目/任务类型）的延期任务明细
+   * 口径与 getDelayAnalysisReport 完全一致（DELAY_OR_OVERDUE + buildTaskScopeFilter），
+   * 常量/映射独立定义以避免改动已验证的核心方法。
+   */
+  async getDelayDetailTasks(options: DelayDetailQueryOptions, user: User): Promise<DelayDetailResult> {
+    const pool = getPool();
+    const scopeFilter = await buildTaskScopeFilter(user, 't', true);
+
+    // 口径常量（与 getDelayAnalysisReport 保持一致；独立定义以隔离核心方法）
+    const NOT_PENDING_APPROVAL = `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change')`;
+    const DELAY_OR_OVERDUE = `(${NOT_PENDING_APPROVAL} AND t.end_date IS NOT NULL AND ` +
+      `((t.actual_end_date IS NULL AND t.end_date < CURDATE()) OR ` +
+      `(t.actual_end_date IS NOT NULL AND t.actual_end_date > t.end_date)))`;
+    const delayTypeCase = `CASE WHEN ${NOT_PENDING_APPROVAL} AND t.actual_end_date IS NOT NULL AND t.end_date IS NOT NULL AND t.actual_end_date > t.end_date THEN 'overdue_completed' WHEN ${NOT_PENDING_APPROVAL} AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date < CURDATE() THEN 'delayed' ELSE NULL END`;
+    const delayDaysCase = `CASE WHEN t.end_date IS NULL THEN 0 WHEN t.actual_end_date IS NULL AND t.end_date < CURDATE() THEN GREATEST(0, DATEDIFF(CURDATE(), t.end_date)) WHEN t.actual_end_date IS NOT NULL AND t.actual_end_date > t.end_date THEN GREATEST(0, DATEDIFF(t.actual_end_date, t.end_date)) ELSE 0 END`;
+
+    // 维度条件 + 时间段
+    const conds: string[] = [scopeFilter.clause, `(${DELAY_OR_OVERDUE})`];
+    const params: (string | number)[] = [...scopeFilter.params];
+    if (options.assignee_id) { conds.push('t.assignee_id = ?'); params.push(options.assignee_id); }
+    if (options.project_id) { conds.push('t.project_id = ?'); params.push(options.project_id); }
+    if (options.task_type) {
+      // '未分类' 反向映射：报表显示 COALESCE(NULLIF(task_type,''),'未分类')，DB 无 '未分类' 字面量
+      if (options.task_type === '未分类') {
+        conds.push("(t.task_type = '' OR t.task_type IS NULL)");
+      } else {
+        conds.push('t.task_type = ?'); params.push(options.task_type);
+      }
+    }
+    if (options.start_date && options.end_date) {
+      conds.push('t.end_date BETWEEN ? AND ?'); params.push(options.start_date, options.end_date);
+    }
+    const whereClause = `WHERE ${conds.join(' AND ')}`;
+
+    // 总数
+    const [countRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS cnt FROM wbs_tasks t JOIN projects p ON t.project_id = p.id ${whereClause}`,
+      params
+    );
+    const total = Number((countRows as RowDataPacket[])[0]?.cnt) || 0;
+
+    // 分页（数字 clamp 后安全拼接，避免 mysql2 prepared LIMIT ? 限制）
+    const page = Math.max(1, Number(options.page) || 1);
+    const pageSize = Math.max(1, Math.min(100, Number(options.page_size) || 20));
+    const offset = (page - 1) * pageSize;
+
+    // 明细列表
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.id, t.description, t.project_id, t.assignee_id, t.task_type, t.priority, t.progress, t.actual_end_date, t.sort_order, t.created_at,
+              p.name AS project_name, u.real_name AS assignee_name,
+              ${delayTypeCase} AS delay_type, t.end_date AS planned_end_date,
+              ${delayDaysCase} AS delay_days,
+              COALESCE((SELECT dr2.reason FROM delay_records dr2 WHERE dr2.task_id = t.id ORDER BY dr2.created_at DESC LIMIT 1), '未填写') AS reason,
+              t.status
+       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id LEFT JOIN users u ON t.assignee_id = u.id
+       ${whereClause}
+       ORDER BY t.sort_order ASC, t.created_at ASC
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params
+    );
+
+    const wbsMap = await this.getWbsCodeMap(user);
+    const items: DelayedTaskItem[] = (rows as RowDataPacket[]).map(r => ({
+      id: String(r.id),
+      description: sanitizeString(String(r.description ?? '')),
+      wbs_code: wbsMap.get(String(r.id)) ?? null,
+      project_name: String(r.project_name ?? '未分配'),
+      project_id: r.project_id != null ? String(r.project_id) : undefined,
+      assignee_name: String(r.assignee_name ?? '未分配'),
+      assignee_id: r.assignee_id != null ? Number(r.assignee_id) : undefined,
+      task_type: r.task_type != null && r.task_type !== '' ? String(r.task_type) : undefined,
+      priority: r.priority != null ? String(r.priority) : undefined,
+      progress: r.progress != null ? Number(r.progress) : undefined,
+      actual_end_date: r.actual_end_date instanceof Date
+        ? r.actual_end_date.toISOString().split('T')[0]
+        : (r.actual_end_date ? String(r.actual_end_date) : null),
+      delay_type: String(r.delay_type ?? 'delayed'),
+      planned_end_date: r.planned_end_date instanceof Date
+        ? r.planned_end_date.toISOString().split('T')[0]
+        : (r.planned_end_date ? String(r.planned_end_date) : null),
+      delay_days: Number(r.delay_days) || 0,
+      reason: String(r.reason ?? '未填写'),
+      status: String(r.status ?? ''),
+    }));
+
+    return { items, total, page, page_size: pageSize };
   }
 
   // ========== 成员分析报表 ==========

@@ -4,6 +4,7 @@ import { WorkflowService } from './service';
 import { ValidationError } from '../../core/errors';
 import type { User } from '../../core/types';
 import type { CreatePlanChangeRequest, ApprovalDecisionRequest, CreateDelayRecordRequest, ApprovalItemsQueryOptions } from './types';
+import { checkTaskAccess } from '../task/access-control';
 
 const router = Router();
 
@@ -185,6 +186,16 @@ router.post('/approval-items/:submissionId/reject', async (req: Request, res: Re
 // 获取延期记录
 router.get('/tasks/:id/delays', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const currentUser = requireUser(req);
+    // 数据隔离：与 /tasks/:id/plan-changes 一致的 4 步权限校验
+    const { taskService } = await import('../task/service');
+    const task = await taskService.getTaskById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '任务不存在' } });
+    }
+    if (!await checkTaskAccess(currentUser, task)) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权访问此任务' } });
+    }
     const records = await workflowService.getDelayRecords(req.params.id);
     res.json({ success: true, data: records });
   } catch (error) {

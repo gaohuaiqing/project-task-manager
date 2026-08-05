@@ -113,6 +113,7 @@ export const queryKeys = {
     projectProgressReport: (projectId?: string) => ['analytics', 'reports', 'project-progress', projectId] as const,
     taskStatisticsReport: (filters: object) => ['analytics', 'reports', 'task-statistics', filters] as const,
     delayAnalysisReport: (filters: object) => ['analytics', 'reports', 'delay-analysis', filters] as const,
+    delayDetailTasks: (filters: object) => ['analytics', 'reports', 'delay-detail-tasks', filters] as const,
     memberAnalysisReport: (memberId?: number) => ['analytics', 'reports', 'member-analysis', memberId] as const,
     resourceEfficiencyReport: (filters: object) => ['analytics', 'reports', 'resource-efficiency', filters] as const,
     reportTrend: (params: object) => ['analytics', 'reports', 'trend', params] as const,

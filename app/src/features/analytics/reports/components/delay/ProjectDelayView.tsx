@@ -4,10 +4,12 @@
  */
 import { BarChart } from '../charts';
 import { ChartContainer } from '../shared';
-import type { ProjectDelayData } from '../../types';
+import type { ProjectDelayData, DelayDetailQuery } from '../../types';
 
 export interface ProjectDelayViewProps {
   data: ProjectDelayData[];
+  /** v2 交互增强：点击项目柱子下钻该项目延期任务明细 */
+  onDrillDown?: (filters: DelayDetailQuery, title: string) => void;
 }
 
 /** 改善方向徽章：箭头 + 颜色 + delta 值（与 DeptComparisonView 共用同款样式） */
@@ -51,7 +53,7 @@ function ImprovementBadge({
   );
 }
 
-export function ProjectDelayView({ data }: ProjectDelayViewProps) {
+export function ProjectDelayView({ data, onDrillDown }: ProjectDelayViewProps) {
   if (!data || data.length === 0) {
     return (
       <ChartContainer title="项目延期排名" subtitle="Top 10">
@@ -68,7 +70,16 @@ export function ProjectDelayView({ data }: ProjectDelayViewProps) {
   };
   return (
     <ChartContainer title="项目延期排名" subtitle="延期数 + 延期率 Top 10，含改善方向">
-      <BarChart data={chartData} layout="vertical" height={280} yAxisLabel="项目" />
+      <BarChart
+        data={chartData}
+        layout="vertical"
+        height={280}
+        yAxisLabel="项目"
+        onBarClick={onDrillDown ? ({ index }) => {
+          const p = data[index];
+          if (p) onDrillDown({ project_id: p.projectId }, `项目 ${p.projectName} 的延期任务`);
+        } : undefined}
+      />
       <div className="mt-4 overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="bg-muted/50">

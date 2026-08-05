@@ -17,44 +17,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { RefreshCw, Download, CalendarIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format, subDays, subMonths, subYears } from 'date-fns';
+import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { useTaskTypeOptions } from '@/features/org/hooks/useOrg';
 import type { ReportFilters, TimeRange, ReportType, DelayType } from '../../types';
-import { TIME_RANGE_OPTIONS, DELAY_TYPE_OPTIONS, TASK_TYPE_OPTIONS as DEFAULT_TASK_TYPE_OPTIONS } from '../../config';
+import { TIME_RANGE_OPTIONS, DELAY_TYPE_OPTIONS, TASK_TYPE_OPTIONS as DEFAULT_TASK_TYPE_OPTIONS, getPresetDateRange } from '../../config';
 
-/**
- * 计算时间段预设对应的日期范围
- * - current: 返回 { start: undefined, end: undefined }（实时快照，由后端按当前状态查）
- * - 30d/3m/6m/1y: end=今天，start=今天-N
- * - custom: 返回空对象（保留现有 startDate/endDate，由日历选择器覆盖）
- */
-function getPresetDateRange(value: TimeRange): { startDate?: string; endDate?: string } {
-  if (value === 'custom') {
-    // 自定义模式：不动 startDate/endDate，由日历选择器单独设置
-    return {};
-  }
-  if (value === 'current') {
-    // 当前实时快照：清空时间范围，后端走 DELAY_OR_OVERDUE 当前口径
-    return { startDate: undefined, endDate: undefined };
-  }
-
-  const today = new Date();
-  const todayStr = format(today, 'yyyy-MM-dd');
-
-  switch (value) {
-    case '30d':
-      return { startDate: format(subDays(today, 29), 'yyyy-MM-dd'), endDate: todayStr };
-    case '3m':
-      return { startDate: format(subMonths(today, 3), 'yyyy-MM-dd'), endDate: todayStr };
-    case '6m':
-      return { startDate: format(subMonths(today, 6), 'yyyy-MM-dd'), endDate: todayStr };
-    case '1y':
-      return { startDate: format(subYears(today, 1), 'yyyy-MM-dd'), endDate: todayStr };
-    default:
-      return {};
-  }
-}
+// getPresetDateRange 已提取至 config/report-configs.ts（FilterBar 与 ReportsPage 共用单一源头）
 
 /** 预估准确性范围选项 */
 const ESTIMATION_ACCURACY_OPTIONS = [

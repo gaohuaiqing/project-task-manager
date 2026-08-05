@@ -33,6 +33,8 @@ export interface BarChartProps {
   showXAxis?: boolean;
   /** 是否在柱上显示数值标签，默认 false（不影响现有调用） */
   showValues?: boolean;
+  /** v2 交互增强：点击柱子回调（传 label + index，调用方按 index 反查原数据对象） */
+  onBarClick?: (item: { label: string; index: number }) => void;
 }
 
 const COLORS = [
@@ -54,6 +56,7 @@ export function BarChart({
   maxBarSize = 32,
   showXAxis = true,
   showValues = false,
+  onBarClick,
 }: BarChartProps) {
   // 安全数据处理
   const safeData = data || { labels: [], datasets: [] };
@@ -144,6 +147,7 @@ export function BarChart({
             tickSize={4}
             axisLine={{ stroke: AXIS_STROKE, strokeWidth: 1 }}
             width={90}
+            interval={0}
           />
         ) : (
           <YAxis
@@ -179,6 +183,8 @@ export function BarChart({
               stackId={stacked ? 'stack' : undefined}
               radius={stacked ? undefined : [4, 4, 0, 0]}
               maxBarSize={maxBarSize}
+              onClick={(data: any, idx: number) => onBarClick?.({ label: String(data?.payload?.name ?? ''), index: Number(idx) })}
+              cursor={onBarClick ? 'pointer' : 'default'}
             >
               {Array.isArray(dataset.color) &&
                 dataset.color.map((color, cellIndex) => (
