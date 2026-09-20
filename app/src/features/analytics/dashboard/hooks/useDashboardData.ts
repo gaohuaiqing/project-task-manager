@@ -139,6 +139,7 @@ function mapStatusDistribution(
   const statusNames: Record<string, string> = {
     pending_approval: '待审批',
     not_started: '未开始',
+    overdue_start: '逾期未开始',
     in_progress: '进行中',
     early_completed: '提前完成',
     on_time_completed: '按时完成',
@@ -188,6 +189,14 @@ function transformAdminData(
       trendText: trendMap.overdue?.trend?.direction === 'flat' ? undefined
         : `${trendMap.overdue?.trend?.direction === 'up' ? '↑' : '↓'}${Math.abs(trendMap.overdue?.trend?.changePercent || 0)}% vs 上周`,
       color: 'danger' as const,
+      actionLabel: '查看详情',
+      actionPath: '/reports/delay-analysis',
+    },
+    {
+      type: 'overdue_start' as const,
+      count: stats.overdueStartTasks || 0,
+      label: '逾期未开始',
+      color: 'warning' as const,
       actionLabel: '查看详情',
       actionPath: '/reports/delay-analysis',
     },
@@ -252,6 +261,7 @@ function transformDeptManagerData(
   const alerts = [
     { type: 'delay_warning' as const, count: stats.delayWarningTasks || 0, label: '延期预警', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/reports/delay-analysis' },
     { type: 'overdue' as const, count: stats.overdueTasks || 0, label: '已延期', color: 'danger' as const, actionLabel: '查看详情', actionPath: '/reports/delay-analysis' },
+    { type: 'overdue_start' as const, count: stats.overdueStartTasks || 0, label: '逾期未开始', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/reports/delay-analysis' },
     { type: 'pending_approval' as const, count: stats.pendingApprovalTasks || 0, label: '待我审批', color: 'info' as const, actionLabel: '立即审批', actionPath: '/settings/approvals' },
   ];
 
@@ -315,6 +325,7 @@ function transformTechManagerData(
   const alerts = [
     { type: 'delay_warning' as const, count: stats.delayWarningTasks || 0, label: '延期预警', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/reports/delay-analysis' },
     { type: 'overdue' as const, count: stats.overdueTasks || 0, label: '已延期', color: 'danger' as const, actionLabel: '查看详情', actionPath: '/reports/delay-analysis' },
+    { type: 'overdue_start' as const, count: stats.overdueStartTasks || 0, label: '逾期未开始', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/reports/delay-analysis' },
     { type: 'pending_approval' as const, count: stats.pendingApprovalTasks || 0, label: '待我审批', color: 'info' as const, actionLabel: '立即审批', actionPath: '/settings/approvals' },
   ];
 
@@ -364,6 +375,7 @@ function transformEngineerData(
   return {
     alerts: [
       { type: 'overdue' as const, count: stats.overdueTasks || 0, label: '逾期任务', color: 'danger' as const, actionLabel: '查看详情', actionPath: '/tasks' },
+      { type: 'overdue_start' as const, count: stats.overdueStartTasks || 0, label: '逾期未开始', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/reports/delay-analysis' },
       { type: 'delay_warning' as const, count: stats.delayWarningTasks || 0, label: '即将到期', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/tasks' },
       { type: 'week_due' as const, count: stats.weekDueTasks || 0, label: '本周到期', color: 'info' as const, actionLabel: '查看详情', actionPath: '/tasks' },
     ],

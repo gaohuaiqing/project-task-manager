@@ -28,6 +28,7 @@ export interface AlertCardsRowProps {
 const ALERT_ICONS: Record<string, React.ReactNode> = {
   delay_warning: <Clock className="h-4 w-4" />,
   overdue: <AlertTriangle className="h-4 w-4" />,
+  overdue_start: <Clock className="h-4 w-4" />,
   pending_approval: <AlertCircle className="h-4 w-4" />,
   high_risk: <AlertTriangle className="h-4 w-4" />,
   today_due: <Clock className="h-4 w-4" />,

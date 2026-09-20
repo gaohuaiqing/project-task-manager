@@ -9,7 +9,7 @@ import type { StatsCardMetric, TrendDataPoint, PieChartDataItem } from '../share
 /**
  * 预警类型
  */
-export type AlertType = 'delay_warning' | 'overdue' | 'pending_approval' | 'high_risk' | 'week_due';
+export type AlertType = 'delay_warning' | 'overdue' | 'overdue_start' | 'pending_approval' | 'high_risk' | 'week_due';
 
 /**
  * 预警数据

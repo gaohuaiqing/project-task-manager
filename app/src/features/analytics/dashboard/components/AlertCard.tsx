@@ -28,6 +28,7 @@ export interface AlertCardProps {
 const ALERT_ICONS: Record<AlertType, React.ReactNode> = {
   delay_warning: <AlertTriangle className="w-4 h-4" />,
   overdue: <AlertCircle className="w-4 h-4" />,
+  overdue_start: <Clock className="w-4 h-4" />,
   pending_approval: <FileCheck className="w-4 h-4" />,
   high_risk: <AlertTriangle className="w-4 h-4" />,
   today_due: <Clock className="w-4 h-4" />,
@@ -76,6 +77,7 @@ export function AlertCard({ alert, className, onClick, onActionClick }: AlertCar
   const ALERT_TESTID_MAP: Record<AlertType, string> = {
     delay_warning: 'dashboard-card-alert-delay-warning',
     overdue: 'dashboard-card-alert-overdue',
+    overdue_start: 'dashboard-card-alert-overdue-start',
     pending_approval: 'dashboard-card-alert-pending-approval',
     high_risk: 'dashboard-card-alert-high-risk',
     today_due: 'dashboard-card-alert-today-due',
