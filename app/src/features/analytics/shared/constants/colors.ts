@@ -10,6 +10,7 @@
 /** 任务状态颜色映射 */
 export const STATUS_COLORS: Record<string, string> = {
   not_started: '#94A3B8',       // 灰色
+  overdue_start: '#EA580C',     // 深橙 (orange-600)
   in_progress: '#2563EB',       // 蓝色
   delay_warning: '#D97706',     // 黄色
   delayed: '#DC2626',           // 红色

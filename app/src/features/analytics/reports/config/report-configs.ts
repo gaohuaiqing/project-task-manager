@@ -190,6 +190,7 @@ export const CHART_COLORS = {
   // 任务状态颜色 — 与 shared/constants/colors.ts STATUS_COLORS 一致
   status: {
     not_started: '#94A3B8',
+    overdue_start: '#EA580C',
     in_progress: '#2563EB',
     completed: '#059669',
     delayed: '#DC2626',

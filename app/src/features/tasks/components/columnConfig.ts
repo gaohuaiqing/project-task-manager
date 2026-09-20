@@ -11,10 +11,11 @@
  * 21. 项目编码 22. 项目名称 23. 延期次数 24. 计划调整 25. 进展记录
  */
 
-/** 任务状态类型 - 8种状态 */
+/** 任务状态类型 - 9种状态 */
 export type TaskStatus =
   | 'pending_approval'  // 待审批 - 紫色
   | 'not_started'       // 未开始 - 灰色
+  | 'overdue_start'     // 逾期未开始 - 深橙色
   | 'in_progress'       // 进行中 - 蓝色
   | 'early_completed'   // 提前完成 - 绿色
   | 'on_time_completed' // 按时完成 - 青色
@@ -62,6 +63,7 @@ export type ColumnDataType =
 export const STATUS_COLORS: Record<TaskStatus, { bg: string; text: string; label: string }> = {
   pending_approval: { bg: 'bg-purple-100', text: 'text-purple-700', label: '待审批' },
   not_started: { bg: 'bg-gray-100', text: 'text-gray-600', label: '未开始' },
+  overdue_start: { bg: 'bg-orange-100', text: 'text-orange-700', label: '逾期未开始' },
   in_progress: { bg: 'bg-blue-100', text: 'text-blue-700', label: '进行中' },
   early_completed: { bg: 'bg-green-100', text: 'text-green-700', label: '提前完成' },
   on_time_completed: { bg: 'bg-cyan-100', text: 'text-cyan-700', label: '按时完成' },

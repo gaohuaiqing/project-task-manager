@@ -25,6 +25,7 @@ export interface DataScope {
 /** 任务状态枚举 */
 export type TaskStatus =
   | 'not_started'
+  | 'overdue_start'
   | 'in_progress'
   | 'delay_warning'
   | 'delayed'

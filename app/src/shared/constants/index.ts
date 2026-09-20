@@ -3,11 +3,12 @@
  * 与后端类型保持同步
  */
 
-// ==================== 任务状态 (8种) ====================
+// ==================== 任务状态 (9种) ====================
 
 export type TaskStatus =
   | 'pending_approval'   // 待审批
   | 'not_started'        // 未开始
+  | 'overdue_start'      // 逾期未开始
   | 'in_progress'        // 进行中
   | 'early_completed'    // 提前完成
   | 'on_time_completed'  // 按时完成
@@ -32,6 +33,12 @@ export const TASK_STATUS_CONFIG: Record<TaskStatus, {
     color: 'gray',
     bgColor: 'bg-gray-100',
     textColor: 'text-gray-700',
+  },
+  overdue_start: {
+    label: '逾期未开始',
+    color: 'orange',
+    bgColor: 'bg-orange-100',
+    textColor: 'text-orange-700',
   },
   in_progress: {
     label: '进行中',
@@ -74,6 +81,7 @@ export const TASK_STATUS_CONFIG: Record<TaskStatus, {
 export const TASK_STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: 'pending_approval', label: '待审批' },
   { value: 'not_started', label: '未开始' },
+  { value: 'overdue_start', label: '逾期未开始' },
   { value: 'in_progress', label: '进行中' },
   { value: 'early_completed', label: '提前完成' },
   { value: 'on_time_completed', label: '按时完成' },

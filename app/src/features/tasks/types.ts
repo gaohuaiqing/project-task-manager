@@ -5,10 +5,11 @@
 
 // ============ 枚举类型 ============
 
-/** 任务状态 - 8种完整状态 */
+/** 任务状态 - 9种完整状态 */
 export type TaskStatus =
   | 'pending_approval'   // 待审批
   | 'not_started'        // 未开始
+  | 'overdue_start'      // 逾期未开始
   | 'in_progress'        // 进行中
   | 'early_completed'    // 提前完成
   | 'on_time_completed'  // 按时完成
@@ -50,6 +51,7 @@ export type TimeStatus = 'normal' | 'warning' | 'delayed' | 'not_applicable';
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending_approval: '待审批',
   not_started: '未开始',
+  overdue_start: '逾期未开始',
   in_progress: '进行中',
   early_completed: '提前完成',
   on_time_completed: '按时完成',

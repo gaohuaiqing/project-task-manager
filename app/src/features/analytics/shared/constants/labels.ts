@@ -11,6 +11,7 @@
 export const STATUS_LABELS: Record<string, string> = {
   pending_approval: '待审批',
   not_started: '未开始',
+  overdue_start: '逾期未开始',
   in_progress: '进行中',
   completed: '已完成',
   early_completed: '提前完成',

@@ -36,6 +36,7 @@ export type RiskLevel = 'high' | 'medium' | 'low';
 export type TaskStatus =
   | 'pending_approval'
   | 'not_started'
+  | 'overdue_start'
   | 'in_progress'
   | 'early_completed'
   | 'on_time_completed'

@@ -445,7 +445,8 @@ export interface DashboardStats {
   // 任务统计（按状态细分，互斥状态集）
   totalTasks: number;
   pendingApprovalTasks: number;  // pending_approval - 待审批
-  pendingTasks: number;          // not_started - 未开始
+  pendingTasks: number;          // not_started + overdue_start - 待处理（合计口径）
+  overdueStartTasks: number;     // overdue_start - 逾期未开始
   inProgressTasks: number;       // in_progress - 进行中
   completedTasks: number;        // completed - 已完成
   delayWarningTasks: number;     // delay_warning - 延期预警
