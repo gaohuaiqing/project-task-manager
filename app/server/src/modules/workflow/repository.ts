@@ -7,6 +7,18 @@ interface PlanChangeRow extends RowDataPacket, PlanChange {}
 interface DelayRecordRow extends RowDataPacket, DelayRecord {}
 interface NotificationRow extends RowDataPacket, Notification {}
 
+/** 状态严重度：pending > timeout > rejected > approved（submission 级聚合状态口径，列表/详情共用） */
+const STATUS_PRIORITY: Record<string, number> = {
+  pending: 4, timeout: 3, rejected: 2, approved: 1,
+};
+
+/** 分页参数规范化：page ≥ 1，pageSize ∈ [1, 100]，防 NaN/负数穿透到 SQL 导致语法错误 */
+function normalizePagination(page?: number, pageSize?: number): { page: number; pageSize: number } {
+  const p = Number.isFinite(page) && (page as number) >= 1 ? Math.floor(page as number) : 1;
+  const rawSize = Number.isFinite(pageSize) && (pageSize as number) >= 1 ? Math.floor(pageSize as number) : 20;
+  return { page: p, pageSize: Math.min(rawSize, 100) };
+}
+
 export class WorkflowRepository {
   // ========== 计划变更/审批 ==========
 
@@ -51,8 +63,7 @@ export class WorkflowRepository {
     const total = countRows[0].total;
 
     // Data
-    const page = options?.page || 1;
-    const pageSize = options?.pageSize || 20;
+    const { page, pageSize } = normalizePagination(options?.page, options?.pageSize);
     const offset = (page - 1) * pageSize;
 
     // 使用 query 而不是 execute，因为 LIMIT 和 OFFSET 不支持参数化
@@ -196,8 +207,7 @@ export class WorkflowRepository {
     const total = countRows[0].total;
 
     // 2. 获取分页后的 submission_ids
-    const page = options?.page || 1;
-    const pageSize = options?.pageSize || 20;
+    const { page, pageSize } = normalizePagination(options?.page, options?.pageSize);
     const offset = (page - 1) * pageSize;
 
     const [submissionRows] = await pool.query<RowDataPacket[]>(
@@ -222,11 +232,16 @@ export class WorkflowRepository {
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT pc.*,
               t.description as task_description,
+              t.parent_id,
+              parent.description as parent_task_description,
+              parent.start_date as parent_start_date,
+              parent.end_date as parent_end_date,
               p.name as project_name,
               u.real_name as user_name,
               a.real_name as approver_name
        FROM plan_changes pc
        LEFT JOIN wbs_tasks t ON pc.task_id = t.id
+       LEFT JOIN wbs_tasks parent ON t.parent_id = parent.id
        LEFT JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON pc.user_id = u.id
        LEFT JOIN users a ON pc.approver_id = a.id
@@ -245,6 +260,10 @@ export class WorkflowRepository {
           submissionId,
           taskId: row.task_id,
           taskDescription: row.task_description || '',
+          parentId: row.parent_id || null,
+          parentTaskDescription: row.parent_task_description || null,
+          parentStartDate: row.parent_start_date || null,
+          parentEndDate: row.parent_end_date || null,
           projectName: row.project_name || '',
           userId: row.user_id,
           userName: row.user_name || '',
@@ -267,11 +286,8 @@ export class WorkflowRepository {
         new_value: row.new_value,
       });
 
-      // 更新状态为最严重的（pending > timeout > rejected > approved）
-      const statusPriority: Record<string, number> = {
-        pending: 4, timeout: 3, rejected: 2, approved: 1,
-      };
-      if (statusPriority[row.status] > statusPriority[item.status]) {
+      // 更新状态为最严重的（与详情接口共用 STATUS_PRIORITY 口径）
+      if ((STATUS_PRIORITY[row.status] ?? 0) > (STATUS_PRIORITY[item.status] ?? 0)) {
         item.status = row.status;
       }
     }
@@ -331,11 +347,16 @@ export class WorkflowRepository {
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT pc.*,
               t.description as task_description,
+              t.parent_id,
+              parent.description as parent_task_description,
+              parent.start_date as parent_start_date,
+              parent.end_date as parent_end_date,
               p.name as project_name,
               u.real_name as user_name,
               a.real_name as approver_name
        FROM plan_changes pc
        LEFT JOIN wbs_tasks t ON pc.task_id = t.id
+       LEFT JOIN wbs_tasks parent ON t.parent_id = parent.id
        LEFT JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON pc.user_id = u.id
        LEFT JOIN users a ON pc.approver_id = a.id
@@ -349,15 +370,27 @@ export class WorkflowRepository {
     }
 
     const firstRow = rows[0];
+    // 聚合状态：与列表接口口径一致（取最严重状态）
+    // 避免混合状态下详情显示"已处理"而列表显示"待审批"，导致剩余 pending 记录无法操作
+    let status: ApprovalStatus = firstRow.status;
+    for (const r of rows) {
+      if ((STATUS_PRIORITY[r.status] ?? 0) > (STATUS_PRIORITY[status] ?? 0)) {
+        status = r.status;
+      }
+    }
     return {
       submissionId: firstRow.submission_id,
       taskId: firstRow.task_id,
       taskDescription: firstRow.task_description || '',
+      parentId: firstRow.parent_id || null,
+      parentTaskDescription: firstRow.parent_task_description || null,
+      parentStartDate: firstRow.parent_start_date || null,
+      parentEndDate: firstRow.parent_end_date || null,
       projectName: firstRow.project_name || '',
       userId: firstRow.user_id,
       userName: firstRow.user_name || '',
       reason: firstRow.reason,
-      status: firstRow.status,
+      status,
       approverId: firstRow.approver_id,
       approverName: firstRow.approver_name,
       approvedAt: firstRow.approved_at,
@@ -373,28 +406,13 @@ export class WorkflowRepository {
   }
 
   /**
-   * 获取用户待审批的计划变更列表（基于审批链）
-   *
-   * 简化审批链规则：
-   * 1. 找到申请人所在部门的直接经理（第1级主管）
-   * 2. 如果没有直接经理，向上查找父部门的经理（第2级主管）
-   * 3. 继续向上直到找到有经理的部门
-   * 4. admin 作为最终兜底
+   * 获取所有待审批的计划变更（审批链过滤由 service 层统一负责）
+   * 审批人口径必须与 canApprove 一致（orgService.findApprover），
+   * 避免列表显示可审批但实际操作被 403 拒绝的口径不一致问题
    */
-  async getPendingApprovalsForUser(userId: number): Promise<PlanChange[]> {
+  async getAllPendingPlanChanges(): Promise<PlanChange[]> {
     const pool = getPool();
-
-    // 获取当前用户信息
-    const [userRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT id, role, department_id FROM users WHERE id = ?`,
-      [userId]
-    );
-    if (userRows.length === 0) return [];
-
-    const user = userRows[0] as { id: number; role: string; department_id: number | null };
-
-    // 获取所有待审批的变更
-    const [allPending] = await pool.execute<PlanChangeRow[]>(
+    const [rows] = await pool.execute<PlanChangeRow[]>(
       `SELECT pc.*,
               t.description as task_description,
               p.name as project_name,
@@ -407,114 +425,7 @@ export class WorkflowRepository {
        ORDER BY pc.created_at ASC`,
       []
     );
-
-    // 筛选当前用户需要审批的变更
-    const result: PlanChange[] = [];
-    for (const change of allPending) {
-      const needsApproval = await this.checkIfUserNeedsToApproveSimple(pool, user, change.user_id);
-      if (needsApproval) {
-        result.push(change);
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * 简化的审批检查逻辑
-   * 规则：找到申请人的直接上级主管，如果是当前用户则需要审批
-   */
-  private async checkIfUserNeedsToApproveSimple(
-    pool: ReturnType<typeof getPool>,
-    approver: { id: number; role: string; department_id: number | null },
-    applicantUserId: number
-  ): Promise<boolean> {
-    // 获取申请人的部门信息
-    const [applicantRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT u.id, u.department_id, d.parent_id
-       FROM users u
-       JOIN departments d ON u.department_id = d.id
-       WHERE u.id = ?`,
-      [applicantUserId]
-    );
-
-    if (applicantRows.length === 0) return false;
-    const applicant = applicantRows[0];
-
-    // 逐级向上查找主管
-    let currentDeptId: number | null = applicant.department_id;
-    const visitedDepts = new Set<number>();
-
-    while (currentDeptId && !visitedDepts.has(currentDeptId)) {
-      visitedDepts.add(currentDeptId);
-
-      // 获取当前部门的经理
-      const [deptRows] = await pool.execute<RowDataPacket[]>(
-        `SELECT d.id, d.manager_id, d.parent_id, u.role as manager_role
-         FROM departments d
-         LEFT JOIN users u ON d.manager_id = u.id
-         WHERE d.id = ?`,
-        [currentDeptId]
-      );
-
-      if (deptRows.length === 0) break;
-
-      const dept = deptRows[0];
-
-      // 如果部门有经理，且经理不是申请人自己
-      if (dept.manager_id && dept.manager_id !== applicantUserId) {
-        // 检查经理是否是当前审批人
-        if (dept.manager_id === approver.id) {
-          return true;
-        }
-        // 找到了经理，但不是当前审批人，不需要审批
-        return false;
-      }
-
-      // 没有经理，向上查找父部门
-      currentDeptId = dept.parent_id;
-    }
-
-    // 没有找到任何主管，admin 作为兜底
-    return approver.role === 'admin';
-  }
-
-  /**
-   * 获取用户待审批数量（基于审批链，用于仪表板统计）
-   * 简化实现：分步查询避免复杂嵌套SQL导致的 ER_MALFORMED_PACKET 错误
-   */
-  async getPendingApprovalsCountForUser(userId: number): Promise<number> {
-    const pool = getPool();
-
-    // 1. 获取当前用户信息
-    const [userRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT id, role, department_id FROM users WHERE id = ?`,
-      [userId]
-    );
-    if (userRows.length === 0) return 0;
-    const user = userRows[0] as { id: number; role: string; department_id: number | null };
-
-    // 2. 获取所有待审批的变更申请
-    const [pendingChanges] = await pool.execute<RowDataPacket[]>(
-      `SELECT pc.id, pc.user_id, u.role as applicant_role, u.department_id as applicant_dept_id
-       FROM plan_changes pc
-       JOIN users u ON pc.user_id = u.id
-       WHERE pc.status = 'pending'`,
-      []
-    );
-
-    if (pendingChanges.length === 0) return 0;
-
-    // 3. 筛选需要审批的申请
-    let count = 0;
-
-    for (const change of pendingChanges) {
-      const typedChange = change as { user_id: number };
-      const needsApproval = await this.checkIfUserNeedsToApproveSimple(pool, user, typedChange.user_id);
-      if (needsApproval) count++;
-    }
-
-    return count;
+    return rows;
   }
 
   // ========== 延期记录 ==========
@@ -564,8 +475,7 @@ export class WorkflowRepository {
     const total = countRows[0].total;
 
     // Data
-    const page = options?.page || 1;
-    const pageSize = options?.pageSize || 20;
+    const { page, pageSize } = normalizePagination(options?.page, options?.pageSize);
     const offset = (page - 1) * pageSize;
 
     // 使用 query 而不是 execute，因为 LIMIT 和 OFFSET 不支持参数化
@@ -596,11 +506,12 @@ export class WorkflowRepository {
     return data.id;
   }
 
-  async markNotificationAsRead(id: string): Promise<boolean> {
+  async markNotificationAsRead(id: string, userId: number): Promise<boolean> {
     const pool = getPool();
+    // 归属校验：仅能标记自己的通知，防止越权操作他人通知
     const [result] = await pool.execute<ResultSetHeader>(
-      'UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = ?',
-      [id]
+      'UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = ? AND user_id = ?',
+      [id, userId]
     );
     return result.affectedRows > 0;
   }
@@ -709,29 +620,30 @@ export class WorkflowRepository {
   // ========== 定时任务辅助方法 ==========
 
   /**
-   * 标记超时审批（超过指定天数）
+   * 获取即将超时的待审批记录（超过指定天数仍为 pending）
    */
-  async markTimeoutApprovals(timeoutDays: number): Promise<number> {
+  async getExpiringPendingApprovals(timeoutDays: number): Promise<PlanChange[]> {
     const pool = getPool();
-    const [result] = await pool.execute<ResultSetHeader>(
-      `UPDATE plan_changes
-       SET status = 'timeout'
+    const [rows] = await pool.execute<PlanChangeRow[]>(
+      `SELECT * FROM plan_changes
        WHERE status = 'pending'
        AND created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
       [timeoutDays]
     );
-    return result.affectedRows;
+    return rows;
   }
 
   /**
-   * 获取超时的审批列表
+   * 按记录标记超时（条件更新：仅当仍为 pending 时生效）
+   * 返回是否本次真正标记，防止并发或重复处理历史超时记录
    */
-  async getTimeoutApprovals(): Promise<PlanChange[]> {
+  async markTimeoutById(id: string): Promise<boolean> {
     const pool = getPool();
-    const [rows] = await pool.execute<PlanChangeRow[]>(
-      `SELECT * FROM plan_changes WHERE status = 'timeout'`
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE plan_changes SET status = 'timeout' WHERE id = ? AND status = 'pending'`,
+      [id]
     );
-    return rows;
+    return result.affectedRows > 0;
   }
 
   /**
@@ -1074,7 +986,10 @@ export class WorkflowRepository {
 
     let pendingChanges: unknown[];
     try {
-      const raw = rows[0].pending_changes;
+      // 兼容 JSON 列被驱动解析为对象或仍为字符串两种形态
+      const raw = typeof rows[0].pending_changes === 'string'
+        ? JSON.parse(rows[0].pending_changes as string)
+        : rows[0].pending_changes;
       pendingChanges = Array.isArray(raw) ? raw : [raw];
     } catch {
       return false;

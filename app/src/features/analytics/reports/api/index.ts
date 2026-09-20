@@ -94,6 +94,7 @@ export async function getDelayDetailTasks(
       id: String(t.id ?? ''),
       taskName: String(t.description ?? ''),
       wbsCode: t.wbsCode || String(t.id ?? ''),
+      rootTaskName: t.rootTaskName ?? null,
       assigneeName: String(t.assigneeName ?? '未分配'),
       assigneeId: t.assigneeId != null ? Number(t.assigneeId) : undefined,
       projectName: String(t.projectName ?? '未分配'),

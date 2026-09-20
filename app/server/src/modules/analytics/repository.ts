@@ -66,7 +66,9 @@ export class AnalyticsRepository {
 
     // 构建角色感知的项目过滤条件
     const projectScope = await buildProjectScopeFilter(user, 'p');
-    const taskScope = await buildTaskScopeFilter(user, 't', true);
+    // 工程师仪表板任务统计使用纯个人口径（personalOnly）：
+    // 只统计 assignee_id = 当前用户的任务，不混入同项目他人任务/全局未分配任务
+    const taskScope = await buildTaskScopeFilter(user, 't', true, undefined, true);
 
     // 拆分查询以提高稳定性（避免复杂子查询导致 ER_MALFORMED_PACKET）
     // 1. 项目统计
@@ -225,8 +227,8 @@ export class AnalyticsRepository {
     const end = endDate || new Date().toISOString().split('T')[0];
     const start = startDate || new Date(Date.now() - TIME_INTERVALS.MONTH_DAYS * TIME_INTERVALS.MS_PER_DAY).toISOString().split('T')[0];
 
-    // 构建角色感知的任务过滤条件
-    const scope = await buildTaskScopeFilter(user, 't', true);
+    // 构建角色感知的任务过滤条件（工程师仪表板趋势图使用纯个人口径）
+    const scope = await buildTaskScopeFilter(user, 't', true, undefined, true);
 
     // 构建项目过滤条件（复用）
     const projectFilter = projectId && projectId !== 'all' ? 't.project_id = ?' : '1=1';
@@ -729,9 +731,18 @@ export class AnalyticsRepository {
     // 排序：与任务管理模块 WBS 表保持一致（按项目 + sort_order + 创建时间）
     // 延期天数统一逻辑：仅真正延期（已过期或超期完成）才计算正值，预警任务返回0
     const [taskListRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, t.project_id, t.sort_order,
+      `WITH RECURSIVE root_map AS (
+        SELECT id AS task_id, id AS root_id, description AS root_task_name,
+               sort_order AS root_sort_order, created_at AS root_created_at
+        FROM wbs_tasks WHERE parent_id IS NULL
+        UNION ALL
+        SELECT t.id, rm.root_id, rm.root_task_name, rm.root_sort_order, rm.root_created_at
+        FROM wbs_tasks t INNER JOIN root_map rm ON t.parent_id = rm.task_id
+      )
+      SELECT t.id, t.description, t.project_id, t.sort_order,
               p.name as project_name, u.real_name as assignee_name,
               t.status, t.progress, t.priority, t.end_date as planned_end_date, t.task_type,
+              rm.root_task_name,
               CASE
                 WHEN t.end_date IS NULL THEN 0
                 WHEN t.actual_end_date IS NOT NULL AND t.actual_end_date > t.end_date
@@ -748,8 +759,10 @@ export class AnalyticsRepository {
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
+       LEFT JOIN root_map rm ON t.id = rm.task_id
        ${whereClause}
-       ORDER BY t.sort_order ASC, t.created_at ASC
+       ORDER BY rm.root_sort_order ASC, rm.root_created_at ASC, rm.root_id ASC,
+                t.sort_order ASC, t.created_at ASC
        LIMIT ${QUERY_LIMITS.TASK_STATISTICS}`,
       params
     );
@@ -900,6 +913,7 @@ export class AnalyticsRepository {
         task_type: t.task_type || 'other',
         delay_days: t.delay_days || 0,
         activity_rate: t.activity_rate || ACTIVITY_PERCENTAGES.DEFAULT,
+        root_task_name: t.root_task_name || null,
       })),
       task_trend,
     };
@@ -1104,8 +1118,8 @@ export class AnalyticsRepository {
       params
     );
 
-    // 延期任务列表：只列"已延期"(delayed)，与"已延期"卡片口径一致（不混预警/超期完成、不截断）
-    const listConditions: string[] = [scopeFilter.clause, `(${DELAY_CONDITIONS.delayed})`];
+    // 延期任务列表：只列"已延期"和"即将延期"（delayed + delay_warning），与"已延期"卡片口径一致，排除已完成任务
+    const listConditions: string[] = [scopeFilter.clause, `(${DELAY_CONDITIONS.delayed} OR ${DELAY_CONDITIONS.delay_warning})`];
     const listParams: (string | number)[] = [...scopeFilter.params];
     if (options.project_id) {
       listConditions.push('t.project_id = ?');
@@ -1126,8 +1140,17 @@ export class AnalyticsRepository {
     // WBS 编码从全局注册表获取
     // 排序与任务管理模块保持一致：sort_order ASC, created_at ASC
     const [delayedTaskRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, t.project_id, t.sort_order, t.created_at,
+      `WITH RECURSIVE root_map AS (
+        SELECT id AS task_id, id AS root_id, description AS root_task_name,
+               sort_order AS root_sort_order, created_at AS root_created_at
+        FROM wbs_tasks WHERE parent_id IS NULL
+        UNION ALL
+        SELECT t.id, rm.root_id, rm.root_task_name, rm.root_sort_order, rm.root_created_at
+        FROM wbs_tasks t INNER JOIN root_map rm ON t.parent_id = rm.task_id
+      )
+      SELECT t.id, t.description, t.project_id, t.sort_order, t.created_at,
               p.name as project_name, u.real_name as assignee_name,
+              rm.root_task_name,
               ${delayTypeCase} as delay_type,
               t.end_date as planned_end_date,
               CASE
@@ -1144,10 +1167,12 @@ export class AnalyticsRepository {
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
-       ${listOrOverdueClause}
-       ORDER BY t.sort_order ASC, t.created_at ASC
+       LEFT JOIN root_map rm ON t.id = rm.task_id
+       ${listWhereClause}
+       ORDER BY rm.root_sort_order ASC, rm.root_created_at ASC, rm.root_id ASC,
+                t.sort_order ASC, t.created_at ASC
        LIMIT ${QUERY_LIMITS.TASK_STATISTICS}`,
-      listOrOverdueParams
+      listParams
     );
 
     // 从缓存获取 WBS 编码（自动填充缓存）
@@ -1636,6 +1661,7 @@ export class AnalyticsRepository {
         delay_days: t.delay_days || 0,
         reason: t.reason || '未填写',
         status: t.status,
+        root_task_name: t.root_task_name || null,
       })),
       delayed_member_stats,
       warning_member_stats,
@@ -1664,16 +1690,32 @@ export class AnalyticsRepository {
     const pool = getPool();
     const scopeFilter = await buildTaskScopeFilter(user, 't', true);
 
-    // 口径常量（与 getDelayAnalysisReport 保持一致；独立定义以隔离核心方法）
+    // 口径常量（只显示当前已延期和即将延期，排除已完成任务）
     const NOT_PENDING_APPROVAL = `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change')`;
-    const DELAY_OR_OVERDUE = `(${NOT_PENDING_APPROVAL} AND t.end_date IS NOT NULL AND ` +
-      `((t.actual_end_date IS NULL AND t.end_date < CURDATE()) OR ` +
-      `(t.actual_end_date IS NOT NULL AND t.actual_end_date > t.end_date)))`;
-    const delayTypeCase = `CASE WHEN ${NOT_PENDING_APPROVAL} AND t.actual_end_date IS NOT NULL AND t.end_date IS NOT NULL AND t.actual_end_date > t.end_date THEN 'overdue_completed' WHEN ${NOT_PENDING_APPROVAL} AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date < CURDATE() THEN 'delayed' ELSE NULL END`;
-    const delayDaysCase = `CASE WHEN t.end_date IS NULL THEN 0 WHEN t.actual_end_date IS NULL AND t.end_date < CURDATE() THEN GREATEST(0, DATEDIFF(CURDATE(), t.end_date)) WHEN t.actual_end_date IS NOT NULL AND t.actual_end_date > t.end_date THEN GREATEST(0, DATEDIFF(t.actual_end_date, t.end_date)) ELSE 0 END`;
+    // 延期或预警条件：无实际结束 + 有截止日期 + （已过期 OR 即将到期）
+    const DELAYED_OR_WARNING = `
+      (${NOT_PENDING_APPROVAL} AND
+       t.actual_end_date IS NULL AND
+       t.end_date IS NOT NULL AND
+       (t.end_date < CURDATE() OR (t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) <= COALESCE(t.warning_days, 3)))
+      )
+    `.trim().replace(/\s+/g, ' ');
+    // 延期类型枚举：delayed=已延期, delay_warning=延期预警
+    const delayTypeCase = `CASE
+      WHEN ${NOT_PENDING_APPROVAL} AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) <= COALESCE(t.warning_days, 3) THEN 'delay_warning'
+      WHEN ${NOT_PENDING_APPROVAL} AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date < CURDATE() THEN 'delayed'
+      ELSE NULL
+    END`;
+    // 延期天数计算
+    const delayDaysCase = `CASE
+      WHEN t.end_date IS NULL THEN 0
+      WHEN t.actual_end_date IS NULL AND t.end_date < CURDATE() THEN GREATEST(0, DATEDIFF(CURDATE(), t.end_date))
+      WHEN t.actual_end_date IS NULL AND t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) <= COALESCE(t.warning_days, 3) THEN 0
+      ELSE 0
+    END`;
 
     // 维度条件 + 时间段
-    const conds: string[] = [scopeFilter.clause, `(${DELAY_OR_OVERDUE})`];
+    const conds: string[] = [scopeFilter.clause, DELAYED_OR_WARNING];
     const params: (string | number)[] = [...scopeFilter.params];
     if (options.assignee_id) { conds.push('t.assignee_id = ?'); params.push(options.assignee_id); }
     if (options.project_id) { conds.push('t.project_id = ?'); params.push(options.project_id); }
@@ -1704,15 +1746,26 @@ export class AnalyticsRepository {
 
     // 明细列表
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.description, t.project_id, t.assignee_id, t.task_type, t.priority, t.progress, t.actual_end_date, t.sort_order, t.created_at,
+      `WITH RECURSIVE root_map AS (
+        SELECT id AS task_id, id AS root_id, description AS root_task_name,
+               sort_order AS root_sort_order, created_at AS root_created_at
+        FROM wbs_tasks WHERE parent_id IS NULL
+        UNION ALL
+        SELECT t.id, rm.root_id, rm.root_task_name, rm.root_sort_order, rm.root_created_at
+        FROM wbs_tasks t INNER JOIN root_map rm ON t.parent_id = rm.task_id
+      )
+      SELECT t.id, t.description, t.project_id, t.assignee_id, t.task_type, t.priority, t.progress, t.actual_end_date, t.sort_order, t.created_at,
               p.name AS project_name, u.real_name AS assignee_name,
+              rm.root_task_name,
               ${delayTypeCase} AS delay_type, t.end_date AS planned_end_date,
               ${delayDaysCase} AS delay_days,
               COALESCE((SELECT dr2.reason FROM delay_records dr2 WHERE dr2.task_id = t.id ORDER BY dr2.created_at DESC LIMIT 1), '未填写') AS reason,
               t.status
        FROM wbs_tasks t JOIN projects p ON t.project_id = p.id LEFT JOIN users u ON t.assignee_id = u.id
+       LEFT JOIN root_map rm ON t.id = rm.task_id
        ${whereClause}
-       ORDER BY t.sort_order ASC, t.created_at ASC
+       ORDER BY rm.root_sort_order ASC, rm.root_created_at ASC, rm.root_id ASC,
+                t.sort_order ASC, t.created_at ASC
        LIMIT ${pageSize} OFFSET ${offset}`,
       params
     );
@@ -1729,6 +1782,7 @@ export class AnalyticsRepository {
       task_type: r.task_type != null && r.task_type !== '' ? String(r.task_type) : undefined,
       priority: r.priority != null ? String(r.priority) : undefined,
       progress: r.progress != null ? Number(r.progress) : undefined,
+      root_task_name: r.root_task_name != null ? String(r.root_task_name) : null,
       actual_end_date: r.actual_end_date instanceof Date
         ? r.actual_end_date.toISOString().split('T')[0]
         : (r.actual_end_date ? String(r.actual_end_date) : null),
@@ -2814,8 +2868,8 @@ export class AnalyticsRepository {
       return rows[0].cnt || 0;
     }
 
-    // 构建角色感知的任务过滤条件
-    const scope = await buildTaskScopeFilter(user, 't', true);
+    // 构建角色感知的任务过滤条件（工程师仪表板趋势箭头使用纯个人口径）
+    const scope = await buildTaskScopeFilter(user, 't', true, undefined, true);
 
     let statusCondition = '';
     switch (metric) {

@@ -79,6 +79,20 @@ export function ApprovalDetailDialog({ open, onOpenChange, item }: ApprovalDetai
             </div>
             <div className="flex items-start gap-2">
               <FileText className="h-4 w-4 text-muted-foreground mt-0.5" />
+              <span className="text-muted-foreground shrink-0">父任务：</span>
+              <span className="break-words">{item.parentTaskDescription || '（根任务）'}</span>
+            </div>
+            {item.parentStartDate && item.parentEndDate && (
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">父任务计划：</span>
+                <span className="font-medium">
+                  {format(new Date(item.parentStartDate), 'yyyy-MM-dd')} ~ {format(new Date(item.parentEndDate), 'yyyy-MM-dd')}
+                </span>
+              </div>
+            )}
+            <div className="flex items-start gap-2">
+              <FileText className="h-4 w-4 text-muted-foreground mt-0.5" />
               <span className="text-muted-foreground shrink-0">任务：</span>
               <span className="break-words">{item.taskDescription}</span>
             </div>

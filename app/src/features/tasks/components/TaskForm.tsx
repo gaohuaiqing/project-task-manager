@@ -458,7 +458,7 @@ export function TaskForm({
             <div className="flex items-center justify-between">
               <Label className="flex items-center gap-2">
                 负责人 {!isEdit && <span className="text-destructive">*</span>}
-                {!permissions.canEditAssignee && (
+                {isEdit && !permissions.canEditAssignee && (
                   <Lock className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
               </Label>
@@ -487,9 +487,9 @@ export function TaskForm({
               data-testid="task-select-assignee"
               value={watch('assigneeId')?.toString()}
               onValueChange={(value) => setValue('assigneeId', parseInt(value))}
-              disabled={!permissions.canEditAssignee}
+              disabled={isEdit && !permissions.canEditAssignee}
             >
-              <SelectTrigger className={!permissions.canEditAssignee ? 'opacity-60' : ''}>
+              <SelectTrigger className={isEdit && !permissions.canEditAssignee ? 'opacity-60' : ''}>
                 <SelectValue placeholder="请选择责任人" />
               </SelectTrigger>
               <SelectContent>
@@ -509,7 +509,7 @@ export function TaskForm({
                 ))}
               </SelectContent>
             </Select>
-            {!permissions.canEditAssignee && (
+            {isEdit && !permissions.canEditAssignee && (
               <p className="text-xs text-muted-foreground">负责人字段需要分配权限</p>
             )}
 

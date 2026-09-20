@@ -100,7 +100,12 @@ export function EngineerDashboard({
         data-testid="todo-section"
       >
         {data.todoTasks && data.todoTasks.length > 0 ? (
-          <TodoTaskList tasks={data.todoTasks} />
+          <TodoTaskList
+            tasks={data.todoTasks}
+            onTaskClick={onUpdateTask}
+            showUpdateButton
+            onUpdateTask={onUpdateTask}
+          />
         ) : (
           <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-6">暂无待办任务</p>
         )}
@@ -116,8 +121,9 @@ export function EngineerDashboard({
         {data.needUpdateTasks && data.needUpdateTasks.length > 0 ? (
           <TodoTaskList
             tasks={data.needUpdateTasks}
+            onTaskClick={onUpdateTask}
             showUpdateButton
-            onUpdateClick={onUpdateTask}
+            onUpdateTask={onUpdateTask}
           />
         ) : (
           <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-6">所有任务进展均已在7日内更新</p>

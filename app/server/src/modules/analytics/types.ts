@@ -157,6 +157,7 @@ export interface TaskStatisticsItem {
   task_type: string;                 // 任务类型
   delay_days: number;                // 延期天数
   activity_rate: number;             // 活跃度 (0-100)
+  root_task_name: string | null;     // 根任务名称（parent_id IS NULL 的祖先任务）
 }
 
 export interface AssigneeTaskCount {
@@ -378,6 +379,8 @@ export interface DelayedTaskItem {
   // v2 修复：问题榜次数（K1 反复延期/K2 频繁变更 metric 用）
   delay_count?: number;
   plan_change_count?: number;
+  // 根任务名称（parent_id IS NULL 的祖先任务；报表列表分组展示用）
+  root_task_name?: string | null;
 }
 
 /** 延期明细下钻查询参数（点击柱子查看该维度明细任务） */
@@ -385,7 +388,7 @@ export interface DelayDetailQueryOptions {
   assignee_id?: number;
   project_id?: string;
   task_type?: string;       // '未分类' 走特殊反向映射（task_type='' OR IS NULL）
-  delay_type?: 'delay_warning' | 'delayed' | 'overdue_completed';
+  delay_type?: 'delay_warning' | 'delayed';  // 注意：超期完成已从列表移除
   start_date?: string;
   end_date?: string;
   page?: number;

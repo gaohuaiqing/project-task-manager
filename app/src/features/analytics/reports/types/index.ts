@@ -25,8 +25,9 @@ export type UserRole = 'admin' | 'dept_manager' | 'tech_manager' | 'engineer';
  */
 export type TimeRange = 'current' | '30d' | '3m' | '6m' | '1y' | 'custom';
 
-/** 延期类型 */
-export type DelayType = 'delay_warning' | 'delayed' | 'overdue_completed';
+/** 延期类型（延期任务列表只显示以下类型） */
+export type DelayType = 'delay_warning' | 'delayed';
+// 注意：超期完成 (overdue_completed) 已从延期任务列表中移除
 
 /** 风险等级 */
 export type RiskLevel = 'high' | 'medium' | 'low';
@@ -253,6 +254,7 @@ export interface TaskStatisticItem {
   id: string;
   taskName: string;
   wbsCode: string;
+  rootTaskName?: string | null;
   projectName: string;
   taskType: string;
   priority: '紧急' | '高' | '中' | '低';
@@ -420,6 +422,7 @@ export interface DelayTaskItem {
   id: string;
   taskName: string;
   wbsCode: string;
+  rootTaskName?: string | null;
   assigneeName: string;
   teamName?: string;
   projectName: string;

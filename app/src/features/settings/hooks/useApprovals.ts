@@ -7,8 +7,6 @@ import { toast } from 'sonner';
 import {
   getPendingApprovals,
   getPlanChanges,
-  approvePlanChange,
-  rejectPlanChange,
   getApprovalItems,
   approveApprovalItem,
   rejectApprovalItem,
@@ -37,44 +35,6 @@ export function usePlanChanges(options?: {
     queryKey: [...queryKeys.workflow.approvals, options],
     queryFn: () => getPlanChanges(options),
     staleTime: 30 * 1000,
-  });
-}
-
-/** 审批通过 */
-export function useApprovePlanChange() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (id: string) => approvePlanChange(id),
-    onSuccess: () => {
-      toast.success('审批通过', { description: '已通过该变更申请' });
-      // 刷新审批相关缓存
-      queryClient.invalidateQueries({ queryKey: queryKeys.workflow.pendingApprovals });
-      queryClient.invalidateQueries({ queryKey: queryKeys.workflow.approvals });
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() });
-    },
-    onError: (error: Error) => {
-      toast.error('操作失败', { description: error.message });
-    },
-  });
-}
-
-/** 审批驳回 */
-export function useRejectPlanChange() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
-      rejectPlanChange(id, reason),
-    onSuccess: () => {
-      toast.success('已驳回', { description: '已驳回该变更申请' });
-      queryClient.invalidateQueries({ queryKey: queryKeys.workflow.pendingApprovals });
-      queryClient.invalidateQueries({ queryKey: queryKeys.workflow.approvals });
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() });
-    },
-    onError: (error: Error) => {
-      toast.error('操作失败', { description: error.message });
-    },
   });
 }
 

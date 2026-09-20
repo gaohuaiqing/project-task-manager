@@ -111,6 +111,7 @@ export interface TaskStatisticsItem {
   taskType: string;
   delayDays: number;
   activityRate: number;
+  rootTaskName?: string | null;
 }
 
 export interface AssigneeTaskCount {
@@ -330,6 +331,7 @@ export interface DelayedTaskItem {
   actualEndDate?: string | null;
   delayCount?: number;
   planChangeCount?: number;
+  rootTaskName?: string | null;
 }
 
 export interface DelayReasonCount {

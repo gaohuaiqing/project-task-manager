@@ -217,6 +217,7 @@ export function transformTaskStatisticsReport(
     id: task.id,
     taskName: task.description,
     wbsCode: task.wbsCode || task.id, // 优先使用 wbsCode，无则回退到 id
+    rootTaskName: task.rootTaskName || null,
     projectName: task.projectName,
     taskType: mapTaskType(task.taskType), // 使用映射函数转换为中文
     priority: mapPriority(task.priority),
@@ -331,6 +332,7 @@ export function transformDelayAnalysisReport(
     id: task.id,
     taskName: task.description,
     wbsCode: task.wbsCode || task.id,
+    rootTaskName: task.rootTaskName || null,
     assigneeName: task.assigneeName,
     projectName: task.projectName,
     plannedEndDate: task.plannedEndDate || '',

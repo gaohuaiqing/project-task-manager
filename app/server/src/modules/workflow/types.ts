@@ -6,6 +6,8 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'timeout';
 
 export interface PlanChange {
   id: string;
+  /** 分组ID：同一次提交的多条变更记录共享（存量数据兜底为记录自身 id） */
+  submission_id: string;
   task_id: string;
   user_id: number;
   change_type: string;
@@ -117,6 +119,10 @@ export interface ApprovalItem {
   submissionId: string;
   taskId: string;
   taskDescription: string;
+  parentId: string | null;
+  parentTaskDescription: string | null;
+  parentStartDate: string | null;
+  parentEndDate: string | null;
   projectName: string;
   userId: number;
   userName: string;

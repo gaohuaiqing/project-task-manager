@@ -112,6 +112,18 @@ export function ApprovalTableRow({
         </TooltipProvider>
       </TableCell>
 
+      {/* 父任务 */}
+      <TableCell className="max-w-[150px]">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="truncate block text-sm">{item.parentTaskDescription || '-'}</span>
+            </TooltipTrigger>
+            <TooltipContent>{item.parentTaskDescription || '（根任务）'}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </TableCell>
+
       {/* 任务 */}
       <TableCell className="max-w-[150px]">
         <TooltipProvider>

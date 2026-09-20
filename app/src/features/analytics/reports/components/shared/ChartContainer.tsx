@@ -5,6 +5,8 @@
 
 import { cn } from '@/lib/utils';
 import { ReactNode } from 'react';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { HelpCircle } from 'lucide-react';
 
 export interface ChartContainerProps {
   title: string;
@@ -13,6 +15,8 @@ export interface ChartContainerProps {
   className?: string;
   height?: number;
   action?: ReactNode;
+  /** 图表含义说明：传值后标题旁显示 ❓ 图标，点击查看 */
+  help?: ReactNode;
 }
 
 export function ChartContainer({
@@ -22,6 +26,7 @@ export function ChartContainer({
   className,
   height = 300,
   action,
+  help,
 }: ChartContainerProps) {
   return (
     <div
@@ -33,7 +38,21 @@ export function ChartContainer({
       {/* 标题栏 */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-1">
+            {title}
+            {help && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button type="button" className="text-muted-foreground hover:text-primary align-middle">
+                    <HelpCircle className="h-3.5 w-3.5" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 text-xs leading-relaxed" side="top">
+                  {help}
+                </PopoverContent>
+              </Popover>
+            )}
+          </h3>
           {subtitle && (
             <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
           )}

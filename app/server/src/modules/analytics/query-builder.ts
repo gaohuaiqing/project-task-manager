@@ -35,12 +35,18 @@ export interface ScopeFilter {
  * @param user 当前用户
  * @param tableAlias 任务表别名，默认 't'
  * @param joinProjects 是否需要 JOIN projects 表
+ * @param projectId 可选的项目ID进一步过滤
+ * @param personalOnly 仅对 engineer 生效：true 时只统计分配给自己的任务
+ *   （assignee_id = user.id），用于仪表板"纯个人数据"统计；
+ *   false（默认）保持"自己参与项目的任务"口径，供任务列表/WBS/报表使用。
+ *   其他角色不受此参数影响。
  */
 export async function buildTaskScopeFilter(
   user: User,
   tableAlias: string = 't',
   joinProjects: boolean = true,
   projectId?: string,
+  personalOnly: boolean = false,
 ): Promise<ScopeFilter> {
   // 先获取基础 scope
   let baseScope: ScopeFilter;
@@ -79,16 +85,26 @@ export async function buildTaskScopeFilter(
       }
     }
   } else {
-    // engineer: 自己参与的项目中的任务（含未分配任务）
-    // 使用 ${tableAlias}.project_id 替代 p.id，使子查询自包含，不依赖外部别名
-    baseScope = {
-      clause: `(${tableAlias}.assignee_id IS NULL OR EXISTS (
-        SELECT 1 FROM project_members pm
-        WHERE pm.project_id = ${tableAlias}.project_id
-        AND pm.user_id = ?
-      ))`,
-      params: [user.id],
-    };
+    // engineer
+    if (personalOnly) {
+      // 纯个人口径：只统计分配给自己的任务（用于仪表板"纯个人数据"统计）
+      baseScope = {
+        clause: `(${tableAlias}.assignee_id = ?)`,
+        params: [user.id],
+      };
+    } else {
+      // 项目成员口径：自己参与的项目中的任务（含未分配任务）
+      // 供任务列表/WBS/报表使用——工程师可查看同项目任务
+      // 使用 ${tableAlias}.project_id 替代 p.id，使子查询自包含，不依赖外部别名
+      baseScope = {
+        clause: `(${tableAlias}.assignee_id IS NULL OR EXISTS (
+          SELECT 1 FROM project_members pm
+          WHERE pm.project_id = ${tableAlias}.project_id
+          AND pm.user_id = ?
+        ))`,
+        params: [user.id],
+      };
+    }
   }
 
   // 如果指定了 projectId，添加项目过滤条件

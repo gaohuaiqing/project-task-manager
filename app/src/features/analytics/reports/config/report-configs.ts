@@ -74,6 +74,7 @@ export const MILESTONE_COLUMNS: TableColumn[] = [
 
 /** 任务统计明细列 — 任务视角 */
 export const TASK_STATISTIC_COLUMNS: TableColumn[] = [
+  { key: 'rootTaskName', label: '根任务', width: 140, sortable: true },
   { key: 'taskName', label: '任务名称', width: 150, sortable: true },
   { key: 'wbsCode', label: 'WBS编码', width: 80, sortable: true },
   { key: 'projectName', label: '所属项目', width: 100, sortable: true },
@@ -89,6 +90,7 @@ export const TASK_STATISTIC_COLUMNS: TableColumn[] = [
 
 /** 延期任务列表列 */
 export const DELAY_TASK_COLUMNS: TableColumn[] = [
+  { key: 'rootTaskName', label: '根任务', width: 140, sortable: true },
   { key: 'taskName', label: '任务名称', width: 200, sortable: true },
   { key: 'wbsCode', label: 'WBS编码', width: 80, sortable: true },
   { key: 'assigneeName', label: '负责人', width: 100, sortable: true },
@@ -106,6 +108,7 @@ export const DELAY_TASK_COLUMNS: TableColumn[] = [
  */
 export const DELAY_DETAIL_COLUMNS: TableColumn[] = [
   { key: 'taskName', label: '任务名称', width: 200, sortable: true },
+  { key: 'rootTaskName', label: '根任务', width: 140, sortable: true },
   { key: 'wbsCode', label: 'WBS编码', width: 80, sortable: true },
   { key: 'assigneeName', label: '负责人', width: 100, sortable: true },
   { key: 'projectName', label: '所属项目', width: 120, sortable: true },
@@ -264,7 +267,8 @@ export function getPresetDateRange(value: TimeRange): { startDate?: string; endD
 export const DELAY_TYPE_OPTIONS = [
   { value: 'delay_warning', label: '延期预警' },
   { value: 'delayed', label: '已延期' },
-  { value: 'overdue_completed', label: '超期完成' },
+  // 注意：超期完成的任务已从延期任务列表中移除
+  // { value: 'overdue_completed', label: '超期完成' },
 ];
 
 /** 任务类型选项 */

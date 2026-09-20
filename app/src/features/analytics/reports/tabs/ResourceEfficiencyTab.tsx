@@ -95,11 +95,11 @@ export function ResourceEfficiencyTab({ filters }: ResourceEfficiencyTabProps) {
       {/* 图表区域 */}
       {/* 第一行：成员产能排名 + 产能变化趋势（排名与趋势左右对照） */}
       <ChartGroup>
-        <ChartContainer title="成员产能排名" subtitle="按产能降序排列">
+        <ChartContainer title="成员产能排名" subtitle="按产能降序排列" help="产能 = 完成任务的复杂度总和（按 WBS 等级加权）÷ 实际投入天数（实际起止日期之差）。数值越高表示该成员单位天数完成的任务复杂度越高。仅统计已完成且有实际起止日期的任务。">
           <BarChart data={data.productivityChart} yAxisLabel="产能" />
         </ChartContainer>
 
-        <ChartContainer title="产能变化趋势" subtitle="平均产能与目标对比">
+        <ChartContainer title="产能变化趋势" subtitle="平均产能与目标对比" help="团队平均产能（任务复杂度 ÷ 投入天数）随时间的变化曲线，与目标产能对比。用于判断整体产能是否达标、上升或下滑。">
           <LineChart data={data.productivityTrend} yAxisLabel="产能" />
         </ChartContainer>
       </ChartGroup>
@@ -108,13 +108,13 @@ export function ResourceEfficiencyTab({ filters }: ResourceEfficiencyTabProps) {
       {(data.efficiencyChart || data.teamComparison) && (
         <ChartGroup>
           {data.efficiencyChart && (
-            <ChartContainer title="成员效能分布" subtitle="产能×预估准确性">
+            <ChartContainer title="成员效能分布" subtitle="产能×预估准确性" help="散点图：横轴=产能（任务复杂度 ÷ 投入天数），纵轴=预估准确性（1 − |实际工期−计划工期| ÷ 计划工期，越接近 1 越准）。右上方=高效能（高产能+预估准），左下方=待改进。">
               <ScatterChart data={data.efficiencyChart} />
             </ChartContainer>
           )}
 
           {data.teamComparison && (
-            <ChartContainer title="团队效能对比" subtitle="各团队产能趋势">
+            <ChartContainer title="团队效能对比" subtitle="各团队产能趋势" help="各团队/部门的平均产能（任务复杂度 ÷ 投入天数）趋势对比折线，用于发现团队间效能差异，定位需支援或可借鉴的优秀团队。">
               <LineChart data={data.teamComparison} yAxisLabel="产能" />
             </ChartContainer>
           )}

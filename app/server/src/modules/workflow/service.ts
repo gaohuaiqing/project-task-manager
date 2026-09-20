@@ -53,17 +53,10 @@ export class WorkflowService {
       }
     );
 
-    // 监听计划变更审批通过事件
-    taskEvents.on(
-      TaskEventType.PLAN_CHANGE_APPROVED,
-      async (event: TaskPlanChangeApprovedEvent) => {
-        try {
-          await this.handlePlanChangeApproved(event);
-        } catch (error) {
-          logger.error('处理计划变更审批通过事件失败: %s', error instanceof Error ? error.message : String(error));
-        }
-      }
-    );
+    // 注意：不监听 PLAN_CHANGE_APPROVED——审批通过后的日期重算/状态重算/级联更新
+    // 由 task/service.ts 的事件监听器统一负责。此处若再 updateTaskFields 会与
+    // task 侧并发写同一任务行，乐观锁 version 冲突导致对方重算静默失败
+    // （表现为：审批通过后 end_date/任务状态不同步）
   }
 
   /**
@@ -167,11 +160,15 @@ export class WorkflowService {
 
     // 处理审批记录创建结果
     if (failedFields.length === event.changes.length) {
-      // 所有审批记录都创建失败，回滚任务状态
+      // 所有审批记录都创建失败，回滚本次提交
       logger.error('所有审批记录创建失败 (task=%s)，回滚任务状态', event.taskId);
-      await this.repo.clearPendingChanges(event.taskId);
-      const rollbackStatus = task.actual_start_date ? 'in_progress' : 'not_started';
-      await this.repo.updateTaskStatus(event.taskId, rollbackStatus);
+      // 仅移除本次 submission 的暂存数据（任务可能还有其他 pending submission）
+      await this.repo.removePendingChangeBySubmissionId(event.taskId, submissionId);
+      // 重算状态（若仍有其他 pending_changes，calculateStatus 会保持 pending_approval）
+      const rollbackTask = await this.repo.getTaskWithDates(event.taskId);
+      if (rollbackTask) {
+        await this.repo.updateTaskStatus(event.taskId, TaskService.calculateStatus(rollbackTask));
+      }
 
       // 通知申请人失败
       try {
@@ -193,19 +190,6 @@ export class WorkflowService {
     }
 
     // 注意：计划变更次数已在 task/service.ts 的 updateTask 方法中更新，此处不再重复更新
-  }
-
-  /**
-   * 处理计划变更审批通过事件
-   */
-  private async handlePlanChangeApproved(event: TaskPlanChangeApprovedEvent): Promise<void> {
-    // 批量更新任务字段
-    const updates: Record<string, string | number | null> = {};
-    for (const change of event.changes) {
-      updates[change.field] = change.value as string | number | null;
-    }
-
-    await this.repo.updateTaskFields(event.taskId, updates);
   }
 
   // ========== 计划变更管理 ==========
@@ -316,10 +300,11 @@ export class WorkflowService {
 
       await this.repo.updateTaskFields(change.task_id, updates);
 
-      // 2. 清除待审批数据
-      await this.repo.clearPendingChanges(change.task_id);
+      // 2. 仅移除该 submission 的待审批数据（任务可能还有其他 pending submission）
+      await this.repo.removePendingChangeBySubmissionId(change.task_id, change.submission_id);
 
       // 3. 获取完整任务信息，调用 calculateStatus 重新计算状态
+      // （若仍有其他 pending_changes，calculateStatus 会保持 pending_approval）
       const approvedTask = await this.repo.getTaskWithDates(change.task_id);
       if (approvedTask) {
         const newStatus = TaskService.calculateStatus(approvedTask);
@@ -342,8 +327,8 @@ export class WorkflowService {
       } as TaskPlanChangeApprovedEvent);
     } else {
       // ========== 审批驳回 ==========
-      // 1. 清除待审批数据
-      await this.repo.clearPendingChanges(change.task_id);
+      // 1. 仅移除该 submission 的待审批数据（任务可能还有其他 pending submission）
+      await this.repo.removePendingChangeBySubmissionId(change.task_id, change.submission_id);
 
       // 2. 获取完整任务信息，调用 calculateStatus 重新计算状态
       const rejectedTask = await this.repo.getTaskWithDates(change.task_id);
@@ -411,10 +396,10 @@ export class WorkflowService {
       }
       await this.repo.updateTaskFields(item.taskId, updates);
 
-      // 2. 清除待审批数据
-      await this.repo.clearPendingChanges(item.taskId);
+      // 2. 仅移除该 submission 的待审批数据（任务可能还有其他 pending submission）
+      await this.repo.removePendingChangeBySubmissionId(item.taskId, submissionId);
 
-      // 3. 重新计算任务状态
+      // 3. 重新计算任务状态（若仍有其他 pending_changes，calculateStatus 会保持 pending_approval）
       const approvedTask = await this.repo.getTaskWithDates(item.taskId);
       if (approvedTask) {
         const newStatus = TaskService.calculateStatus(approvedTask);
@@ -446,10 +431,10 @@ export class WorkflowService {
       } as TaskPlanChangeApprovedEvent);
     } else {
       // ========== 审批驳回 ==========
-      // 1. 清除待审批数据
-      await this.repo.clearPendingChanges(item.taskId);
+      // 1. 仅移除该 submission 的待审批数据（任务可能还有其他 pending submission）
+      await this.repo.removePendingChangeBySubmissionId(item.taskId, submissionId);
 
-      // 2. 重新计算任务状态
+      // 2. 重新计算任务状态（若仍有其他 pending_changes，calculateStatus 会保持 pending_approval）
       const rejectedTask = await this.repo.getTaskWithDates(item.taskId);
       if (rejectedTask) {
         const newStatus = TaskService.calculateStatus(rejectedTask);
@@ -495,8 +480,44 @@ export class WorkflowService {
     return false;
   }
 
+  /**
+   * 判断 approver 是否为 applicant 的审批人（与 canApprove 同一审批链口径）
+   */
+  private async isApproverOf(approver: User, applicantUserId: number): Promise<boolean> {
+    // 管理员可审批所有（与 canApprove 的 admin 分支一致）
+    if (approver.role === 'admin') {
+      return true;
+    }
+    const found = await this.orgService.findApprover(applicantUserId);
+    return found?.id === approver.id;
+  }
+
+  /**
+   * 获取当前用户待审批的变更列表（审批链与 canApprove 同口径）
+   */
   async getPendingApprovals(currentUser: User): Promise<PlanChange[]> {
-    return this.repo.getPendingApprovalsForUser(currentUser.id);
+    const allPending = await this.repo.getAllPendingPlanChanges();
+    const result: PlanChange[] = [];
+    for (const change of allPending) {
+      if (await this.isApproverOf(currentUser, change.user_id)) {
+        result.push(change);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * 获取需要当前用户审批的待审批数量（仪表板统计，与 getPendingApprovals 同口径）
+   */
+  async getPendingApprovalsCountForUser(user: User): Promise<number> {
+    const allPending = await this.repo.getAllPendingPlanChanges();
+    let count = 0;
+    for (const change of allPending) {
+      if (await this.isApproverOf(user, change.user_id)) {
+        count++;
+      }
+    }
+    return count;
   }
 
   /**
@@ -543,7 +564,7 @@ export class WorkflowService {
   }
 
   async markNotificationAsRead(id: string, userId: number): Promise<void> {
-    await this.repo.markNotificationAsRead(id);
+    await this.repo.markNotificationAsRead(id, userId);
   }
 
   async markAllNotificationsAsRead(userId: number): Promise<number> {
@@ -607,41 +628,55 @@ export class WorkflowService {
 
   /**
    * 检查审批超时（7天有效期）
-   * 将超过7天的待审批项标记为timeout状态
-   * 同时清除任务表中的 pending_changes 并恢复任务状态
+   * 仅处理本次新标记为 timeout 的提交（条件更新防重复），
+   * 避免历史超时记录被反复清理 pending_changes / 重复向申请人发送通知。
+   * 同时按 submission 移除任务表 pending_changes（不影响同任务其他待审批提交），并重算任务状态。
    */
   async checkTimeoutApprovals(): Promise<number> {
-    const timeoutCount = await this.repo.markTimeoutApprovals(7);
+    const expiring = await this.repo.getExpiringPendingApprovals(7);
+    if (expiring.length === 0) {
+      return 0;
+    }
 
-    // 发送超时通知给相关审批人
-    if (timeoutCount > 0) {
-      const timeoutApprovals = await this.repo.getTimeoutApprovals();
-      for (const approval of timeoutApprovals) {
-        // 清除任务的 pending_changes 并恢复状态
-        await this.repo.clearPendingChanges(approval.task_id);
-
-        // 获取任务信息，根据是否有实际开始日期决定恢复到哪个状态
-        const task = await this.repo.getTaskById(approval.task_id);
-        if (task) {
-          // 与 approvePlanChange 保持一致：根据 actual_start_date 判断恢复状态
-          const newStatus = task.actual_start_date ? 'in_progress' : 'not_started';
-          await this.repo.updateTaskStatus(approval.task_id, newStatus);
-        }
-
-        // 通知申请人
-        await this.sendNotification(
-          approval.user_id,
-          'approval_timeout',
-          '审批请求超时',
-          `您提交的变更请求因超过7天未审批已自动关闭`,
-          `/tasks/${approval.task_id}`,
-          task?.project_id,
-          approval.task_id
-        );
+    // 条件更新：仅本次真正从 pending → timeout 的记录才继续处理；按 submission 聚合去重
+    const timedOutSubmissions = new Map<string, { taskId: string; userId: number }>();
+    for (const approval of expiring) {
+      const marked = await this.repo.markTimeoutById(approval.id);
+      if (marked && !timedOutSubmissions.has(approval.submission_id)) {
+        timedOutSubmissions.set(approval.submission_id, {
+          taskId: approval.task_id,
+          userId: approval.user_id,
+        });
       }
     }
 
-    return timeoutCount;
+    for (const [submissionId, { taskId, userId }] of timedOutSubmissions) {
+      // 仅移除该 submission 的待审批数据（任务可能还有其他 pending submission）
+      await this.repo.removePendingChangeBySubmissionId(taskId, submissionId);
+
+      // 重算任务状态（若仍有其他 pending_changes，calculateStatus 会保持 pending_approval）
+      const task = await this.repo.getTaskWithDates(taskId);
+      if (task) {
+        await this.repo.updateTaskStatus(taskId, TaskService.calculateStatus(task));
+      }
+
+      // 通知申请人（通知失败不阻断后续提交的处理）
+      try {
+        await this.sendNotification(
+          userId,
+          'approval_timeout',
+          '审批请求超时',
+          `您提交的变更请求因超过7天未审批已自动关闭`,
+          `/tasks/${taskId}`,
+          task?.project_id,
+          taskId
+        );
+      } catch (notifyError) {
+        logger.error('发送审批超时通知失败: %s', notifyError instanceof Error ? notifyError.message : String(notifyError));
+      }
+    }
+
+    return timedOutSubmissions.size;
   }
 
   /**

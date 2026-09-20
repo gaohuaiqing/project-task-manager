@@ -20,6 +20,7 @@ const STORAGE_KEY = 'approval-table-column-widths';
 const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   createdAt: 90,
   projectName: 120,
+  parentTaskDescription: 130,
   taskDescription: 150,
   changeType: 80,
   changeContent: 200,
@@ -34,6 +35,7 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
 const COLUMNS = [
   { key: 'createdAt', label: '提交时间', minWidth: 80 },
   { key: 'projectName', label: '项目', minWidth: 80 },
+  { key: 'parentTaskDescription', label: '父任务', minWidth: 100 },
   { key: 'taskDescription', label: '任务', minWidth: 100 },
   { key: 'changeType', label: '变更类型', minWidth: 70 },
   { key: 'changeContent', label: '变更内容', minWidth: 120 },

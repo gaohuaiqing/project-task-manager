@@ -1,6 +1,6 @@
 // app/server/src/modules/analytics/service.ts
 import { AnalyticsRepository } from './repository';
-import { WorkflowRepository } from '../workflow/repository';
+import { WorkflowService } from '../workflow/service';
 import { ForbiddenError, ValidationError } from '../../core/errors';
 import { DEFAULTS, TIME_INTERVALS } from './constants';
 import { getPool } from '../../core/db';
@@ -25,7 +25,8 @@ import type { ProjectType } from '../project/types';
 
 export class AnalyticsService {
   private repo = new AnalyticsRepository();
-  private workflowRepo = new WorkflowRepository();
+  // 复用 workflow 服务：待审批统计须与审批操作走同一审批链口径（内部有 static 防重复监听）
+  private workflowService = new WorkflowService();
 
   // ========== 仪表板 ==========
 
@@ -36,7 +37,7 @@ export class AnalyticsService {
     // 修正 pending_approval_tasks：使用审批链逻辑，仅统计需要当前用户审批的数量
     // 管理员看全部，技术经理仅看本技术组，部门经理仅在无技术经理时兜底
     if (user.role === 'admin' || user.role === 'tech_manager' || user.role === 'dept_manager') {
-      const myPendingApprovals = await this.workflowRepo.getPendingApprovalsCountForUser(user.id);
+      const myPendingApprovals = await this.workflowService.getPendingApprovalsCountForUser(user);
       stats.pending_approval_tasks = myPendingApprovals;
     }
 

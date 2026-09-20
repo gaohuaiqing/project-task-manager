@@ -182,10 +182,7 @@ export class TaskService {
             const task = await this.repo.getTaskById(event.taskId);
             if (task) {
               const recalcData = await this.recalculateDates(task, {} as any);
-              await this.repo.updateTask(event.taskId, {
-                ...recalcData,
-                version: task.version,
-              } as any);
+              await this.applyRecalculatedDates(event.taskId, recalcData);
             }
           }
 
@@ -225,10 +222,7 @@ export class TaskService {
           if (updatedTask) {
             // 重新计算结束日期等
             const recalcData = await this.recalculateDates(updatedTask, {} as any);
-            await this.repo.updateTask(event.taskId, {
-              ...recalcData,
-              version: updatedTask.version,
-            } as any);
+            await this.applyRecalculatedDates(event.taskId, recalcData);
           }
         }
 
@@ -1191,6 +1185,22 @@ export class TaskService {
     }
 
     return result;
+  }
+
+  /**
+   * 应用重算日期（带乐观锁冲突重试）
+   * 审批通过事件的监听器是 fire-and-forget，与其他写入存在 version 竞态：
+   * repo.updateTask 冲突时返回 updated:false（不抛错），不重试会导致重算结果静默丢失
+   */
+  private async applyRecalculatedDates(taskId: string, recalcData: Partial<UpdateTaskRequest>): Promise<void> {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const task = await this.repo.getTaskById(taskId);
+      if (!task) return;
+      const result = await this.repo.updateTask(taskId, { ...recalcData, version: task.version } as any);
+      if (result.updated) return;
+      logger.warn('重算日期写入乐观锁冲突，重试 (taskId=%s, attempt=%d/3)', taskId, attempt);
+    }
+    logger.error('重算日期写入最终失败 (taskId=%s)', taskId);
   }
 
   private checkNeedsApproval(data: UpdateTaskRequest, user: User): boolean {
