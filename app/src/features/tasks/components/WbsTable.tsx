@@ -1796,7 +1796,7 @@ export const WbsTable = React.memo(function WbsTable({
             if (s) counts[s] = (counts[s] || 0) + 1;
           }
           // 显示顺序：延期相关优先（用户最关注），其次进行中/未开始，最后完成类
-          const ORDER = ['delayed', 'delay_warning', 'in_progress', 'not_started', 'overdue_completed', 'early_completed', 'on_time_completed', 'pending_approval'];
+          const ORDER = ['delayed', 'delay_warning', 'overdue_start', 'in_progress', 'not_started', 'overdue_completed', 'early_completed', 'on_time_completed', 'pending_approval'];
           const COLORS = STATUS_COLORS as Record<string, { bg: string; text: string; label: string }>;
           return ORDER.filter(s => counts[s]).map(s => {
             const c = COLORS[s];

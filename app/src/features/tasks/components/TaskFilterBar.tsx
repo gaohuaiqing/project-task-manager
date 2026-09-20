@@ -51,6 +51,7 @@ interface TaskFilterBarProps {
 /** 所有状态选项 */
 const STATUS_OPTIONS: MultiSelectOption[] = [
   { value: 'not_started', label: TASK_STATUS_LABELS.not_started },
+  { value: 'overdue_start', label: TASK_STATUS_LABELS.overdue_start },
   { value: 'in_progress', label: TASK_STATUS_LABELS.in_progress },
   { value: 'delay_warning', label: TASK_STATUS_LABELS.delay_warning },
   { value: 'delayed', label: TASK_STATUS_LABELS.delayed },
