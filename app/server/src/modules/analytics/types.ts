@@ -34,7 +34,8 @@ export interface DashboardStats {
   total_tasks: number;          // 全部任务数
   total_root_tasks: number;     // 根任务数（wbs_level=1）
   pending_approval_tasks: number;  // pending_approval
-  pending_tasks: number;        // not_started
+  pending_tasks: number;        // not_started + overdue_start - 待处理（合计口径）
+  overdue_start_tasks: number;  // overdue_start - 逾期未开始
   in_progress_tasks: number;    // in_progress
   completed_tasks: number;      // early_completed + on_time_completed + overdue_completed
   delay_warning_tasks: number;  // delay_warning

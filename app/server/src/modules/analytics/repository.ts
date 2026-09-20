@@ -100,7 +100,8 @@ export class AnalyticsRepository {
     const [statusRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.pendingApproval} THEN 1 ELSE 0 END) as pending_approval_tasks,
-        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.notStarted} THEN 1 ELSE 0 END) as pending_tasks,
+        SUM(CASE WHEN (${MUTEX_STATUS_CONDITIONS.notStarted}) OR (${MUTEX_STATUS_CONDITIONS.overdueStart}) THEN 1 ELSE 0 END) as pending_tasks,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN 1 ELSE 0 END) as overdue_start_tasks,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.inProgress} THEN 1 ELSE 0 END) as in_progress_tasks,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.completed} THEN 1 ELSE 0 END) as completed_tasks,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 1 ELSE 0 END) as delay_warning_tasks,
@@ -108,7 +109,7 @@ export class AnalyticsRepository {
        FROM wbs_tasks t JOIN projects p ON t.project_id = p.id WHERE ${taskScope.clause}`,
       taskScope.params
     );
-    const statusData = statusRows[0] || { pending_approval_tasks: 0, pending_tasks: 0, in_progress_tasks: 0, completed_tasks: 0, delay_warning_tasks: 0, overdue_tasks: 0 };
+    const statusData = statusRows[0] || { pending_approval_tasks: 0, pending_tasks: 0, overdue_start_tasks: 0, in_progress_tasks: 0, completed_tasks: 0, delay_warning_tasks: 0, overdue_tasks: 0 };
 
     // 4. 本周到期任务
     const [weekDueRows] = await pool.execute<RowDataPacket[]>(
@@ -173,6 +174,7 @@ export class AnalyticsRepository {
       total_root_tasks: Number(taskData.total_root_tasks) || 0,
       pending_approval_tasks: Number(statusData.pending_approval_tasks) || 0,
       pending_tasks: Number(statusData.pending_tasks) || 0,
+      overdue_start_tasks: Number(statusData.overdue_start_tasks) || 0,
       in_progress_tasks: Number(statusData.in_progress_tasks) || 0,
       completed_tasks: Number(statusData.completed_tasks) || 0,
       delay_warning_tasks: Number(statusData.delay_warning_tasks) || 0,
@@ -507,6 +509,7 @@ export class AnalyticsRepository {
           WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 'delayed'
           WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 'delay_warning'
           WHEN ${MUTEX_STATUS_CONDITIONS.inProgress} THEN 'in_progress'
+          WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN 'overdue_start'
           ELSE 'not_started'
         END as status, COUNT(*) as count
        FROM wbs_tasks t WHERE t.project_id = ?
@@ -582,6 +585,7 @@ export class AnalyticsRepository {
             WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 'delayed'
             WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 'delay_warning'
             WHEN ${MUTEX_STATUS_CONDITIONS.inProgress} THEN 'in_progress'
+            WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN 'overdue_start'
             ELSE 'not_started'
           END as status, COUNT(*) as count
          FROM wbs_tasks t
@@ -697,6 +701,7 @@ export class AnalyticsRepository {
              WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 'delayed'
              WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 'delay_warning'
              WHEN ${MUTEX_STATUS_CONDITIONS.inProgress} THEN 'in_progress'
+             WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN 'overdue_start'
              ELSE 'not_started'
            END as status
          FROM wbs_tasks t
@@ -2411,6 +2416,7 @@ export class AnalyticsRepository {
              WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 'delayed'
              WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 'delay_warning'
              WHEN ${MUTEX_STATUS_CONDITIONS.inProgress} THEN 'in_progress'
+             WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN 'overdue_start'
              ELSE 'not_started'
            END as status
          FROM wbs_tasks t
@@ -4025,6 +4031,7 @@ export class AnalyticsRepository {
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed_count,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 1 ELSE 0 END) as delay_warning,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.inProgress} THEN 1 ELSE 0 END) as in_progress,
+        SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN 1 ELSE 0 END) as overdue_start,
         SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.notStarted} THEN 1 ELSE 0 END) as not_started
        FROM wbs_tasks t
        WHERE t.assignee_id = ?
@@ -4036,6 +4043,7 @@ export class AnalyticsRepository {
     return [
       { status: 'pending_approval', count: Number(r.pending_approval) || 0 },
       { status: 'not_started', count: Number(r.not_started) || 0 },
+      { status: 'overdue_start', count: Number(r.overdue_start) || 0 },
       { status: 'in_progress', count: Number(r.in_progress) || 0 },
       { status: 'completed', count: Number(r.completed) || 0 },
       { status: 'delay_warning', count: Number(r.delay_warning) || 0 },

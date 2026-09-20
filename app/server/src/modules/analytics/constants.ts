@@ -236,7 +236,7 @@ export const STATUS_CONDITIONS = {
  * 4. delayWarning     - 未完成 + 即将到期（预警）
  * 5. overdueStart     - 未开始 + 已过计划开始日期 + 不在延期/预警范围
  * 6. inProgress       - 已开始 + 未完成 + 未预警
- * 7. notStarted       - 未开始 + 未到期（兜底）
+ * 7. notStarted       - 未开始 + 未到计划开始日期 + 未到期（兜底）
  *
  * 注意：每个条件都必须排除更高优先级的状态，确保互斥性
  */
@@ -260,7 +260,7 @@ export const MUTEX_STATUS_CONDITIONS = {
   inProgress:
     "(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_start_date IS NOT NULL AND t.actual_end_date IS NULL " +
     "AND (t.end_date IS NULL OR (t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) > COALESCE(t.warning_days, 3)))",
-  /** 未开始 = 非审批状态 + 未开始 + 未到期 */
+  /** 未开始 = 非审批状态 + 未到计划开始日期 + 未到期（兜底） */
   notStarted:
     "(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_start_date IS NULL AND t.actual_end_date IS NULL " +
     "AND (t.start_date IS NULL OR t.start_date >= CURDATE()) " +
