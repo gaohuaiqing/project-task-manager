@@ -325,7 +325,7 @@ async function setupCronJobs() {
     try {
       logger.info('[Cron] Checking delayed tasks...');
       const result = await workflowService.checkDelayedTasks();
-      logger.info(`[Cron] Delayed: ${result.delayedCount}, Warning: ${result.warningCount}, Recovered: ${result.recoveredCount}`);
+      logger.info(`[Cron] Delayed: ${result.delayedCount}, Warning: ${result.warningCount}, Recovered: ${result.recoveredCount}, OverdueStart: ${result.overdueStartCount}`);
     } catch (error) {
       logger.error('[Cron] Error checking delayed tasks:', error);
     }

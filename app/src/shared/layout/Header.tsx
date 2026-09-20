@@ -80,6 +80,7 @@ function mapNotificationType(apiType: string): NotificationUIType {
       return 'warning';
     case 'delay_warning':
     case 'task_delayed':
+    case 'overdue_start':
       return 'warning';
     case 'task_assigned':
       return 'task';

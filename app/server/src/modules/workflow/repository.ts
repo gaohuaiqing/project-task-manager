@@ -656,7 +656,7 @@ export class WorkflowRepository {
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT t.id, t.description, t.assignee_id, t.project_id
        FROM wbs_tasks t
-       WHERE t.status IN ('not_started', 'in_progress', 'delay_warning')
+       WHERE t.status IN ('not_started', 'overdue_start', 'in_progress', 'delay_warning')
        AND t.end_date IS NOT NULL
        AND t.actual_end_date IS NULL
        AND DATEDIFF(t.end_date, CURDATE()) BETWEEN 0 AND t.warning_days
@@ -672,6 +672,8 @@ export class WorkflowRepository {
 
   /**
    * 获取已延期的任务（超过截止日期但未完成）
+   * status != 'delayed'：实时排除已处理过的 delayed，保证「新延期事件」只计一次
+   * （修复 pre-existing 缺陷：超期未开始任务此前从未被扫到置 delayed/计 delay_count）
    */
   async getDelayedTasks(): Promise<Array<{
     id: string;
@@ -686,7 +688,7 @@ export class WorkflowRepository {
       `SELECT t.id, t.description, t.assignee_id, u.real_name as assignee_name, t.project_id, t.end_date
        FROM wbs_tasks t
        LEFT JOIN users u ON t.assignee_id = u.id
-       WHERE t.status IN ('in_progress', 'delay_warning')
+       WHERE t.status != 'delayed'
        AND t.end_date IS NOT NULL
        AND t.end_date < CURDATE()
        AND t.actual_end_date IS NULL`
@@ -714,20 +716,62 @@ export class WorkflowRepository {
   }
 
   /**
-   * 获取需要从预警状态恢复的任务
-   * 条件：状态为 delay_warning，但剩余天数已超过预警天数（截止日期被延长）
-   * 返回 actual_start_date 用于判断恢复到哪个状态
+   * 获取逾期未开始任务（计划开始日期已过但未实际开始，不处于延期/预警）
+   * 通知节奏：首次 + 每逾期7天（7天内已发过则跳过）
    */
-  async getTasksToRecoverFromWarning(): Promise<Array<{ id: string; description: string; actual_start_date: Date | null }>> {
+  async getOverdueStartTasks(): Promise<Array<{
+    id: string; description: string; assignee_id: number | null; project_id: string;
+    start_date: Date;
+  }>> {
     const pool = getPool();
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT id, description, actual_start_date
+      `SELECT t.id, t.description, t.assignee_id, t.project_id, t.start_date
+       FROM wbs_tasks t
+       WHERE (COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change')
+       AND t.actual_start_date IS NULL AND t.actual_end_date IS NULL
+       AND t.start_date IS NOT NULL AND t.start_date < CURDATE()
+       AND (t.end_date IS NULL OR t.end_date >= DATE_ADD(CURDATE(), INTERVAL COALESCE(t.warning_days, 3) DAY))
+       AND NOT EXISTS (
+         SELECT 1 FROM notifications n
+         WHERE n.link = CONCAT('/tasks/', t.id)
+         AND n.type = 'overdue_start'
+         AND n.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+       )`
+    );
+    return rows as Array<{ id: string; description: string; assignee_id: number | null; project_id: string; start_date: Date }>;
+  }
+
+  /**
+   * 批量刷新逾期未开始状态（幂等，实时条件全量，不依赖旧 status）
+   */
+  async refreshOverdueStartStatuses(): Promise<number> {
+    const pool = getPool();
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE wbs_tasks
+       SET status = 'overdue_start'
+       WHERE status IN ('not_started', 'overdue_start')
+       AND actual_start_date IS NULL AND actual_end_date IS NULL
+       AND start_date IS NOT NULL AND start_date < CURDATE()
+       AND (end_date IS NULL OR end_date >= DATE_ADD(CURDATE(), INTERVAL COALESCE(warning_days, 3) DAY))`
+    );
+    return result.affectedRows;
+  }
+
+  /**
+   * 获取需要从预警状态恢复的任务
+   * 条件：状态为 delay_warning，但剩余天数已超过预警天数（截止日期被延长）
+   * 返回 actual_start_date / start_date 用于判断恢复到哪个状态
+   */
+  async getTasksToRecoverFromWarning(): Promise<Array<{ id: string; description: string; actual_start_date: Date | null; start_date: Date | null }>> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, description, actual_start_date, start_date
        FROM wbs_tasks
        WHERE status = 'delay_warning'
        AND end_date IS NOT NULL
        AND DATEDIFF(end_date, CURDATE()) > warning_days`
     );
-    return rows as Array<{ id: string; description: string; actual_start_date: Date | null }>;
+    return rows as Array<{ id: string; description: string; actual_start_date: Date | null; start_date: Date | null }>;
   }
 
   /**
@@ -755,32 +799,35 @@ export class WorkflowRepository {
       `SELECT DISTINCT assignee_id as id
        FROM wbs_tasks
        WHERE assignee_id IS NOT NULL
-       AND status IN ('not_started', 'in_progress', 'delay_warning', 'delayed')`
+       AND status IN ('not_started', 'overdue_start', 'in_progress', 'delay_warning', 'delayed')`
     );
     return rows as Array<{ id: number }>;
   }
 
   /**
    * 获取用户的任务摘要
+   * pending 为「未开始合计」口径（not_started + overdue_start），与报表 pending 一致
    */
   async getUserTaskSummary(userId: number): Promise<{
     total: number;
     pending: number;
     inProgress: number;
     delayed: number;
+    overdueStart: number;
   }> {
     const pool = getPool();
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN status = 'not_started' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN status IN ('not_started', 'overdue_start') THEN 1 ELSE 0 END) as pending,
         SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as inProgress,
-        SUM(CASE WHEN status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) as delayed
+        SUM(CASE WHEN status IN ('delay_warning', 'delayed') THEN 1 ELSE 0 END) AS \`delayed\`,
+        SUM(CASE WHEN status = 'overdue_start' THEN 1 ELSE 0 END) as overdueStart
        FROM wbs_tasks
        WHERE assignee_id = ?`,
       [userId]
     );
-    return rows[0] as { total: number; pending: number; inProgress: number; delayed: number };
+    return rows[0] as { total: number; pending: number; inProgress: number; delayed: number; overdueStart: number };
   }
 
   // ========== 审批流程辅助方法 ==========

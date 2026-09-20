@@ -683,7 +683,7 @@ export class WorkflowService {
    * 检查延期任务
    * 每日凌晨1点执行，检查所有已过截止日期但未完成的任务
    */
-  async checkDelayedTasks(): Promise<{ delayedCount: number; warningCount: number; recoveredCount: number }> {
+  async checkDelayedTasks(): Promise<{ delayedCount: number; warningCount: number; recoveredCount: number; overdueStartCount: number }> {
     const now = new Date();
 
     // 0. 检查需要从预警状态恢复的任务（截止日期被延长后脱离预警范围）
@@ -691,9 +691,11 @@ export class WorkflowService {
     let recoveredCount = 0;
 
     for (const task of tasksToRecover) {
-      // 根据是否有实际开始日期决定恢复到哪个状态
-      // 符合需求文档的状态判断规则
-      const newStatus = task.actual_start_date ? 'in_progress' : 'not_started';
+      // 根据是否有实际开始日期决定恢复到哪个状态（符合需求文档的状态判断规则）
+      // 逾期未开始：无实际开始且已过计划开始日期（0920-1428 规则6）
+      const newStatus = task.actual_start_date
+        ? 'in_progress'
+        : (task.start_date && new Date(task.start_date) < new Date() ? 'overdue_start' : 'not_started');
       await this.repo.updateTaskStatus(task.id, newStatus);
       recoveredCount++;
     }
@@ -774,7 +776,30 @@ export class WorkflowService {
       delayedCount++;
     }
 
-    return { delayedCount, warningCount, recoveredCount };
+    // 2.5 逾期未开始：刷新状态 + 通知负责人（首次 + 每逾期7天）
+    await this.repo.refreshOverdueStartStatuses();
+    const overdueStartTasks = await this.repo.getOverdueStartTasks();
+    let overdueStartCount = 0;
+
+    for (const task of overdueStartTasks) {
+      if (task.assignee_id) {
+        const overdueDays = task.start_date
+          ? Math.max(1, Math.ceil((Date.now() - new Date(task.start_date).getTime()) / (1000 * 60 * 60 * 24)))
+          : 1;
+        await this.sendNotification(
+          task.assignee_id,
+          'overdue_start',
+          '任务逾期未开始',
+          `任务 "${task.description}" 已逾期${overdueDays}天未开始（计划开始日期：${new Date(task.start_date).toLocaleDateString('zh-CN')}），请尽快启动或与上级沟通调整计划`,
+          `/tasks/${task.id}`,
+          task.project_id,
+          task.id
+        );
+      }
+      overdueStartCount++;
+    }
+
+    return { delayedCount, warningCount, recoveredCount, overdueStartCount };
   }
 
   // 延期次数累加已内联至上方 checkDelayedTasks（每次新延期事件 +1 并写 delay_records）
@@ -794,7 +819,7 @@ export class WorkflowService {
           user.id,
           'daily_summary',
           '每日任务摘要',
-          `您有 ${summary.pending} 个待处理任务，${summary.inProgress} 个进行中任务，${summary.delayed} 个延期任务`,
+          `您有 ${summary.pending} 个待处理任务，${summary.inProgress} 个进行中任务，${summary.delayed} 个延期任务${summary.overdueStart > 0 ? `，${summary.overdueStart} 个逾期未开始任务` : ''}`,
           '/tasks'
         );
       }

@@ -50,7 +50,7 @@ export interface CreateDelayRecordRequest {
 
 export type NotificationType =
   | 'approval' | 'approval_result' | 'approval_timeout'
-  | 'delay_warning' | 'task_delayed'
+  | 'delay_warning' | 'task_delayed' | 'overdue_start'
   | 'task_assigned'      // 任务分配
   | 'task_completed'     // 任务完成
   | 'project_updated'    // 项目更新
