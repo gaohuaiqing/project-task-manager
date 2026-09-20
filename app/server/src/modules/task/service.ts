@@ -1501,6 +1501,7 @@ export class TaskService {
   static readonly STATUS_CALC_FIELDS = {
     pending_changes: true,
     pending_change_type: true,
+    start_date: true,
     end_date: true,
     actual_start_date: true,
     actual_end_date: true,
@@ -1510,6 +1511,7 @@ export class TaskService {
   public static calculateStatus(task: {
     pending_changes?: unknown | null;
     pending_change_type?: string | null;
+    start_date?: Date | null;
     end_date: Date | null;
     actual_start_date: Date | null;
     actual_end_date: Date | null;
@@ -1526,6 +1528,8 @@ export class TaskService {
 
     const now = new Date();
     now.setHours(0, 0, 0, 0);
+    const startDate = task.start_date ? new Date(task.start_date) : null;
+    if (startDate) startDate.setHours(0, 0, 0, 0);
     const endDate = task.end_date ? new Date(task.end_date) : null;
     if (endDate) endDate.setHours(0, 0, 0, 0);
     const actualStart = task.actual_start_date ? new Date(task.actual_start_date) : null;
@@ -1561,6 +1565,13 @@ export class TaskService {
       if (daysLeft <= (task.warning_days || 3)) {
         return 'delay_warning';
       }
+    }
+
+    // 规则7.5：逾期未开始 - 无实际开始/结束日期且已超过计划开始日期
+    // （能走到这里说明不处于 delayed/delay_warning——二者优先级更高已提前 return）
+    // end_date 为空的任务同样适用：连计划完成时间都没有却迟迟不启动
+    if (!actualStart && !actualEnd && startDate && startDate < now) {
+      return 'overdue_start';
     }
 
     // 规则4：进行中 - 有实际开始日期，无实际完成日期

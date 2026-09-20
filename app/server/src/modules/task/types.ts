@@ -3,7 +3,7 @@
 // ============ WBS任务相关 ============
 
 export type TaskStatus =
-  | 'pending_approval' | 'not_started' | 'in_progress'
+  | 'pending_approval' | 'not_started' | 'overdue_start' | 'in_progress'
   | 'early_completed' | 'on_time_completed' | 'delay_warning'
   | 'delayed' | 'overdue_completed';
 
