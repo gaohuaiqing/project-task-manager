@@ -44,6 +44,7 @@ import { runMigration060 } from './060-add-wbs-sort-index';
 import { runMigration061 } from './061-wbs-code-optimization';
 import { runMigration062 } from './062-fix-null-sort-order';
 import { up as runMigration063 } from './063-add-device-fingerprint';
+import { up as runMigration064 } from './064-add-overdue-start-status';
 
 /**
  * 检查迁移是否已执行
@@ -619,6 +620,19 @@ export async function runPendingMigrations(): Promise<void> {
     console.log('🎉 迁移 063 完成！');
     return true;
   });  // 为 sessions 表添加 device_fingerprint 字段
+
+  await safeRunMigration('064', async () => {
+    const version = '064';
+    const name = 'add_overdue_start_status';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 064 已执行，跳过');
+      return true;
+    }
+    await runMigration064();
+    await recordMigration(version, name);
+    console.log('🎉 迁移 064 完成！');
+    return true;
+  });  // 新增 overdue_start 任务状态并初始化存量数据
 
   console.log('✅ 数据库迁移检查完成');
 }

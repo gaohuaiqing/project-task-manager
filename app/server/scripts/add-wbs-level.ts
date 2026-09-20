@@ -77,7 +77,7 @@ async function migrate() {
     console.log('Updating status ENUM...');
     await pool.execute(
       `ALTER TABLE wbs_tasks MODIFY COLUMN status ENUM(
-        'pending_approval', 'rejected', 'not_started', 'in_progress',
+        'pending_approval', 'rejected', 'not_started', 'overdue_start', 'in_progress',
         'early_completed', 'on_time_completed', 'delay_warning',
         'delayed', 'overdue_completed'
       ) DEFAULT 'not_started'`
