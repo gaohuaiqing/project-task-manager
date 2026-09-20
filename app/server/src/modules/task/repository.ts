@@ -26,6 +26,7 @@ type AllowedFilterField = typeof ALLOWED_FILTER_FIELDS[number];
  * 不依赖 DB status 字段（后者由 cron 每日凌晨刷新，今日过期的任务尚未标记，
  * 会导致 WBS 表"已延期"筛选与 computed_status 不一致）。
  * 与 analytics/MUTEX_STATUS_CONDITIONS 语义一致，各状态互斥。
+ * overdue_start = 未开始未完成 + 已过计划开始日期 + 不处于延期/预警（与 calculateStatus 规则7.5 同步）
  * ⚠️ 修改需与 TaskService.calculateStatus 保持同步。
  */
 const COMPUTED_STATUS_CONDITIONS: Record<string, string> = {
@@ -35,8 +36,9 @@ const COMPUTED_STATUS_CONDITIONS: Record<string, string> = {
   overdue_completed: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_end_date IS NOT NULL AND t.end_date IS NOT NULL AND t.actual_end_date > t.end_date`,
   delayed: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date < CURDATE()`,
   delay_warning: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) <= COALESCE(t.warning_days, 3)`,
+  overdue_start: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_start_date IS NULL AND t.actual_end_date IS NULL AND t.start_date IS NOT NULL AND t.start_date < CURDATE() AND (t.end_date IS NULL OR t.end_date >= DATE_ADD(CURDATE(), INTERVAL COALESCE(t.warning_days, 3) DAY))`,
   in_progress: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_start_date IS NOT NULL AND t.actual_end_date IS NULL AND (t.end_date IS NULL OR (t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) > COALESCE(t.warning_days, 3)))`,
-  not_started: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_start_date IS NULL AND t.actual_end_date IS NULL AND (t.end_date IS NULL OR t.end_date >= DATE_ADD(CURDATE(), INTERVAL COALESCE(t.warning_days, 3) DAY))`,
+  not_started: `(COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change') AND t.actual_start_date IS NULL AND t.actual_end_date IS NULL AND (t.start_date IS NULL OR t.start_date >= CURDATE()) AND (t.end_date IS NULL OR t.end_date >= DATE_ADD(CURDATE(), INTERVAL COALESCE(t.warning_days, 3) DAY))`,
 };
 
 export class TaskRepository {
