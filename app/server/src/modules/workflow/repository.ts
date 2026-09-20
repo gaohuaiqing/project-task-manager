@@ -883,6 +883,7 @@ export class WorkflowRepository {
     id: string;
     project_id: string;
     description: string;
+    start_date: Date | null;
     end_date: Date | null;
     actual_start_date: Date | null;
     actual_end_date: Date | null;
@@ -895,7 +896,7 @@ export class WorkflowRepository {
   } | null> {
     const pool = getPool();
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT id, project_id, description, end_date, actual_start_date, actual_end_date, warning_days, pending_changes, pending_change_type, last_plan_refresh_at, delay_count, version
+      `SELECT id, project_id, description, start_date, end_date, actual_start_date, actual_end_date, warning_days, pending_changes, pending_change_type, last_plan_refresh_at, delay_count, version
        FROM wbs_tasks
        WHERE id = ?`,
       [taskId]
@@ -908,6 +909,7 @@ export class WorkflowRepository {
       id: row.id,
       project_id: row.project_id,
       description: row.description || '',
+      start_date: row.start_date || null,
       end_date: row.end_date || null,
       actual_start_date: row.actual_start_date || null,
       actual_end_date: row.actual_end_date || null,
