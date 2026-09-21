@@ -44,6 +44,7 @@ import type {
   MemberTrendData,
   ReasonMemberCellData,
   StatsOverviewData,
+  OverdueStartOverviewData,
 } from '../types';
 import {
   DEFAULT_CHART_COLORS,
@@ -543,6 +544,17 @@ export function transformDelayAnalysisReport(
     riskLevel: task.delayDays > DELAY_DAYS_RISK.high ? 'high' : task.delayDays > DELAY_DAYS_RISK.medium ? 'medium' : 'low',
   }));
 
+  // 逾期未开始总览（仅当前口径，实时状态；带兜底防旧后端/缓存缺字段）
+  const oso = report.overdueStartOverview;
+  const overdueStartOverview: OverdueStartOverviewData = {
+    total: oso?.total ?? 0,
+    memberRanking: (oso?.memberRanking || []).map((m) => ({
+      name: m.name,
+      count: m.count,
+      maxOverdueDays: m.maxOverdueDays,
+    })),
+  };
+
   return {
     stats,
     delayTypeChart,
@@ -593,6 +605,7 @@ export function transformDelayAnalysisReport(
     })),
     statsOverview,
     longestDelayTasks,
+    overdueStartOverview,
   };
 }
 
@@ -1032,9 +1045,9 @@ function mapTaskType(taskType: string): string {
 }
 
 function mapTaskStatus(status: string): import('../types').TaskStatus {
-  // TaskStatus 已与后端枚举完全对齐，直接透传
+  // TaskStatus 已与后端枚举完全对齐（含 overdue_start 逾期未开始），直接透传
   const validStatuses: Set<string> = new Set([
-    'pending_approval', 'not_started', 'in_progress',
+    'pending_approval', 'not_started', 'overdue_start', 'in_progress',
     'early_completed', 'on_time_completed', 'delay_warning',
     'delayed', 'overdue_completed',
   ]);

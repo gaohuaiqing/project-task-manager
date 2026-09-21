@@ -53,6 +53,8 @@ export const QUERY_LIMITS = {
   TASK_TYPE_DELAY: 12,
   /** P2 原因×责任人交叉 Top N */
   REASON_MEMBER: 50,
+  /** 逾期未开始成员排行 Top N */
+  TOP_DELAY_MEMBERS: 10,
 } as const;
 
 // ============ 时间区间（天/周） ============

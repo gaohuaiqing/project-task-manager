@@ -184,6 +184,7 @@ export function DataTable<T extends object>({
         overdue_completed: 'bg-slate-100 text-slate-700',
         delayed: 'bg-red-100 text-red-700',
         delay_warning: 'bg-orange-100 text-orange-700',
+        overdue_start: 'bg-orange-100 text-orange-700',
         pending_approval: 'bg-orange-100 text-orange-700',
         pending_review: 'bg-orange-100 text-orange-700',
         review_rejected: 'bg-red-100 text-red-700',
@@ -209,6 +210,7 @@ export function DataTable<T extends object>({
         on_time_completed: '按时完成',
         delay_warning: '延期预警',
         delayed: '已延期',
+        overdue_start: '逾期未开始',
         overdue_completed: '超期完成',
         // 兼容旧数据/其他场景的状态值
         completed: '已完成',

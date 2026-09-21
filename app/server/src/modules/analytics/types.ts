@@ -356,6 +356,22 @@ export interface DelayAnalysisReport {
   stats_overview: StatsOverview;
   /** K3：超长延期天数榜 */
   longest_delay_tasks: DelayedTaskItem[];
+  /** 逾期未开始总览（仅当前口径，实时状态；逾期未开始不参与时间段统计） */
+  overdue_start_overview: OverdueStartOverview;
+}
+
+/** 逾期未开始成员排行项（含"未分配"聚合行） */
+export interface OverdueStartMemberStat {
+  name: string;
+  count: number;
+  /** 最长逾期未开始天数（CURDATE - start_date） */
+  max_overdue_days: number;
+}
+
+/** 逾期未开始总览（仅当前口径） */
+export interface OverdueStartOverview {
+  total: number;
+  member_ranking: OverdueStartMemberStat[];
 }
 
 export interface DelayedTaskItem {

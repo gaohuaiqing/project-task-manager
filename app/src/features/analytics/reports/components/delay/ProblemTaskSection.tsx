@@ -1,6 +1,7 @@
 /**
  * K1+K2+K3：问题任务榜（反复延期 + 频繁变更 + 超长延期天数）
- * 3 榜并排（桌面端 3 列）
+ * + 逾期未开始 Top 成员榜（仅当前口径，实时状态）
+ * 4 榜并排（桌面端 2 列 / 大屏 4 列）
  */
 import { useState, useRef } from 'react';
 import { ChartContainer, ChartGroup } from '../shared';
@@ -11,21 +12,24 @@ import { DelayHistoryPanel } from '@/features/tasks/components/DelayHistoryPanel
 import { PlanChangesPanel } from '@/features/tasks/components/PlanChangesPanel';
 import { getDelayRecords, getPlanChangesByTask } from '@/lib/api/workflow.api';
 import type { DelayRecord, PlanChange } from '@/lib/api/workflow.api';
-import type { DelayTaskItem } from '../../types';
+import type { DelayTaskItem, OverdueStartMemberRankingItem } from '../../types';
 
 export interface ProblemTaskSectionProps {
   repeatDelayTasks: DelayTaskItem[];
   frequentChangeTasks: DelayTaskItem[];
   longestDelayTasks: DelayTaskItem[];
+  /** 逾期未开始成员排行（仅当前口径，实时状态） */
+  overdueStartRanking: OverdueStartMemberRankingItem[];
 }
 
 export function ProblemTaskSection({
   repeatDelayTasks,
   frequentChangeTasks,
   longestDelayTasks,
+  overdueStartRanking,
 }: ProblemTaskSectionProps) {
   return (
-    <ChartGroup className="lg:grid-cols-3">
+    <ChartGroup className="lg:grid-cols-2 xl:grid-cols-4">
       <TaskListCard
         title="反复延期任务榜"
         subtitle={`Top ${repeatDelayTasks.length}（按累计延期次数，点击展开历史）`}
@@ -46,7 +50,41 @@ export function ProblemTaskSection({
         tasks={longestDelayTasks}
         metric={(t) => `${t.delayDays}天`}
       />
+      <OverdueStartRankingCard items={overdueStartRanking} />
     </ChartGroup>
+  );
+}
+
+/** 逾期未开始 Top 成员榜（姓名 / 任务数 / 最长逾期天数；实时状态，不参与时间段统计） */
+function OverdueStartRankingCard({ items }: { items: OverdueStartMemberRankingItem[] }) {
+  return (
+    <ChartContainer
+      title="逾期未开始 Top"
+      subtitle={`Top ${items.length}（按任务数，仅当前口径实时状态）`}
+    >
+      {items.length === 0 ? (
+        <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
+          暂无数据
+        </div>
+      ) : (
+        <div className="space-y-1.5 max-h-72 overflow-y-auto">
+          {items.map((m, i) => (
+            <div
+              key={`${m.name}-${i}`}
+              className="flex items-center justify-between gap-2 p-2 rounded border border-border/40 text-xs"
+            >
+              <div className="flex-1 min-w-0 font-medium truncate">{m.name}</div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-muted-foreground whitespace-nowrap">
+                  最长 <span className="font-medium text-orange-600">{m.maxOverdueDays}</span> 天
+                </span>
+                <span className="text-orange-600 font-medium whitespace-nowrap">{m.count} 个任务</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </ChartContainer>
   );
 }
 

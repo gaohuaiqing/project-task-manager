@@ -190,6 +190,22 @@ export interface DelayAnalysisReport {
   statsOverview: StatsOverview;
   /** v2: K3 超长延期天数任务榜 */
   longestDelayTasks: DelayedTaskItem[];
+  /** 逾期未开始总览（仅当前口径，实时状态） */
+  overdueStartOverview: OverdueStartOverview;
+}
+
+/** 逾期未开始成员排行项（含"未分配"聚合行） */
+export interface OverdueStartMemberStat {
+  name: string;
+  count: number;
+  /** 最长逾期未开始天数 */
+  maxOverdueDays: number;
+}
+
+/** 逾期未开始总览（仅当前口径） */
+export interface OverdueStartOverview {
+  total: number;
+  memberRanking: OverdueStartMemberStat[];
 }
 
 /** T1：各部门（技术组）延期对比（team_comparison） */

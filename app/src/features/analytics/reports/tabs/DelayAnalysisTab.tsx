@@ -94,10 +94,11 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
         repeatDelayTasks={data.repeatDelayTasks}
         frequentChangeTasks={data.frequentChangeTasks}
         longestDelayTasks={data.longestDelayTasks}
+        overdueStartRanking={data.overdueStartOverview.memberRanking}
       />
 
       {/* L1·静态维度 */}
-      <StatsOverviewSection data={data.statsOverview} />
+      <StatsOverviewSection data={data.statsOverview} overdueStart={data.overdueStartOverview} />
       <EstimationDeviationView data={data.estimationDeviation} />
       <ChartGroup>
         <ProjectDelayView data={data.projectDelayStats} onDrillDown={openDetail} />

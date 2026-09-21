@@ -308,6 +308,8 @@ export interface DelayAnalysisData {
   statsOverview: StatsOverviewData;
   /** v2: 超长延期天数任务榜（K3） */
   longestDelayTasks: DelayTaskItem[];
+  /** 逾期未开始总览（仅当前口径，实时状态） */
+  overdueStartOverview: OverdueStartOverviewData;
 }
 
 /** 部门延期对比数据（team_comparison） */
@@ -369,6 +371,20 @@ export interface StatsOverviewData {
     worstMemberName: { current: string | null; period: string | null };
     worstMemberCount: { current: number; period: number };
   };
+}
+
+/** 逾期未开始成员排行项（含"未分配"聚合行） */
+export interface OverdueStartMemberRankingItem {
+  name: string;
+  count: number;
+  /** 最长逾期未开始天数 */
+  maxOverdueDays: number;
+}
+
+/** 逾期未开始总览（仅当前口径，实时状态；不参与时间段统计） */
+export interface OverdueStartOverviewData {
+  total: number;
+  memberRanking: OverdueStartMemberRankingItem[];
 }
 
 /** 任务类型维度延期统计（task_type_delay_stats） */

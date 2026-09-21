@@ -26,6 +26,7 @@ import type {
   GroupActivityTrendPoint, MemberActivityTrendPoint, TodoTaskItem,
   ActivityTrendQueryOptions, ActivityTrendPoint, ActivityTrendEntity, ActivityTrendResponse,
   StatsOverview,
+  OverdueStartOverview, OverdueStartMemberStat,
   DelayDetailQueryOptions, DelayDetailResult,
 } from './types';
 import { buildTaskScopeFilter, buildProjectScopeFilter, buildUserDepartmentScopeFilter, ScopeFilter, getManagedDepartmentIds as getManagedDepartmentIdsSafe, getTechManagerGroupIds as getTechManagerGroupIdsSafe } from './query-builder';
@@ -1648,6 +1649,44 @@ export class AnalyticsRepository {
     );
     const longest_delay_tasks: DelayedTaskItem[] = (longestRows as RowDataPacket[]).map(mapToDelayedItem);
 
+    // ========== 逾期未开始（仅当前口径）==========
+    // 逾期未开始是实时状态（与 WBS 表 overdue_start 状态、仪表板卡片同口径 MUTEX_STATUS_CONDITIONS.overdueStart），
+    // 不参与时间段统计；且与延期/预警/超期完成互斥，故不能复用上方 stats SQL（其 WHERE 已限定 allDelayCondition，
+    // 直接加桶恒为 0），需独立统计。project_id 筛选与成员排行（memberConds1）口径一致。
+    const overdueStartConds: string[] = [scopeFilter.clause, `(${MUTEX_STATUS_CONDITIONS.overdueStart})`];
+    const overdueStartParams: (string | number)[] = [...scopeFilter.params];
+    if (options.project_id) {
+      overdueStartConds.push('t.project_id = ?');
+      overdueStartParams.push(options.project_id);
+    }
+    const [overdueStartTotalRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS total
+       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
+       WHERE ${overdueStartConds.join(' AND ')}`,
+      overdueStartParams
+    );
+    const [overdueStartRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT t.assignee_id,
+              IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS name,
+              COUNT(*) AS count,
+              MAX(DATEDIFF(CURDATE(), t.start_date)) AS max_overdue_days
+       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE ${overdueStartConds.join(' AND ')}
+       GROUP BY t.assignee_id, u.real_name, u.username
+       ORDER BY count DESC, max_overdue_days DESC
+       LIMIT ${QUERY_LIMITS.TOP_DELAY_MEMBERS}`,
+      overdueStartParams
+    );
+    const overdue_start_overview: OverdueStartOverview = {
+      total: Number((overdueStartTotalRows as RowDataPacket[])[0]?.total) || 0,
+      member_ranking: (overdueStartRows as RowDataPacket[]).map((r): OverdueStartMemberStat => ({
+        name: String(r.name),
+        count: Number(r.count) || 0,
+        max_overdue_days: Number(r.max_overdue_days) || 0,
+      })),
+    };
+
     return {
       total_delayed: Number(stats.total_delayed) || 0,
       warning_count: Number(stats.warning_count) || 0,
@@ -1683,6 +1722,7 @@ export class AnalyticsRepository {
       frequent_change_tasks,
       stats_overview,
       longest_delay_tasks,
+      overdue_start_overview,
     };
   }
 
