@@ -689,6 +689,7 @@ export class WorkflowRepository {
        FROM wbs_tasks t
        LEFT JOIN users u ON t.assignee_id = u.id
        WHERE t.status != 'delayed'
+       AND (COALESCE(JSON_LENGTH(t.pending_changes), 0) = 0 OR t.pending_change_type != 'plan_change')
        AND t.end_date IS NOT NULL
        AND t.end_date < CURDATE()
        AND t.actual_end_date IS NULL`
