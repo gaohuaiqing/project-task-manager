@@ -286,6 +286,22 @@ export function transformDelayAnalysisReport(
       description: '已超过截止日期但最终完成的任务数',
       valueColor: 'default',
     },
+    {
+      key: 'overdue_start_count',
+      label: '当前逾期未开始',
+      value: report.overdueStartOverview?.total ?? 0,
+      icon: 'Clock',
+      description: '已过计划开始日期仍未开始的任务数（tech_manager/engineer 本组总览卡取用）',
+      valueColor: report.overdueStartOverview?.total > 0 ? 'warning' : 'success',
+    },
+    {
+      key: 'avg_overdue_start_days',
+      label: '平均逾期开始天数',
+      value: report.overdueStartOverview?.avgOverdueDays ?? 0,
+      icon: 'Timer',
+      description: '逾期未开始任务的平均逾期天数（CURDATE - start_date）',
+      valueColor: 'default',
+    },
   ];
 
   // 延期类型分布（饼图）
@@ -444,6 +460,10 @@ export function transformDelayAnalysisReport(
     delayedCount: d.delayedCount,
     delayRate: d.delayRate,
     avgDelayDays: d.avgDelayDays,
+    // 逾期未开始并列指标（admin/dept_manager 组对比 3 新列）
+    overdueStartCount: d.overdueStartCount ?? 0,
+    overdueStartRate: d.overdueStartRate ?? 0,
+    avgOverdueStartDays: d.avgOverdueStartDays ?? 0,
     totalDelayCount: d.totalDelayCount,
     planChangeCount: d.planChangeCount,
     planChangeRate: d.planChangeRate,
@@ -548,6 +568,7 @@ export function transformDelayAnalysisReport(
   const oso = report.overdueStartOverview;
   const overdueStartOverview: OverdueStartOverviewData = {
     total: oso?.total ?? 0,
+    avgOverdueDays: oso?.avgOverdueDays ?? 0,
     memberRanking: (oso?.memberRanking || []).map((m) => ({
       name: m.name,
       count: m.count,

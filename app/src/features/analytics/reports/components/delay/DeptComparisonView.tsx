@@ -2,6 +2,7 @@
  * T1：各技术组延期对比（admin/dept_manager 可见）
  * 表格 + 条形图：组名/总任务/延期数/延期率/平均天数/累计延期/计划变更
  * v2: 表格末列追加"改善方向"（↑恶化/↓改善/→持平 + delta 值）
+ * 逾期未开始并列：平均天数后插 3 列（逾期未开始/未开始占比/平均逾期开始天数），图加第三系列
  */
 import { BarChart } from '../charts';
 import { ChartContainer } from '../shared';
@@ -67,6 +68,8 @@ export function DeptComparisonView({ data, onSelectDept }: DeptComparisonViewPro
     datasets: [
       { label: '当前延期数', values: data.map((d) => d.delayedCount), color: '#ef4444' },
       { label: '累计延期次数', values: data.map((d) => d.totalDelayCount), color: '#f59e0b' },
+      // 逾期未开始第三系列（橙色，与延期并列的实时口径指标）
+      { label: '当前逾期未开始', values: data.map((d) => d.overdueStartCount), color: '#EA580C' },
     ],
   };
 
@@ -76,7 +79,7 @@ export function DeptComparisonView({ data, onSelectDept }: DeptComparisonViewPro
         <table className="w-full text-xs">
           <thead className="bg-muted/50">
             <tr>
-              {['组名', '总任务', '延期数', '延期率', '平均天数', '累计延期', '计划变更', '计划变更率', '累计延期率', '改善方向'].map((h) => (
+              {['组名', '总任务', '延期数', '延期率', '平均天数', '逾期未开始', '未开始占比', '平均逾期开始天数', '累计延期', '计划变更', '计划变更率', '累计延期率', '改善方向'].map((h) => (
                 <th key={h} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -93,6 +96,10 @@ export function DeptComparisonView({ data, onSelectDept }: DeptComparisonViewPro
                 <td className="px-2 py-1.5 text-red-600 font-medium">{d.delayedCount}</td>
                 <td className="px-2 py-1.5">{d.delayRate}%</td>
                 <td className="px-2 py-1.5">{d.avgDelayDays}</td>
+                {/* 逾期未开始并列指标（插在平均天数与累计延期之间） */}
+                <td className="px-2 py-1.5 text-orange-600 font-medium">{d.overdueStartCount}</td>
+                <td className="px-2 py-1.5">{d.overdueStartRate}%</td>
+                <td className="px-2 py-1.5">{d.avgOverdueStartDays}</td>
                 <td className="px-2 py-1.5 text-amber-600">{d.totalDelayCount}</td>
                 <td className="px-2 py-1.5">{d.planChangeCount}</td>
                 <td className="px-2 py-1.5 text-blue-600">{d.planChangeRate}</td>

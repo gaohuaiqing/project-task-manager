@@ -1307,7 +1307,10 @@ export class AnalyticsRepository {
                   SUM(COALESCE(t.delay_count, 0)) AS total_delay_count,
                   SUM(COALESCE(t.plan_change_count, 0)) AS plan_change_count,
                   ROUND(AVG(CASE WHEN ${DELAY_CONDITIONS.delayed} AND t.end_date IS NOT NULL
-                      THEN DATEDIFF(CURDATE(), t.end_date) END), 1) AS avg_delay_days
+                      THEN DATEDIFF(CURDATE(), t.end_date) END), 1) AS avg_delay_days,
+                  SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN 1 ELSE 0 END) AS overdue_start_count,
+                  ROUND(AVG(CASE WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart}
+                      THEN DATEDIFF(CURDATE(), t.start_date) END), 1) AS avg_overdue_start_days
            FROM departments d
            JOIN users u ON u.department_id = d.id AND u.is_active = 1
            JOIN wbs_tasks t ON t.assignee_id = u.id
@@ -1321,6 +1324,7 @@ export class AnalyticsRepository {
         for (const r of deptRows as RowDataPacket[]) {
           const total = Number(r.total_tasks) || 0;
           const delayed = Number(r.delayed_count) || 0;
+          const overdueStartCount = Number(r.overdue_start_count) || 0;
           const planChangeCount = Number(r.plan_change_count) || 0;
           const totalDelayCount = Number(r.total_delay_count) || 0;
           // v2 Task 3：该组改善方向（按 dept_id 构造 dept scope，复用 computeImprovement）
@@ -1337,6 +1341,10 @@ export class AnalyticsRepository {
             delayed_count: delayed,
             delay_rate: total > 0 ? Math.round((delayed / total) * 1000) / 10 : 0,
             avg_delay_days: Number(r.avg_delay_days) || 0,
+            // 逾期未开始并列指标（占比与 delay_rate 同模式：TS 侧算，保留1位小数）
+            overdue_start_count: overdueStartCount,
+            overdue_start_rate: total > 0 ? Math.round((overdueStartCount / total) * 1000) / 10 : 0,
+            avg_overdue_start_days: Number(r.avg_overdue_start_days) || 0,
             total_delay_count: totalDelayCount,
             plan_change_count: planChangeCount,
             plan_change_rate: total > 0 ? Math.round((planChangeCount / total) * 100) / 100 : 0,
@@ -1660,7 +1668,8 @@ export class AnalyticsRepository {
       overdueStartParams.push(options.project_id);
     }
     const [overdueStartTotalRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT COUNT(*) AS total
+      `SELECT COUNT(*) AS total,
+              ROUND(AVG(DATEDIFF(CURDATE(), t.start_date)), 1) AS avg_overdue_days
        FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
        WHERE ${overdueStartConds.join(' AND ')}`,
       overdueStartParams
@@ -1680,6 +1689,8 @@ export class AnalyticsRepository {
     );
     const overdue_start_overview: OverdueStartOverview = {
       total: Number((overdueStartTotalRows as RowDataPacket[])[0]?.total) || 0,
+      // 平均逾期开始天数（overdueStart 条件保证 start_date 非空且早于今日，DATEDIFF 恒为正）
+      avg_overdue_days: Number((overdueStartTotalRows as RowDataPacket[])[0]?.avg_overdue_days) || 0,
       member_ranking: (overdueStartRows as RowDataPacket[]).map((r): OverdueStartMemberStat => ({
         name: String(r.name),
         count: Number(r.count) || 0,

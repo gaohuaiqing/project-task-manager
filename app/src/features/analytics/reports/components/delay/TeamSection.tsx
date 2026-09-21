@@ -26,11 +26,14 @@ export function TeamSection({ data, role, onSelectDept }: TeamSectionProps) {
     };
     return (
       <ChartContainer title="本组延期总览" subtitle="本组当前延期核心指标">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
           <Metric label="当前延期" value={num('delayed_count')} color="text-red-600" />
           <Metric label="延期预警" value={num('warning_count')} color="text-amber-600" />
           <Metric label="累计延期次数" value={sumMemberDelay(data.memberRanking)} color="text-orange-600" />
           <Metric label="平均延期天数" value={data.severityDistribution?.avgDelayDays ?? 0} color="text-rose-600" />
+          {/* 逾期未开始并列指标（实时口径，与延期互斥；key 由 transformer stats 数组提供） */}
+          <Metric label="当前逾期未开始" value={num('overdue_start_count')} color="text-orange-600" />
+          <Metric label="平均逾期开始天数" value={num('avg_overdue_start_days')} color="text-amber-700" />
         </div>
       </ChartContainer>
     );

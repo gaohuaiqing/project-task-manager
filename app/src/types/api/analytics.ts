@@ -205,6 +205,8 @@ export interface OverdueStartMemberStat {
 /** 逾期未开始总览（仅当前口径） */
 export interface OverdueStartOverview {
   total: number;
+  /** 平均逾期开始天数（仅统计逾期未开始任务） */
+  avgOverdueDays: number;
   memberRanking: OverdueStartMemberStat[];
 }
 
@@ -216,6 +218,12 @@ export interface DepartmentDelayStat {
   delayedCount: number;
   delayRate: number;
   avgDelayDays: number;
+  /** 逾期未开始任务数（MUTEX overdueStart 实时口径，与延期互斥） */
+  overdueStartCount: number;
+  /** 逾期未开始占比（百分比 0-100，保留1位小数） */
+  overdueStartRate: number;
+  /** 平均逾期开始天数（仅统计逾期未开始任务） */
+  avgOverdueStartDays: number;
   totalDelayCount: number;
   planChangeCount: number;
   /** 计划变更率 = planChangeCount / totalTasks（"次/任务"语义） */
