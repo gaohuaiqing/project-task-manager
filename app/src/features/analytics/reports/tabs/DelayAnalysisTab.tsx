@@ -55,7 +55,10 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
     setDetailDialog({
       open: true,
       title,
-      filters: { ...detailFilters, start_date: filters.startDate, end_date: filters.endDate },
+      // 逾期未开始为实时口径不参与时间段统计，不合并当前时间段筛选（与主报表 overdue_start_overview 同规则）
+      filters: detailFilters.overdue_start
+        ? { ...detailFilters }
+        : { ...detailFilters, start_date: filters.startDate, end_date: filters.endDate },
     });
   };
 
@@ -95,6 +98,14 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
         frequentChangeTasks={data.frequentChangeTasks}
         longestDelayTasks={data.longestDelayTasks}
         overdueStartRanking={data.overdueStartOverview.memberRanking}
+        onOverdueStartDrillDown={(member) => {
+          // 「未分配」聚合行无 assigneeId 不可下钻（卡片内部已禁用点击，此处双保险）
+          if (member.assigneeId == null) return;
+          openDetail(
+            { assignee_id: member.assigneeId, overdue_start: true },
+            `${member.name} 的逾期未开始任务`,
+          );
+        }}
       />
 
       {/* L1·静态维度 */}

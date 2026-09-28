@@ -37,8 +37,9 @@ export const TASK_STATUS_CONFIG: Record<TaskStatus, {
   overdue_start: {
     label: '逾期未开始',
     color: 'orange',
-    bgColor: 'bg-orange-100',
-    textColor: 'text-orange-700',
+    // 深一档，与延期预警(orange-100/700)区分
+    bgColor: 'bg-orange-200',
+    textColor: 'text-orange-800',
   },
   in_progress: {
     label: '进行中',

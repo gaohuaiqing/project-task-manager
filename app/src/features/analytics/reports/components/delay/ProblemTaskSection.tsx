@@ -20,6 +20,8 @@ export interface ProblemTaskSectionProps {
   longestDelayTasks: DelayTaskItem[];
   /** 逾期未开始成员排行（仅当前口径，实时状态） */
   overdueStartRanking: OverdueStartMemberRankingItem[];
+  /** 逾期未开始 Top 榜成员下钻（「未分配」聚合行 assigneeId 为 null 不触发） */
+  onOverdueStartDrillDown?: (member: OverdueStartMemberRankingItem) => void;
 }
 
 export function ProblemTaskSection({
@@ -27,6 +29,7 @@ export function ProblemTaskSection({
   frequentChangeTasks,
   longestDelayTasks,
   overdueStartRanking,
+  onOverdueStartDrillDown,
 }: ProblemTaskSectionProps) {
   return (
     <ChartGroup className="lg:grid-cols-2 xl:grid-cols-4">
@@ -50,17 +53,26 @@ export function ProblemTaskSection({
         tasks={longestDelayTasks}
         metric={(t) => `${t.delayDays}天`}
       />
-      <OverdueStartRankingCard items={overdueStartRanking} />
+      <OverdueStartRankingCard items={overdueStartRanking} onDrillDown={onOverdueStartDrillDown} />
     </ChartGroup>
   );
 }
 
-/** 逾期未开始 Top 成员榜（姓名 / 任务数 / 最长逾期天数；实时状态，不参与时间段统计） */
-function OverdueStartRankingCard({ items }: { items: OverdueStartMemberRankingItem[] }) {
+/**
+ * 逾期未开始 Top 成员榜（姓名 / 任务数 / 最长逾期天数；实时状态，不参与时间段统计）
+ * 有 assigneeId 的行可点击下钻查看该成员逾期未开始任务明细；「未分配」聚合行不可点（样式弱化）
+ */
+function OverdueStartRankingCard({
+  items,
+  onDrillDown,
+}: {
+  items: OverdueStartMemberRankingItem[];
+  onDrillDown?: (member: OverdueStartMemberRankingItem) => void;
+}) {
   return (
     <ChartContainer
       title="逾期未开始 Top"
-      subtitle={`Top ${items.length}（按任务数，仅当前口径实时状态）`}
+      subtitle={`Top ${items.length}（按任务数，仅当前口径实时状态${onDrillDown ? '，点击查看明细' : ''}）`}
     >
       {items.length === 0 ? (
         <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
@@ -68,20 +80,40 @@ function OverdueStartRankingCard({ items }: { items: OverdueStartMemberRankingIt
         </div>
       ) : (
         <div className="space-y-1.5 max-h-72 overflow-y-auto">
-          {items.map((m, i) => (
-            <div
-              key={`${m.name}-${i}`}
-              className="flex items-center justify-between gap-2 p-2 rounded border border-border/40 text-xs"
-            >
-              <div className="flex-1 min-w-0 font-medium truncate">{m.name}</div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-muted-foreground whitespace-nowrap">
-                  最长 <span className="font-medium text-orange-600">{m.maxOverdueDays}</span> 天
-                </span>
-                <span className="text-orange-600 font-medium whitespace-nowrap">{m.count} 个任务</span>
+          {items.map((m, i) => {
+            // 「未分配」聚合行 assigneeId 为 null，不可下钻
+            const clickable = onDrillDown != null && m.assigneeId != null;
+            return (
+              <div
+                key={`${m.name}-${i}`}
+                role={clickable ? 'button' : undefined}
+                tabIndex={clickable ? 0 : undefined}
+                onClick={clickable ? () => onDrillDown(m) : undefined}
+                onKeyDown={clickable
+                  ? (e) => {
+                      // 键盘可达性：Enter/空格 触发与点击相同的下钻
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onDrillDown(m);
+                      }
+                    }
+                  : undefined}
+                className={cn(
+                  'flex items-center justify-between gap-2 p-2 rounded border border-border/40 text-xs',
+                  clickable && 'cursor-pointer hover:bg-muted/30 hover:border-border transition-colors',
+                  !clickable && 'opacity-70',
+                )}
+              >
+                <div className="flex-1 min-w-0 font-medium truncate">{m.name}</div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-muted-foreground whitespace-nowrap">
+                    最长 <span className="font-medium text-orange-600">{m.maxOverdueDays}</span> 天
+                  </span>
+                  <span className="text-orange-600 font-medium whitespace-nowrap">{m.count} 个任务</span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </ChartContainer>

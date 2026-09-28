@@ -369,6 +369,8 @@ export interface DelayAnalysisReport {
 /** 逾期未开始成员排行项（含"未分配"聚合行） */
 export interface OverdueStartMemberStat {
   name: string;
+  /** 责任人 ID（"未分配"聚合行为 null，前端不可下钻） */
+  assignee_id: number | null;
   count: number;
   /** 最长逾期未开始天数（CURDATE - start_date） */
   max_overdue_days: number;
@@ -414,6 +416,8 @@ export interface DelayDetailQueryOptions {
   project_id?: string;
   task_type?: string;       // '未分类' 走特殊反向映射（task_type='' OR IS NULL）
   delay_type?: 'delay_warning' | 'delayed';  // 注意：超期完成已从列表移除
+  /** 逾期未开始模式：WHERE 切换为 MUTEX overdueStart 实时口径（与仪表板/WBS 表一致），忽略时间段 */
+  overdue_start?: boolean;
   start_date?: string;
   end_date?: string;
   page?: number;

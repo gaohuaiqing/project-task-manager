@@ -63,7 +63,7 @@ export type ColumnDataType =
 export const STATUS_COLORS: Record<TaskStatus, { bg: string; text: string; label: string }> = {
   pending_approval: { bg: 'bg-purple-100', text: 'text-purple-700', label: '待审批' },
   not_started: { bg: 'bg-gray-100', text: 'text-gray-600', label: '未开始' },
-  overdue_start: { bg: 'bg-orange-100', text: 'text-orange-700', label: '逾期未开始' },
+  overdue_start: { bg: 'bg-orange-200', text: 'text-orange-800', label: '逾期未开始' }, // 深一档，与延期预警(orange-100/700)区分
   in_progress: { bg: 'bg-blue-100', text: 'text-blue-700', label: '进行中' },
   early_completed: { bg: 'bg-green-100', text: 'text-green-700', label: '提前完成' },
   on_time_completed: { bg: 'bg-cyan-100', text: 'text-cyan-700', label: '按时完成' },

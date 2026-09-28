@@ -78,6 +78,8 @@ export async function getDelayDetailTasks(
   if (options.assignee_id) params.set('assignee_id', String(options.assignee_id));
   if (options.project_id) params.set('project_id', options.project_id);
   if (options.task_type) params.set('task_type', options.task_type);
+  // 逾期未开始下钻模式（后端切换 WHERE 为 MUTEX overdueStart 实时口径并忽略时间段）
+  if (options.overdue_start) params.set('overdue_start', 'true');
   if (options.start_date) params.set('start_date', options.start_date);
   if (options.end_date) params.set('end_date', options.end_date);
   if (options.page) params.set('page', String(options.page));

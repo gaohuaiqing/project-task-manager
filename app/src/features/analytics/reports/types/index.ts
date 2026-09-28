@@ -382,6 +382,8 @@ export interface StatsOverviewData {
 /** 逾期未开始成员排行项（含"未分配"聚合行） */
 export interface OverdueStartMemberRankingItem {
   name: string;
+  /** 责任人 ID（"未分配"聚合行为 null，不可下钻） */
+  assigneeId: number | null;
   count: number;
   /** 最长逾期未开始天数 */
   maxOverdueDays: number;
@@ -475,6 +477,8 @@ export interface DelayDetailQuery {
   assignee_id?: number;
   project_id?: string;
   task_type?: string;
+  /** 逾期未开始模式：后端 WHERE 切换为 MUTEX overdueStart 实时口径（忽略时间段） */
+  overdue_start?: boolean;
   start_date?: string;
   end_date?: string;
   page?: number;

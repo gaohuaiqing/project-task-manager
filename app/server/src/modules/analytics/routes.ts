@@ -127,6 +127,8 @@ router.get('/reports/delay-analysis/detail-tasks', requirePermission('REPORT_VIE
       project_id: req.query.project_id as string,
       task_type: req.query.task_type as string,
       delay_type: req.query.delay_type as DelayDetailQueryOptions['delay_type'],
+      // 逾期未开始下钻模式（'true' 字符串转 boolean；切换 WHERE 为 MUTEX overdueStart 实时口径）
+      overdue_start: req.query.overdue_start === 'true',
       start_date: req.query.start_date as string,
       end_date: req.query.end_date as string,
       page: req.query.page ? parseInt(req.query.page as string) : undefined,

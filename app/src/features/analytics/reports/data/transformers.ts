@@ -571,6 +571,8 @@ export function transformDelayAnalysisReport(
     avgOverdueDays: oso?.avgOverdueDays ?? 0,
     memberRanking: (oso?.memberRanking || []).map((m) => ({
       name: m.name,
+      // 责任人 ID（"未分配"聚合行为 null 不可下钻；旧缓存缺字段兜底 null）
+      assigneeId: m.assigneeId ?? null,
       count: m.count,
       maxOverdueDays: m.maxOverdueDays,
     })),

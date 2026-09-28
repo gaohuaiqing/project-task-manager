@@ -1693,6 +1693,8 @@ export class AnalyticsRepository {
       avg_overdue_days: Number((overdueStartTotalRows as RowDataPacket[])[0]?.avg_overdue_days) || 0,
       member_ranking: (overdueStartRows as RowDataPacket[]).map((r): OverdueStartMemberStat => ({
         name: String(r.name),
+        // 责任人 ID（"未分配"聚合行为 null，前端据此判断是否可下钻明细）
+        assignee_id: r.assignee_id != null ? Number(r.assignee_id) : null,
         count: Number(r.count) || 0,
         max_overdue_days: Number(r.max_overdue_days) || 0,
       })),
@@ -1757,13 +1759,19 @@ export class AnalyticsRepository {
       )
     `.trim().replace(/\s+/g, ' ');
     // 延期类型枚举：delayed=已延期, delay_warning=延期预警
-    const delayTypeCase = `CASE
+    // 逾期未开始模式：固定输出 'overdue_start'（WHERE 已切换为该实时口径，无需 CASE 判定）
+    const delayTypeCase = options.overdue_start
+      ? `'overdue_start'`
+      : `CASE
       WHEN ${NOT_PENDING_APPROVAL} AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) <= COALESCE(t.warning_days, 3) THEN 'delay_warning'
       WHEN ${NOT_PENDING_APPROVAL} AND t.actual_end_date IS NULL AND t.end_date IS NOT NULL AND t.end_date < CURDATE() THEN 'delayed'
       ELSE NULL
     END`;
     // 延期天数计算
-    const delayDaysCase = `CASE
+    // 逾期未开始模式：改为逾期开始天数（CURDATE - start_date；overdueStart 条件保证 start_date 非空且早于今日，恒为正，GREATEST 兜底防负）
+    const delayDaysCase = options.overdue_start
+      ? `GREATEST(0, DATEDIFF(CURDATE(), t.start_date))`
+      : `CASE
       WHEN t.end_date IS NULL THEN 0
       WHEN t.actual_end_date IS NULL AND t.end_date < CURDATE() THEN GREATEST(0, DATEDIFF(CURDATE(), t.end_date))
       WHEN t.actual_end_date IS NULL AND t.end_date >= CURDATE() AND DATEDIFF(t.end_date, CURDATE()) <= COALESCE(t.warning_days, 3) THEN 0
@@ -1771,7 +1779,11 @@ export class AnalyticsRepository {
     END`;
 
     // 维度条件 + 时间段
-    const conds: string[] = [scopeFilter.clause, DELAYED_OR_WARNING];
+    // 逾期未开始模式：口径常量整体替换为互斥实时状态 overdueStart（与仪表板卡片、主报表 overdue_start_overview 同口径）
+    const baseStatusCondition = options.overdue_start
+      ? `(${MUTEX_STATUS_CONDITIONS.overdueStart})`
+      : DELAYED_OR_WARNING;
+    const conds: string[] = [scopeFilter.clause, baseStatusCondition];
     const params: (string | number)[] = [...scopeFilter.params];
     if (options.assignee_id) { conds.push('t.assignee_id = ?'); params.push(options.assignee_id); }
     if (options.project_id) { conds.push('t.project_id = ?'); params.push(options.project_id); }
@@ -1783,7 +1795,8 @@ export class AnalyticsRepository {
         conds.push('t.task_type = ?'); params.push(options.task_type);
       }
     }
-    if (options.start_date && options.end_date) {
+    // 逾期未开始为实时状态不参与时间段统计（与主报表 overdue_start_overview 同规则），故该模式下忽略时间段
+    if (!options.overdue_start && options.start_date && options.end_date) {
       conds.push('t.end_date BETWEEN ? AND ?'); params.push(options.start_date, options.end_date);
     }
     const whereClause = `WHERE ${conds.join(' AND ')}`;

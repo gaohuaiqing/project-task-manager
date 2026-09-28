@@ -184,7 +184,7 @@ export function DataTable<T extends object>({
         overdue_completed: 'bg-slate-100 text-slate-700',
         delayed: 'bg-red-100 text-red-700',
         delay_warning: 'bg-orange-100 text-orange-700',
-        overdue_start: 'bg-orange-100 text-orange-700',
+        overdue_start: 'bg-orange-200 text-orange-800',
         pending_approval: 'bg-orange-100 text-orange-700',
         pending_review: 'bg-orange-100 text-orange-700',
         review_rejected: 'bg-red-100 text-red-700',

@@ -197,6 +197,8 @@ export interface DelayAnalysisReport {
 /** 逾期未开始成员排行项（含"未分配"聚合行） */
 export interface OverdueStartMemberStat {
   name: string;
+  /** 责任人 ID（"未分配"聚合行为 null，不可下钻；可选兜底防旧缓存） */
+  assigneeId?: number | null;
   count: number;
   /** 最长逾期未开始天数 */
   maxOverdueDays: number;

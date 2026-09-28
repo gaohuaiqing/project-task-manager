@@ -79,7 +79,7 @@ export function DeptComparisonView({ data, onSelectDept }: DeptComparisonViewPro
         <table className="w-full text-xs">
           <thead className="bg-muted/50">
             <tr>
-              {['组名', '总任务', '延期数', '延期率', '平均天数', '逾期未开始', '未开始占比', '平均逾期开始天数', '累计延期', '计划变更', '计划变更率', '累计延期率', '改善方向'].map((h) => (
+              {['组名', '总任务', '延期数', '延期率', '平均天数', '逾期未开始', '逾期未开始占比', '平均逾期开始天数', '累计延期', '计划变更', '计划变更率', '累计延期率', '改善方向'].map((h) => (
                 <th key={h} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{h}</th>
               ))}
             </tr>
