@@ -25,8 +25,8 @@ export type UserRole = 'admin' | 'dept_manager' | 'tech_manager' | 'engineer';
  */
 export type TimeRange = 'current' | '30d' | '3m' | '6m' | '1y' | 'custom';
 
-/** 延期类型（延期任务列表只显示以下类型） */
-export type DelayType = 'delay_warning' | 'delayed';
+/** 延期类型（延期任务列表只显示以下类型；overdue_start=逾期未开始，用于逾期未开始下钻明细） */
+export type DelayType = 'delay_warning' | 'delayed' | 'overdue_start';
 // 注意：超期完成 (overdue_completed) 已从延期任务列表中移除
 
 /** 风险等级 */
