@@ -190,10 +190,10 @@ export function StatsOverviewSection({
           <div className="text-sm leading-relaxed text-muted-foreground space-y-0.5">
             {topRiskDept && topRiskDeptRate && (
               <div>
-                🔥 风险最高团队：{topRiskDept.deptName}（{topRiskDept.riskTotal} 个，占该组 {topRiskDeptRate}）
+                🔥 风险最高团队：{topRiskDept.deptName} —— {topRiskDept.riskTotal} 个风险任务（占该组任务数 {topRiskDeptRate}）
               </div>
             )}
-            {riskMember && <div>👤 风险最高个人：{riskMember.name}（{riskMember.count} 个）</div>}
+            {riskMember && <div>👤 风险最高个人：{riskMember.name} —— {riskMember.count} 个风险任务</div>}
             {riskTrend && <div>📈 较上期：{riskTrendText}</div>}
           </div>
         )}
