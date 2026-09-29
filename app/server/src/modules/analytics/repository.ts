@@ -1757,17 +1757,24 @@ export class AnalyticsRepository {
     // —— 三态为实时状态不含时间段（与 overdue_start_overview 同规则）；未分配任务聚合为"未分配"行；
     //    轻量聚合（LIMIT 1）仅供结论行展示，无风险任务时返回 null（前端隐藏该行）
     const RISK_TRI_STATE = `(${DELAY_CONDITIONS.delayed} OR ${DELAY_CONDITIONS.delay_warning} OR (${MUTEX_STATUS_CONDITIONS.overdueStart}))`;
+    // project_id 筛选与主 stats/scope_stats 口径一致（否则单项目下结论行风险个人与统计数字口径不一致）
+    const riskMemberConds: string[] = [scopeFilter.clause, RISK_TRI_STATE];
+    const riskMemberParams: (string | number)[] = [...scopeFilter.params];
+    if (options.project_id) {
+      riskMemberConds.push('t.project_id = ?');
+      riskMemberParams.push(options.project_id);
+    }
     const [riskMemberRows] = await pool.execute<RowDataPacket[]>(
       `SELECT IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS name,
               COUNT(*) AS risk_cnt
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
-       WHERE ${scopeFilter.clause} AND ${RISK_TRI_STATE}
+       WHERE ${riskMemberConds.join(' AND ')}
        GROUP BY t.assignee_id, u.real_name, u.username
        ORDER BY risk_cnt DESC
        LIMIT 1`,
-      scopeFilter.params
+      riskMemberParams
     );
     const riskMemberRow = (riskMemberRows as RowDataPacket[])[0];
     const risk_member: RiskMemberStat | null = riskMemberRow
