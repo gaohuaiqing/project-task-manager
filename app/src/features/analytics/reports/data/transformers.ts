@@ -486,6 +486,8 @@ export function transformDelayAnalysisReport(
     planChangeCount: d.planChangeCount,
     planChangeRate: d.planChangeRate,
     avgDelayPerTask: d.avgDelayPerTask,
+    // v3: 延期预警数（结论行「风险最高团队」三态合计用；旧缓存缺字段兜底 0）
+    warningCount: d.warningCount ?? 0,
     improvementDelta: d.improvementDelta,
     improvementDirection: d.improvementDirection,
   }));
@@ -660,6 +662,9 @@ export function transformDelayAnalysisReport(
       teamCount: report.scopeStats?.teamCount ?? 0,
       taskCount: report.scopeStats?.taskCount ?? 0,
     },
+    // v3: 结论行增强——风险最高个人 / 整体较上期趋势（旧后端/缓存缺字段兜底 null，前端隐藏对应行）
+    riskMember: report.riskMember ?? null,
+    riskTrend: report.riskTrend ?? null,
   };
 }
 

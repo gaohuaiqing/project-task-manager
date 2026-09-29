@@ -106,6 +106,9 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
         delayedAvgDays={data.delayedAvgDays}
         warningAvgDays={data.warningAvgDays}
         scopeStats={data.scopeStats}
+        teamComparison={data.teamComparison}
+        riskMember={data.riskMember}
+        riskTrend={data.riskTrend}
         filters={filters}
         role={role}
         onStatClick={handleStatClick}

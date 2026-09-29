@@ -28,7 +28,7 @@ import type {
   StatsOverview,
   OverdueStartOverview, OverdueStartMemberStat,
   DelayDetailQueryOptions, DelayDetailResult,
-  ScopeStats,
+  ScopeStats, RiskMemberStat, RiskTrendStat,
 } from './types';
 import { buildTaskScopeFilter, buildProjectScopeFilter, buildUserDepartmentScopeFilter, ScopeFilter, getManagedDepartmentIds as getManagedDepartmentIdsSafe, getTechManagerGroupIds as getTechManagerGroupIdsSafe } from './query-builder';
 import { QUERY_LIMITS, TIME_INTERVALS, ACTIVITY_PERCENTAGES, STATUS_THRESHOLDS, ESTIMATION_THRESHOLDS, WBS_COMPLEXITY, DEFAULTS, STATUS_CONDITIONS, MUTEX_STATUS_CONDITIONS } from './constants';
@@ -1352,7 +1352,8 @@ export class AnalyticsRepository {
                       THEN DATEDIFF(CURDATE(), t.end_date) END), 1) AS avg_delay_days,
                   SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN 1 ELSE 0 END) AS overdue_start_count,
                   ROUND(AVG(CASE WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart}
-                      THEN DATEDIFF(CURDATE(), t.start_date) END), 1) AS avg_overdue_start_days
+                      THEN DATEDIFF(CURDATE(), t.start_date) END), 1) AS avg_overdue_start_days,
+                  SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.delayWarning} THEN 1 ELSE 0 END) AS warning_count
            FROM departments d
            JOIN users u ON u.department_id = d.id AND u.is_active = 1
            JOIN wbs_tasks t ON t.assignee_id = u.id
@@ -1391,6 +1392,8 @@ export class AnalyticsRepository {
             plan_change_count: planChangeCount,
             plan_change_rate: total > 0 ? Math.round((planChangeCount / total) * 100) / 100 : 0,
             avg_delay_per_task: total > 0 ? Math.round((totalDelayCount / total) * 100) / 100 : 0,
+            // v3: 延期预警数（统计总览「风险最高团队」行三态合计用：delayed + overdue_start + warning）
+            warning_count: Number(r.warning_count) || 0,
             improvement_delta: imp.delta,
             improvement_direction: imp.direction,
           });
@@ -1748,6 +1751,36 @@ export class AnalyticsRepository {
       })),
     };
 
+    // ========== v3: 统计总览结论行增强（风险最高个人 + 整体较上期趋势）==========
+
+    // 风险最高个人：scope 内三态（已延期 + 逾期未开始 + 延期预警）实时口径合计 Top1
+    // —— 三态为实时状态不含时间段（与 overdue_start_overview 同规则）；未分配任务聚合为"未分配"行；
+    //    轻量聚合（LIMIT 1）仅供结论行展示，无风险任务时返回 null（前端隐藏该行）
+    const RISK_TRI_STATE = `(${DELAY_CONDITIONS.delayed} OR ${DELAY_CONDITIONS.delay_warning} OR (${MUTEX_STATUS_CONDITIONS.overdueStart}))`;
+    const [riskMemberRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS name,
+              COUNT(*) AS risk_cnt
+       FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE ${scopeFilter.clause} AND ${RISK_TRI_STATE}
+       GROUP BY t.assignee_id, u.real_name, u.username
+       ORDER BY risk_cnt DESC
+       LIMIT 1`,
+      scopeFilter.params
+    );
+    const riskMemberRow = (riskMemberRows as RowDataPacket[])[0];
+    const risk_member: RiskMemberStat | null = riskMemberRow
+      ? { name: String(riskMemberRow.name), count: Number(riskMemberRow.risk_cnt) || 0 }
+      : null;
+
+    // 整体较上期趋势：仅时间段视角（sd/ed 存在）才有"上期"可比，当前视角返回 null（前端隐藏该行）
+    // 复用组对比/项目对比同款 computeImprovement（DELAY_OR_OVERDUE 含已完成口径，按 end_date 落期）
+    const riskTrendImp = hasPeriod ? await this.computeImprovement(scopeFilter, sd, ed) : null;
+    const risk_trend: RiskTrendStat | null = riskTrendImp
+      ? { delta: riskTrendImp.delta, direction: riskTrendImp.direction }
+      : null;
+
     return {
       total_delayed: Number(stats.total_delayed) || 0,
       warning_count: Number(stats.warning_count) || 0,
@@ -1791,6 +1824,9 @@ export class AnalyticsRepository {
       stats_overview,
       longest_delay_tasks,
       overdue_start_overview,
+      // v3: 统计总览结论行增强（风险最高个人 + 整体较上期趋势）
+      risk_member,
+      risk_trend,
     };
   }
 

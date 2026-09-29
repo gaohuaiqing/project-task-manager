@@ -7,6 +7,9 @@
  * - 结论行（前端生成）：风险 = 已延期 + 逾期未开始 + 延期预警；占比 = 风险/任务总数；
  *           无风险显示 ✅；有风险突出最严重类别 + 细节（逾期未开始=涉及人数/最长天数，
  *           已延期=平均超期天数，延期预警=平均剩余天数）；占比>10% 用 ⚠，≤10% 用 🟡「少量」
+ * - 结论行增强（v3）：🔥 风险最高团队（teamComparison 三态合计 Top1，无组数据隐藏）/
+ *           👤 风险最高个人（后端 riskMember，null 隐藏）/ 📈 较上期（后端 riskTrend，
+ *           仅时间段视角非 null，当前视角隐藏）；无风险时整组不追加
  * - 支撑行：三状态数字卡（色与仪表板一致：红/深橙/黄）可点击 → 联动切明细区对应 Tab 并滚动；
  *           下行小字：累计延期次数 · 计划变更次数（statsOverview.team 提供）
  */
@@ -18,6 +21,9 @@ import type {
   StatsOverviewData,
   OverdueStartOverviewData,
   ScopeStatsData,
+  DepartmentDelayData,
+  RiskMemberData,
+  RiskTrendData,
 } from '../../types';
 
 /** 支撑行数字卡对应的明细 Tab（与 DelayDetailSection 三状态 Tab 对齐） */
@@ -38,6 +44,12 @@ export interface StatsOverviewSectionProps {
   warningAvgDays: number;
   /** 范围统计（范围行项目/团队/任务数） */
   scopeStats: ScopeStatsData;
+  /** 组对比（结论行「🔥 风险最高团队」前端算三态合计 Top1；tech_manager/engineer 为空数组隐藏该行） */
+  teamComparison: DepartmentDelayData[];
+  /** 风险最高个人（结论行「👤」；null 隐藏该行） */
+  riskMember: RiskMemberData | null;
+  /** 整体较上期趋势（结论行「📈」；仅时间段视角非 null，null 隐藏该行） */
+  riskTrend: RiskTrendData | null;
   /** FilterBar 当前筛选（镜像显示） */
   filters: ReportFilters;
   /** 当前用户角色（范围行角色文案） */
@@ -71,6 +83,9 @@ export function StatsOverviewSection({
   delayedAvgDays,
   warningAvgDays,
   scopeStats,
+  teamComparison,
+  riskMember,
+  riskTrend,
   filters,
   role,
   onStatClick,
@@ -116,6 +131,29 @@ export function StatsOverviewSection({
         ? `平均超期 ${delayedAvgDays} 天`
         : `平均剩余 ${warningAvgDays} 天`;
 
+  // ========== 结论行增强（v3：风险最高团队 / 风险最高个人 / 较上期趋势） ==========
+  // 风险最高团队：组对比每行三态合计（已延期 + 逾期未开始 + 延期预警）降序 Top1；
+  // teamComparison 为空（tech_manager/engineer 无组对比数据）时该行隐藏
+  const topRiskDept = teamComparison
+    .map((d) => ({
+      deptName: d.deptName,
+      riskTotal: d.delayedCount + d.overdueStartCount + d.warningCount,
+      totalTasks: d.totalTasks,
+    }))
+    .filter((d) => d.riskTotal > 0)
+    .sort((a, b) => b.riskTotal - a.riskTotal)[0];
+  const topRiskDeptRate =
+    topRiskDept && topRiskDept.totalTasks > 0
+      ? `${Math.round((topRiskDept.riskTotal / topRiskDept.totalTasks) * 1000) / 10}%`
+      : null;
+  // 较上期趋势文案：delta 正=恶化（N=delta），负=改善（N=|delta|），0=持平
+  const riskTrendText =
+    riskTrend?.direction === 'worsening'
+      ? `↑ 恶化 ${riskTrend.delta} 个`
+      : riskTrend?.direction === 'improving'
+        ? `↓ 改善 ${Math.abs(riskTrend.delta)} 个`
+        : '→ 持平';
+
   return (
     <ChartContainer title="统计总览" subtitle="范围 · 结论 · 支撑（点击数字卡查看对应明细）">
       <div className="space-y-3">
@@ -146,6 +184,19 @@ export function StatsOverviewSection({
             </>
           )}
         </div>
+
+        {/* 结论行增强（v3）：风险最高团队 / 风险最高个人 / 较上期趋势（无风险时不追加；各子行数据缺失时单独隐藏） */}
+        {riskTotal > 0 && (topRiskDept || riskMember || riskTrend) && (
+          <div className="text-sm leading-relaxed text-muted-foreground space-y-0.5">
+            {topRiskDept && topRiskDeptRate && (
+              <div>
+                🔥 风险最高团队：{topRiskDept.deptName}（{topRiskDept.riskTotal} 个，占该组 {topRiskDeptRate}）
+              </div>
+            )}
+            {riskMember && <div>👤 风险最高个人：{riskMember.name}（{riskMember.count} 个）</div>}
+            {riskTrend && <div>📈 较上期：{riskTrendText}</div>}
+          </div>
+        )}
 
         {/* 支撑行：三状态数字卡（可点击联动明细 Tab）+ 累计/变更小字 */}
         <div>

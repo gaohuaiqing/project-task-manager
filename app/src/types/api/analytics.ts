@@ -198,6 +198,25 @@ export interface DelayAnalysisReport {
   longestDelayTasks: DelayedTaskItem[];
   /** 逾期未开始总览（仅当前口径，实时状态） */
   overdueStartOverview: OverdueStartOverview;
+  /** v3: 风险最高个人（scope 内三态实时口径合计 Top1；无风险任务时 null；旧缓存缺字段兜底 null） */
+  riskMember?: RiskMemberStat | null;
+  /** v3: 整体风险较上期变化（仅时间段视角返回；当前视角 null；旧缓存缺字段兜底 null） */
+  riskTrend?: RiskTrendStat | null;
+}
+
+/** v3: 统计总览结论行——风险最高个人（三态合计 Top1） */
+export interface RiskMemberStat {
+  /** 责任人姓名（未分配任务聚合为"未分配"） */
+  name: string;
+  /** 该责任人名下风险任务数（已延期 + 逾期未开始 + 延期预警） */
+  count: number;
+}
+
+/** v3: 统计总览结论行——整体风险较上期变化 */
+export interface RiskTrendStat {
+  /** 本期 - 上期（正=恶化，负=改善，0=持平） */
+  delta: number;
+  direction: 'improving' | 'worsening' | 'flat';
 }
 
 /** 逾期未开始成员排行项（含"未分配"聚合行） */
@@ -252,6 +271,8 @@ export interface DepartmentDelayStat {
   planChangeRate: number;
   /** 累计延期率 = totalDelayCount / totalTasks */
   avgDelayPerTask: number;
+  /** v3: 延期预警任务数（MUTEX delayWarning 实时口径；旧缓存缺字段兜底 0） */
+  warningCount?: number;
   /** v2: 本期vs上期延期数变化 */
   improvementDelta: number;
   improvementDirection: 'improving' | 'worsening' | 'flat';

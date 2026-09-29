@@ -323,6 +323,25 @@ export interface DelayAnalysisData {
   warningAvgDays: number;
   /** v3: 范围统计（统计总览「范围行」） */
   scopeStats: ScopeStatsData;
+  /** v3: 风险最高个人（结论行「👤」；无风险任务时 null） */
+  riskMember: RiskMemberData | null;
+  /** v3: 整体风险较上期变化（结论行「📈」；仅时间段视角非 null） */
+  riskTrend: RiskTrendData | null;
+}
+
+/** v3: 统计总览结论行——风险最高个人（三态合计 Top1） */
+export interface RiskMemberData {
+  /** 责任人姓名（未分配任务聚合为"未分配"） */
+  name: string;
+  /** 该责任人名下风险任务数（已延期 + 逾期未开始 + 延期预警） */
+  count: number;
+}
+
+/** v3: 统计总览结论行——整体风险较上期变化 */
+export interface RiskTrendData {
+  /** 本期 - 上期（正=恶化，负=改善，0=持平） */
+  delta: number;
+  direction: 'improving' | 'worsening' | 'flat';
 }
 
 /** v3: 范围统计（scopeFilter + 生效筛选同口径的项目/团队/任务数） */
@@ -352,6 +371,8 @@ export interface DepartmentDelayData {
   planChangeRate: number;
   /** 累计延期率（次/任务） */
   avgDelayPerTask: number;
+  /** v3: 延期预警任务数（MUTEX delayWarning 实时口径，结论行「风险最高团队」三态合计用） */
+  warningCount: number;
   /** v2: 本期vs上期延期数变化（含已完成） */
   improvementDelta: number;
   /** v2: 改善方向 */

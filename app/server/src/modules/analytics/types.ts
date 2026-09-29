@@ -228,6 +228,8 @@ export interface DepartmentDelayStat {
   plan_change_rate: number;
   /** 累计延期率 = total_delay_count / total_tasks（保留2位小数） */
   avg_delay_per_task: number;
+  /** v3: 延期预警任务数（MUTEX delayWarning 实时口径，供统计总览「风险最高团队」行合计） */
+  warning_count: number;
   /** v2: 本期vs上期延期数变化（含已完成） */
   improvement_delta: number;
   /** v2: 改善方向 */
@@ -370,6 +372,10 @@ export interface DelayAnalysisReport {
   longest_delay_tasks: DelayedTaskItem[];
   /** 逾期未开始总览（仅当前口径，实时状态；逾期未开始不参与时间段统计） */
   overdue_start_overview: OverdueStartOverview;
+  /** v3: 风险最高个人（scope 内三态实时口径合计 Top1；无风险任务时 null） */
+  risk_member: RiskMemberStat | null;
+  /** v3: 整体风险较上期变化（仅时间段视角返回，复用 computeImprovement；当前视角 null） */
+  risk_trend: RiskTrendStat | null;
 }
 
 /** v3: 范围统计（scopeFilter + 生效筛选同口径的项目/团队/任务数） */
@@ -402,6 +408,21 @@ export interface OverdueStartOverview {
   /** 不截断聚合：最长逾期未开始天数 = MAX(CURDATE - start_date)（member_ranking LIMIT 10 会低估） */
   max_overdue_days: number;
   member_ranking: OverdueStartMemberStat[];
+}
+
+/** v3: 统计总览结论行——风险最高个人（三态合计 Top1；范围内无风险任务时为 null） */
+export interface RiskMemberStat {
+  /** 责任人姓名（未分配任务聚合为"未分配"） */
+  name: string;
+  /** 该责任人名下风险任务数（已延期 + 逾期未开始 + 延期预警） */
+  count: number;
+}
+
+/** v3: 统计总览结论行——整体风险较上期变化（仅时间段视角返回；当前视角为 null） */
+export interface RiskTrendStat {
+  /** 本期 - 上期（正=恶化，负=改善，0=持平） */
+  delta: number;
+  direction: 'improving' | 'worsening' | 'flat';
 }
 
 export interface DelayedTaskItem {
