@@ -587,6 +587,9 @@ export function transformDelayAnalysisReport(
   const overdueStartOverview: OverdueStartOverviewData = {
     total: oso?.total ?? 0,
     avgOverdueDays: oso?.avgOverdueDays ?? 0,
+    // 不截断聚合（统计总览结论行「涉及 X 人，最长 Y 天」用；旧后端/缓存缺字段兜底 0）
+    assigneeCount: oso?.assigneeCount ?? 0,
+    maxOverdueDays: oso?.maxOverdueDays ?? 0,
     memberRanking: (oso?.memberRanking || []).map((m) => ({
       name: m.name,
       // 责任人 ID（"未分配"聚合行为 null 不可下钻；旧缓存缺字段兜底 null）

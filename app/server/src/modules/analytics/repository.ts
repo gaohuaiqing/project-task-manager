@@ -1064,17 +1064,15 @@ export class AnalyticsRepository {
     const stats = rows[0];
 
     // v3: 范围统计（scope_stats）—— 统计总览「范围行」的项目数/团队数/任务数
-    // 与主 stats 查询同口径（scopeFilter + 生效的 project_id/delay_type 筛选；时间段不参与：
-    // 三状态计数均为当前实时口径，任务总数保持同口径才能保证结论行占比的分子分母一致）
+    // 与主 stats 查询同口径（scopeFilter + 生效的 project_id 筛选；时间段与 delay_type 均不参与：
+    // 三状态计数均为当前实时口径、delay_type 是风险切片而非范围收窄——范围行语义应为完整范围，
+    // 任务总数保持完整范围才能保证结论行占比的分子分母一致，否则占比可 >100%）
     // 团队数 = 范围内任务负责人的 distinct department_id 数（未分配任务不计；tech_manager 本组恒 1）
     const scopeConds: string[] = [scopeFilter.clause];
     const scopeParams: (string | number)[] = [...scopeFilter.params];
     if (options.project_id) {
       scopeConds.push('t.project_id = ?');
       scopeParams.push(options.project_id);
-    }
-    if (options.delay_type && DELAY_CONDITIONS[options.delay_type as keyof typeof DELAY_CONDITIONS]) {
-      scopeConds.push(`(${DELAY_CONDITIONS[options.delay_type as keyof typeof DELAY_CONDITIONS]})`);
     }
     const [scopeRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
@@ -1713,7 +1711,9 @@ export class AnalyticsRepository {
     }
     const [overdueStartTotalRows] = await pool.execute<RowDataPacket[]>(
       `SELECT COUNT(*) AS total,
-              ROUND(AVG(DATEDIFF(CURDATE(), t.start_date)), 1) AS avg_overdue_days
+              ROUND(AVG(DATEDIFF(CURDATE(), t.start_date)), 1) AS avg_overdue_days,
+              COUNT(DISTINCT t.assignee_id) AS assignee_count,
+              MAX(DATEDIFF(CURDATE(), t.start_date)) AS max_overdue_days
        FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
        WHERE ${overdueStartConds.join(' AND ')}`,
       overdueStartParams
@@ -1735,6 +1735,10 @@ export class AnalyticsRepository {
       total: Number((overdueStartTotalRows as RowDataPacket[])[0]?.total) || 0,
       // 平均逾期开始天数（overdueStart 条件保证 start_date 非空且早于今日，DATEDIFF 恒为正）
       avg_overdue_days: Number((overdueStartTotalRows as RowDataPacket[])[0]?.avg_overdue_days) || 0,
+      // 不截断聚合（结论行「涉及 X 人，最长 Y 天」用；member_ranking LIMIT 10 在人数>10
+      // 或最长任务不在前 10 名责任人时低估）。assignee_count 为非 NULL distinct（NULL 算"未分配"聚合行不计入）
+      assignee_count: Number((overdueStartTotalRows as RowDataPacket[])[0]?.assignee_count) || 0,
+      max_overdue_days: Number((overdueStartTotalRows as RowDataPacket[])[0]?.max_overdue_days) || 0,
       member_ranking: (overdueStartRows as RowDataPacket[]).map((r): OverdueStartMemberStat => ({
         name: String(r.name),
         // 责任人 ID（"未分配"聚合行为 null，前端据此判断是否可下钻明细）

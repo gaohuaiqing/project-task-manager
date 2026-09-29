@@ -40,7 +40,7 @@ export function DelayDetailSection({
     filteredTasks = filteredTasks.filter((t) => t.assigneeName === selectedMemberName);
   }
   if (selectedDeptId != null) {
-    // 行无 deptId（旧缓存兜底）时跳过组过滤保持现状，避免整表被误清空
+    // 未分配任务（deptId 为 null，旧缓存缺字段防御）在任何组下钻下都显示——接受现状，避免整表被误清空
     filteredTasks = filteredTasks.filter((t) => t.deptId == null || t.deptId === selectedDeptId);
   }
 

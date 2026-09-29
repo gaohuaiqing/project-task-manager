@@ -414,6 +414,10 @@ export interface OverdueStartOverviewData {
   total: number;
   /** 平均逾期开始天数（仅统计逾期未开始任务） */
   avgOverdueDays: number;
+  /** 不截断聚合：涉及责任人数（非 NULL distinct；memberRanking LIMIT 10 会低估） */
+  assigneeCount: number;
+  /** 不截断聚合：最长逾期未开始天数（memberRanking LIMIT 10 会低估） */
+  maxOverdueDays: number;
   memberRanking: OverdueStartMemberRankingItem[];
 }
 

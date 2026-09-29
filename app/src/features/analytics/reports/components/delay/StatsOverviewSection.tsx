@@ -2,7 +2,8 @@
  * v3 统计总览（置顶）：范围行 / 结论行 / 支撑行 三层重设计
  *
  * - 范围行：角色范围（admin=全部/dept_manager=本部门/tech_manager=本组）+ 项目/团队/任务数
- *           + FilterBar 生效筛选镜像（时间段/项目/任务类型/负责人/延期类型——有值才显示）
+ *           + FilterBar 生效筛选镜像（时间段/项目/延期类型——仅镜像后端真正消费的筛选；
+ *           任务类型/负责人筛选本报表不消费，不镜像以免误导）
  * - 结论行（前端生成）：风险 = 已延期 + 逾期未开始 + 延期预警；占比 = 风险/任务总数；
  *           无风险显示 ✅；有风险突出最严重类别 + 细节（逾期未开始=涉及人数/最长天数，
  *           已延期=平均超期天数，延期预警=平均剩余天数）；占比>10% 用 ⚠，≤10% 用 🟡「少量」
@@ -10,8 +11,7 @@
  *           下行小字：累计延期次数 · 计划变更次数（statsOverview.team 提供）
  */
 import { ChartContainer } from '../shared';
-import { useProjectsForReport, useMembersForReport } from '../../data';
-import { useTaskTypeOptions } from '@/features/org/hooks/useOrg';
+import { useProjectsForReport } from '../../data';
 import { DELAY_TYPE_OPTIONS } from '../../config';
 import type {
   ReportFilters,
@@ -75,12 +75,12 @@ export function StatsOverviewSection({
   role,
   onStatClick,
 }: StatsOverviewSectionProps) {
-  // 项目/成员名映射（与 FilterBar 同源缓存，无额外请求负担）
+  // 项目名映射（与 FilterBar 同源缓存，无额外请求负担）
   const { data: projects } = useProjectsForReport();
-  const { data: members } = useMembersForReport();
-  const { options: taskTypeOptions } = useTaskTypeOptions();
 
-  // ========== 范围行：生效筛选镜像（有值才显示） ==========
+  // ========== 范围行：生效筛选镜像（有值才显示；只镜像后端真正消费的筛选） ==========
+  // 注：taskType/assigneeId 不被延期报表 API 消费（getDelayAnalysisReport 仅收
+  // project_id/delay_type/start_date/end_date），镜像会误导，故不显示
   const filterChips: string[] = [];
   if (filters.timeRange) {
     filterChips.push(
@@ -91,13 +91,6 @@ export function StatsOverviewSection({
   }
   if (filters.projectId) {
     filterChips.push(projects.find((p) => p.id === filters.projectId)?.name ?? `项目 ${filters.projectId}`);
-  }
-  if (filters.taskType) {
-    filterChips.push(taskTypeOptions.find((o) => o.value === filters.taskType)?.label ?? `类型 ${filters.taskType}`);
-  }
-  if (filters.assigneeId) {
-    const m = members.find((x) => String(x.id) === String(filters.assigneeId));
-    filterChips.push(m?.name || m?.real_name || `成员 ${filters.assigneeId}`);
   }
   if (filters.delayType) {
     filterChips.push(DELAY_TYPE_OPTIONS.find((o) => o.value === filters.delayType)?.label ?? filters.delayType);
@@ -115,10 +108,10 @@ export function StatsOverviewSection({
   ];
   const topCat = riskCats.reduce((a, b) => (b.count > a.count ? b : a), riskCats[0]);
   // 各类别细节：逾期未开始=涉及人数/最长天数；已延期=平均超期；预警=平均剩余
-  const maxOverdueDays = overdueStart.memberRanking.reduce((mx, m) => Math.max(mx, m.maxOverdueDays), 0);
+  // （人数/最长天数用后端不截断聚合 assigneeCount/maxOverdueDays——memberRanking LIMIT 10 会低估）
   const topDetail =
     topCat.key === 'overdue_start'
-      ? `涉及 ${overdueStart.memberRanking.length} 人，最长 ${maxOverdueDays} 天`
+      ? `涉及 ${overdueStart.assigneeCount} 人，最长 ${overdueStart.maxOverdueDays} 天`
       : topCat.key === 'delayed'
         ? `平均超期 ${delayedAvgDays} 天`
         : `平均剩余 ${warningAvgDays} 天`;

@@ -79,7 +79,8 @@ export function FilterBar({
   // 根据报表类型显示不同的筛选器
   const showProjectFilter = ['project-progress', 'task-statistics', 'delay-analysis', 'activity-trend'].includes(activeTab);
   const showAssigneeFilter = ['task-statistics', 'member-analysis', 'activity-trend'].includes(activeTab);
-  const showTaskTypeFilter = ['task-statistics', 'delay-analysis'].includes(activeTab);
+  // 任务类型筛选仅 task-statistics 消费；延期报表 API 不接收 taskType，提供下拉会"选了没反应"
+  const showTaskTypeFilter = activeTab === 'task-statistics';
   const showDelayTypeFilter = activeTab === 'delay-analysis';
   const showDepartmentFilter = activeTab === 'resource-efficiency';
   const showEstimationAccuracyFilter = activeTab === 'member-analysis';
