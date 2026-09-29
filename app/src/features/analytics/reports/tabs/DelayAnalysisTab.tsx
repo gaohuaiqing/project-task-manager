@@ -4,20 +4,21 @@
  *   点组  → selectedDeptId   → MemberRanking/DelayDetail 按部门筛选
  *   点成员 → selectedMemberName → DelayDetail 任务列表按成员筛选
  *
- * 子组件层级（来自 Task 7-11）：
+ * v3 总-分重排：统计总览（范围/结论/支撑三层）置顶 → 各分析区 → 明细（收口）：
+ *   统计总览 StatsOverviewSection（新三层设计，支撑卡可点击联动明细 Tab）
  *   L0 团队:  TeamSection（admin/dept_manager→DeptComparisonView, tech_manager→本组总览）
  *   L0 个人:  MemberRankingSection（成员延期排名）
  *   L0 任务:  ProblemTaskSection（反复延期 + 频繁变更 + 超长延期天数）
- *   L1 静态:  StatsOverviewSection + EstimationDeviationView
- *             + ProjectDelayView + TaskTypeDelayView + ReasonSection
+ *   L1 静态:  EstimationDeviationView + ProjectDelayView + TaskTypeDelayView + ReasonSection
  *   L2 趋势:  TrendSection
- *   L3 明细:  DelayDetailSection（任务列表 ↔ 成员统计，Tab 切换）
+ *   L3 明细:  DelayDetailSection（三状态任务 Tab ↔ 成员统计；activeTab 状态提升至此，
+ *             供统计总览支撑卡点击联动切换 + anchor 滚动）
  */
 import { useState } from 'react';
 import { ChartGroup } from '../components/shared';
 import { useDelayAnalysisData } from '../data';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import type { ReportFilters, DelayDetailQuery } from '../types';
+import type { ReportFilters, DelayDetailQuery, DelayDetailTab } from '../types';
 import { TeamSection } from '../components/delay/TeamSection';
 import { StatsOverviewSection } from '../components/delay/StatsOverviewSection';
 import { MemberRankingSection } from '../components/delay/MemberRankingSection';
@@ -29,6 +30,9 @@ import { ReasonSection } from '../components/delay/ReasonSection';
 import { TrendSection } from '../components/delay/TrendSection';
 import { DelayDetailSection } from '../components/delay/DelayDetailSection';
 import { DelayTaskDetailDialog } from '../components/delay/DelayTaskDetailDialog';
+
+/** 明细区 anchor id（统计总览支撑卡点击后滚动定位） */
+const DETAIL_ANCHOR_ID = 'delay-detail';
 
 export interface DelayAnalysisTabProps {
   filters: ReportFilters;
@@ -44,6 +48,15 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
   const [selectedDeptId, setSelectedDeptId] = useState<number | null>(null);
   const [selectedDeptName, setSelectedDeptName] = useState<string | null>(null);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
+
+  // v3: 明细区 Tab 状态提升（统计总览支撑卡点击联动切换）
+  const [detailTab, setDetailTab] = useState<DelayDetailTab>('delayed');
+
+  // 统计总览支撑卡点击：切到对应明细 Tab 并平滑滚动到明细区
+  const handleStatClick = (tab: DelayDetailTab) => {
+    setDetailTab(tab);
+    document.getElementById(DETAIL_ANCHOR_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   // v2 交互增强：延期明细下钻弹窗（点击柱子触发，合并当前时间段筛选保证同口径）
   const [detailDialog, setDetailDialog] = useState<{ open: boolean; title: string; filters: DelayDetailQuery }>({
@@ -84,6 +97,20 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
 
   return (
     <div className="space-y-6">
+      {/* v3 统计总览（置顶）：范围行 + 结论行 + 支撑行（支撑卡点击联动明细 Tab） */}
+      <StatsOverviewSection
+        data={data.statsOverview}
+        overdueStart={data.overdueStartOverview}
+        delayedCount={data.delayedCount}
+        warningCount={data.warningCount}
+        delayedAvgDays={data.delayedAvgDays}
+        warningAvgDays={data.warningAvgDays}
+        scopeStats={data.scopeStats}
+        filters={filters}
+        role={role}
+        onStatClick={handleStatClick}
+      />
+
       {/* L0·角色差异化总览 */}
       <TeamSection data={data} role={role} onSelectDept={handleSelectDept} />
       <MemberRankingSection
@@ -109,7 +136,6 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
       />
 
       {/* L1·静态维度 */}
-      <StatsOverviewSection data={data.statsOverview} overdueStart={data.overdueStartOverview} />
       <EstimationDeviationView data={data.estimationDeviation} />
       <ChartGroup>
         <ProjectDelayView data={data.projectDelayStats} onDrillDown={openDetail} />
@@ -125,14 +151,18 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
         memberTrends={data.memberTrends}
       />
 
-      {/* L3·明细（支持下钻：成员名筛选任务列表 + 选组筛选成员统计） */}
-      <DelayDetailSection
-        delayTasks={data.delayTasks}
-        memberRanking={data.memberRanking}
-        selectedMemberName={selectedMemberName}
-        onSelectMember={setSelectedMemberName}
-        selectedDeptId={selectedDeptId}
-      />
+      {/* L3·明细（anchor 供统计总览支撑卡点击滚动定位；三状态 Tab + 成员统计，支持下钻筛选） */}
+      <div id={DETAIL_ANCHOR_ID} className="scroll-mt-4">
+        <DelayDetailSection
+          delayTasks={data.delayTasks}
+          memberRanking={data.memberRanking}
+          selectedMemberName={selectedMemberName}
+          onSelectMember={setSelectedMemberName}
+          selectedDeptId={selectedDeptId}
+          activeTab={detailTab}
+          onChangeTab={setDetailTab}
+        />
+      </div>
 
       {/* 当前下钻上下文展示（用户可见当前筛选状态） */}
       {(selectedDeptName || selectedMemberName) && (

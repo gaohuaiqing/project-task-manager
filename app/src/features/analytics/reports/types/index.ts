@@ -29,6 +29,9 @@ export type TimeRange = 'current' | '30d' | '3m' | '6m' | '1y' | 'custom';
 export type DelayType = 'delay_warning' | 'delayed' | 'overdue_start';
 // 注意：超期完成 (overdue_completed) 已从延期任务列表中移除
 
+/** v3: 明细区 Tab（三状态 + 成员统计；状态提升到 DelayAnalysisTab 供统计总览支撑卡联动） */
+export type DelayDetailTab = DelayType | 'members';
+
 /** 风险等级 */
 export type RiskLevel = 'high' | 'medium' | 'low';
 
@@ -310,6 +313,23 @@ export interface DelayAnalysisData {
   longestDelayTasks: DelayTaskItem[];
   /** 逾期未开始总览（仅当前口径，实时状态） */
   overdueStartOverview: OverdueStartOverviewData;
+  /** v3: 已延期任务数（当前实时口径，统计总览支撑行/明细 Tab 用） */
+  delayedCount: number;
+  /** v3: 延期预警任务数（当前实时口径，统计总览支撑行/明细 Tab 用） */
+  warningCount: number;
+  /** v3: 已延期任务平均超期天数（结论行细节） */
+  delayedAvgDays: number;
+  /** v3: 延期预警任务平均剩余天数（结论行细节） */
+  warningAvgDays: number;
+  /** v3: 范围统计（统计总览「范围行」） */
+  scopeStats: ScopeStatsData;
+}
+
+/** v3: 范围统计（scopeFilter + 生效筛选同口径的项目/团队/任务数） */
+export interface ScopeStatsData {
+  projectCount: number;
+  teamCount: number;
+  taskCount: number;
 }
 
 /** 部门延期对比数据（team_comparison） */
@@ -458,6 +478,8 @@ export interface DelayTaskItem {
   delayType: DelayType;
   delayReason: string;
   riskLevel?: RiskLevel;
+  /** v3: 负责人部门 id（组下钻筛选三状态明细 Tab 用；未分配为 null，可选兼容旧缓存） */
+  deptId?: number | null;
   // v2 交互增强：明细下钻用（可选）
   taskType?: string;
   projectId?: string;

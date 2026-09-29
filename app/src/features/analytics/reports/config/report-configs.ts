@@ -88,7 +88,7 @@ export const TASK_STATISTIC_COLUMNS: TableColumn[] = [
   { key: 'delayDays', label: '延期天数', width: 70, sortable: true, type: 'number' },
 ];
 
-/** 延期任务列表列 */
+/** 延期任务列表列（v3: 三状态明细共用；逾期未开始行 delayDays=逾期开始天数，列头改「延期/逾期天数」） */
 export const DELAY_TASK_COLUMNS: TableColumn[] = [
   { key: 'rootTaskName', label: '根任务', width: 140, sortable: true },
   { key: 'taskName', label: '任务名称', width: 200, sortable: true },
@@ -96,7 +96,7 @@ export const DELAY_TASK_COLUMNS: TableColumn[] = [
   { key: 'assigneeName', label: '负责人', width: 100, sortable: true },
   { key: 'projectName', label: '所属项目', width: 120, sortable: true },
   { key: 'plannedEndDate', label: '计划结束', width: 110, sortable: true, type: 'date' },
-  { key: 'delayDays', label: '延期天数', width: 80, sortable: true, type: 'number' },
+  { key: 'delayDays', label: '延期/逾期天数', width: 90, sortable: true, type: 'number' },
   { key: 'delayType', label: '延期类型', width: 100, sortable: true, type: 'enum' },
   { key: 'delayReason', label: '延期原因', width: 150 },
   { key: 'riskLevel', label: '风险等级', width: 80, sortable: true, type: 'enum' },

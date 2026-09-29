@@ -28,6 +28,7 @@ import type {
   StatsOverview,
   OverdueStartOverview, OverdueStartMemberStat,
   DelayDetailQueryOptions, DelayDetailResult,
+  ScopeStats,
 } from './types';
 import { buildTaskScopeFilter, buildProjectScopeFilter, buildUserDepartmentScopeFilter, ScopeFilter, getManagedDepartmentIds as getManagedDepartmentIdsSafe, getTechManagerGroupIds as getTechManagerGroupIdsSafe } from './query-builder';
 import { QUERY_LIMITS, TIME_INTERVALS, ACTIVITY_PERCENTAGES, STATUS_THRESHOLDS, ESTIMATION_THRESHOLDS, WBS_COMPLEXITY, DEFAULTS, STATUS_CONDITIONS, MUTEX_STATUS_CONDITIONS } from './constants';
@@ -1044,12 +1045,16 @@ export class AnalyticsRepository {
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     // 获取统计卡片数据：基于日期条件分类统计
+    // v3: 补两个平均天数聚合 —— delayed_avg_days（已延期平均超期天数）/ warning_avg_days（预警平均剩余天数），
+    //     供前端统计总览「结论行」展示细节（AVG 内 CASE 只对命中行取值，未命中行为 NULL 不参与平均）
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         COUNT(*) as total_delayed,
         SUM(CASE WHEN ${DELAY_CONDITIONS.delay_warning} THEN 1 ELSE 0 END) as warning_count,
         SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) as delayed_count,
-        SUM(CASE WHEN ${DELAY_CONDITIONS.overdue_completed} THEN 1 ELSE 0 END) as overdue_completed_count
+        SUM(CASE WHEN ${DELAY_CONDITIONS.overdue_completed} THEN 1 ELSE 0 END) as overdue_completed_count,
+        ROUND(AVG(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN DATEDIFF(CURDATE(), t.end_date) END), 1) AS delayed_avg_days,
+        ROUND(AVG(CASE WHEN ${DELAY_CONDITIONS.delay_warning} THEN DATEDIFF(t.end_date, CURDATE()) END), 1) AS warning_avg_days
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        ${whereClause}`,
@@ -1057,6 +1062,37 @@ export class AnalyticsRepository {
     );
 
     const stats = rows[0];
+
+    // v3: 范围统计（scope_stats）—— 统计总览「范围行」的项目数/团队数/任务数
+    // 与主 stats 查询同口径（scopeFilter + 生效的 project_id/delay_type 筛选；时间段不参与：
+    // 三状态计数均为当前实时口径，任务总数保持同口径才能保证结论行占比的分子分母一致）
+    // 团队数 = 范围内任务负责人的 distinct department_id 数（未分配任务不计；tech_manager 本组恒 1）
+    const scopeConds: string[] = [scopeFilter.clause];
+    const scopeParams: (string | number)[] = [...scopeFilter.params];
+    if (options.project_id) {
+      scopeConds.push('t.project_id = ?');
+      scopeParams.push(options.project_id);
+    }
+    if (options.delay_type && DELAY_CONDITIONS[options.delay_type as keyof typeof DELAY_CONDITIONS]) {
+      scopeConds.push(`(${DELAY_CONDITIONS[options.delay_type as keyof typeof DELAY_CONDITIONS]})`);
+    }
+    const [scopeRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT
+         COUNT(DISTINCT t.project_id) AS project_count,
+         COUNT(DISTINCT u.department_id) AS team_count,
+         COUNT(t.id) AS task_count
+       FROM wbs_tasks t
+       JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE ${scopeConds.join(' AND ')}`,
+      scopeParams
+    );
+    const scopeRow = (scopeRows as RowDataPacket[])[0] || {};
+    const scope_stats: ScopeStats = {
+      project_count: Number(scopeRow.project_count) || 0,
+      team_count: Number(scopeRow.team_count) || 0,
+      task_count: Number(scopeRow.task_count) || 0,
+    };
 
     // v2 统计卡重设：3 指标 × 当前/时间段 × 团队/个人
     // - 团队层：当前延期任务数（countDelayOrOverdue）+ 范围汇总（total_delay_count/plan_change_count）
@@ -1124,8 +1160,9 @@ export class AnalyticsRepository {
       params
     );
 
-    // 延期任务列表：只列"已延期"和"即将延期"（delayed + delay_warning），与"已延期"卡片口径一致，排除已完成任务
-    const listConditions: string[] = [scopeFilter.clause, `(${DELAY_CONDITIONS.delayed} OR ${DELAY_CONDITIONS.delay_warning})`];
+    // 延期任务列表：三状态明细（已延期 + 延期预警 + 逾期未开始），与统计总览支撑行三数字同口径，排除已完成任务
+    // v3: 新增 MUTEX overdueStart（互斥实时口径，与仪表板 overdue_start 卡片一致）
+    const listConditions: string[] = [scopeFilter.clause, `(${DELAY_CONDITIONS.delayed} OR ${DELAY_CONDITIONS.delay_warning} OR (${MUTEX_STATUS_CONDITIONS.overdueStart}))`];
     const listParams: (string | number)[] = [...scopeFilter.params];
     if (options.project_id) {
       listConditions.push('t.project_id = ?');
@@ -1145,6 +1182,8 @@ export class AnalyticsRepository {
     // 获取延期任务列表：使用 CASE 表达式实时计算延期类型
     // WBS 编码从全局注册表获取
     // 排序与任务管理模块保持一致：sort_order ASC, created_at ASC
+    // v3: delay_type/delay_days 均加 overdue_start 分支（互斥实时口径，明细 Tab 三态过滤依赖该值）；
+    //     补 u.department_id AS dept_id（前端组下钻对三状态明细 Tab 生效）
     const [delayedTaskRows] = await pool.execute<RowDataPacket[]>(
       `WITH RECURSIVE root_map AS (
         SELECT id AS task_id, id AS root_id, description AS root_task_name,
@@ -1156,10 +1195,15 @@ export class AnalyticsRepository {
       )
       SELECT t.id, t.description, t.project_id, t.sort_order, t.created_at,
               p.name as project_name, u.real_name as assignee_name,
+              u.department_id AS dept_id,
               rm.root_task_name,
-              ${delayTypeCase} as delay_type,
+              CASE
+                WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN 'overdue_start'
+                ELSE ${delayTypeCase}
+              END as delay_type,
               t.end_date as planned_end_date,
               CASE
+                WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN GREATEST(0, DATEDIFF(CURDATE(), t.start_date))
                 WHEN t.end_date IS NULL THEN 0
                 WHEN t.actual_end_date IS NOT NULL THEN GREATEST(0, DATEDIFF(t.actual_end_date, t.end_date))
                 WHEN t.end_date < CURDATE() THEN GREATEST(0, DATEDIFF(CURDATE(), t.end_date))
@@ -1705,6 +1749,11 @@ export class AnalyticsRepository {
       warning_count: Number(stats.warning_count) || 0,
       delayed_count: Number(stats.delayed_count) || 0,
       overdue_completed_count: Number(stats.overdue_completed_count) || 0,
+      // v3: 平均天数（结论行细节展示；无命中行时 AVG 为 NULL，兜底 0）
+      delayed_avg_days: Number(stats.delayed_avg_days) || 0,
+      warning_avg_days: Number(stats.warning_avg_days) || 0,
+      // v3: 范围统计（统计总览「范围行」）
+      scope_stats,
       delay_reasons: (reasonRows as DelayReasonCount[]).map(r => ({ reason: r.reason, count: Number(r.count) })),
       delay_trend: delayTrend,
       delayed_tasks: delayedTaskRows.map(t => ({
@@ -1713,6 +1762,8 @@ export class AnalyticsRepository {
         wbs_code: delayedWbsCodeMap.get(t.id) || null,  // 使用实时计算的 WBS 编码
         project_name: t.project_name || '未分配',
         assignee_name: t.assignee_name || '未分配',
+        // v3: 负责人部门 id（前端组下钻对三状态明细 Tab 生效；未分配任务为 null）
+        dept_id: t.dept_id != null ? Number(t.dept_id) : null,
         delay_type: t.delay_type,
         planned_end_date: t.planned_end_date || null,
         delay_days: t.delay_days || 0,

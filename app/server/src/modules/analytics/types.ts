@@ -335,6 +335,12 @@ export interface DelayAnalysisReport {
   warning_count: number;
   delayed_count: number;
   overdue_completed_count: number;
+  /** v3: 已延期任务平均超期天数（AVG(CURDATE - end_date)，结论行细节展示） */
+  delayed_avg_days: number;
+  /** v3: 延期预警任务平均剩余天数（AVG(end_date - CURDATE)，结论行细节展示） */
+  warning_avg_days: number;
+  /** v3: 范围统计（统计总览「范围行」的项目/团队/任务数） */
+  scope_stats: ScopeStats;
   delay_reasons: DelayReasonCount[];
   delay_trend: TrendDataPoint[];
   delayed_tasks: DelayedTaskItem[];  // 延期任务列表（需求文档要求）
@@ -366,6 +372,16 @@ export interface DelayAnalysisReport {
   overdue_start_overview: OverdueStartOverview;
 }
 
+/** v3: 范围统计（scopeFilter + 生效筛选同口径的项目/团队/任务数） */
+export interface ScopeStats {
+  /** 范围内 distinct 项目数 */
+  project_count: number;
+  /** 范围内任务负责人的 distinct 部门数（tech_manager 本组恒 1） */
+  team_count: number;
+  /** 范围内任务总数 */
+  task_count: number;
+}
+
 /** 逾期未开始成员排行项（含"未分配"聚合行） */
 export interface OverdueStartMemberStat {
   name: string;
@@ -395,6 +411,8 @@ export interface DelayedTaskItem {
   delay_days: number;
   reason: string;
   status: string;
+  // v3: 负责人部门 id（主报表三状态明细 Tab 组下钻筛选用；未分配任务为 null，可选兼容旧缓存）
+  dept_id?: number | null;
   // v2 交互增强：明细下钻用（可选；主报表 K1/K2/K3/delayed_tasks 列表不填）
   task_type?: string;
   project_id?: string;

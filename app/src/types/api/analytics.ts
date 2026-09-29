@@ -154,6 +154,12 @@ export interface DelayAnalysisReport {
   warningCount: number;
   delayedCount: number;
   overdueCompletedCount: number;
+  /** v3: 已延期任务平均超期天数（结论行细节展示；旧缓存缺字段时 transformer 兜底 0） */
+  delayedAvgDays: number;
+  /** v3: 延期预警任务平均剩余天数（结论行细节展示；旧缓存缺字段时 transformer 兜底 0） */
+  warningAvgDays: number;
+  /** v3: 范围统计（统计总览「范围行」项目/团队/任务数） */
+  scopeStats: ScopeStats;
   delayReasons: DelayReasonCount[];
   delayTrend: TrendDataPoint[];
   delayedTasks: DelayedTaskItem[];
@@ -202,6 +208,16 @@ export interface OverdueStartMemberStat {
   count: number;
   /** 最长逾期未开始天数 */
   maxOverdueDays: number;
+}
+
+/** v3: 范围统计（scopeFilter + 生效筛选同口径的项目/团队/任务数） */
+export interface ScopeStats {
+  /** 范围内 distinct 项目数 */
+  projectCount: number;
+  /** 范围内任务负责人的 distinct 部门数（tech_manager 本组恒 1） */
+  teamCount: number;
+  /** 范围内任务总数 */
+  taskCount: number;
 }
 
 /** 逾期未开始总览（仅当前口径） */
@@ -348,6 +364,8 @@ export interface DelayedTaskItem {
   delayDays: number;
   reason: string;
   status: string;
+  /** v3: 负责人部门 id（三状态明细 Tab 组下钻筛选用；未分配任务为 null，可选兼容旧缓存） */
+  deptId?: number | null;
   // v2 交互增强：明细/次数（可选）
   taskType?: string;
   projectId?: string;

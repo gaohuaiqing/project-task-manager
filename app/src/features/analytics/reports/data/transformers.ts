@@ -302,6 +302,23 @@ export function transformDelayAnalysisReport(
       description: '逾期未开始任务的平均逾期天数（CURDATE - start_date）',
       valueColor: 'default',
     },
+    // v3: 结论行细节指标（已延期平均超期 / 预警平均剩余）
+    {
+      key: 'delayed_avg_days',
+      label: '平均超期天数',
+      value: report.delayedAvgDays ?? 0,
+      icon: 'Timer',
+      description: '已延期任务的平均超期天数（CURDATE - end_date）',
+      valueColor: 'default',
+    },
+    {
+      key: 'warning_avg_days',
+      label: '预警平均剩余天数',
+      value: report.warningAvgDays ?? 0,
+      icon: 'Timer',
+      description: '延期预警任务的平均剩余天数（end_date - CURDATE）',
+      valueColor: 'default',
+    },
   ];
 
   // 延期类型分布（饼图）
@@ -344,7 +361,7 @@ export function transformDelayAnalysisReport(
     ],
   } : generateEmptyTrend();
 
-  // 延期任务列表
+  // 延期任务列表（v3: 含已延期/延期预警/逾期未开始三态；deptId 供组下钻筛选）
   const delayTasks: DelayTaskItem[] = report.delayedTasks.map(task => ({
     id: task.id,
     taskName: task.description,
@@ -357,6 +374,7 @@ export function transformDelayAnalysisReport(
     delayType: mapDelayType(task.delayType),
     delayReason: task.reason,
     riskLevel: task.delayDays > DELAY_DAYS_RISK.high ? 'high' : task.delayDays > DELAY_DAYS_RISK.medium ? 'medium' : 'low',
+    deptId: task.deptId ?? null,
   }));
 
   // 图表①：当前已延期的责任人排行（横条图，双指标：当前延期任务数 + 历史延期次数）
@@ -629,6 +647,16 @@ export function transformDelayAnalysisReport(
     statsOverview,
     longestDelayTasks,
     overdueStartOverview,
+    // v3: 统计总览（范围行 + 结论行 + 支撑行）所需数据（旧缓存缺字段兜底 0）
+    delayedCount: report.delayedCount ?? 0,
+    warningCount: report.warningCount ?? 0,
+    delayedAvgDays: report.delayedAvgDays ?? 0,
+    warningAvgDays: report.warningAvgDays ?? 0,
+    scopeStats: {
+      projectCount: report.scopeStats?.projectCount ?? 0,
+      teamCount: report.scopeStats?.teamCount ?? 0,
+      taskCount: report.scopeStats?.taskCount ?? 0,
+    },
   };
 }
 
@@ -1082,6 +1110,8 @@ function mapDelayType(type: string): import('../types').DelayType {
     delay_warning: 'delay_warning',
     delayed: 'delayed',
     overdue_completed: 'overdue_completed',
+    // v3: 逾期未开始（主报表明细列表扩三态后出现；漏映射会导致明细 Tab 按 delayType 过滤失效）
+    overdue_start: 'overdue_start',
   };
   return map[type] || 'delayed';
 }
