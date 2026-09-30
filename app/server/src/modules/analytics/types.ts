@@ -414,8 +414,14 @@ export interface OverdueStartOverview {
 export interface RiskMemberStat {
   /** 责任人姓名（未分配任务聚合为"未分配"） */
   name: string;
-  /** 该责任人名下风险任务数（已延期 + 逾期未开始 + 延期预警） */
+  /** 该责任人名下三态合计数（已延期 + 逾期未开始 + 延期预警，= 以下三分项之和） */
   count: number;
+  /** 其中已延期任务数 */
+  delayed_count: number;
+  /** 其中逾期未开始任务数 */
+  overdue_start_count: number;
+  /** 其中延期预警任务数 */
+  warning_count: number;
 }
 
 /** v3: 统计总览结论行——整体风险较上期变化（仅时间段视角返回；当前视角为 null） */

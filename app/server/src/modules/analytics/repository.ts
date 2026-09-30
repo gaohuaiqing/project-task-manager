@@ -1755,7 +1755,8 @@ export class AnalyticsRepository {
 
     // 风险最高个人：scope 内三态（已延期 + 逾期未开始 + 延期预警）实时口径合计 Top1
     // —— 三态为实时状态不含时间段（与 overdue_start_overview 同规则）；未分配任务聚合为"未分配"行；
-    //    轻量聚合（LIMIT 1）仅供结论行展示，无风险任务时返回 null（前端隐藏该行）
+    //    轻量聚合（LIMIT 1）仅供结论行展示，无风险任务时返回 null（前端隐藏该行）；
+    //    同时返回三态分项计数（合计 = 三分项之和），供前端拆开展示、不引入"风险任务"统称
     const RISK_TRI_STATE = `(${DELAY_CONDITIONS.delayed} OR ${DELAY_CONDITIONS.delay_warning} OR (${MUTEX_STATUS_CONDITIONS.overdueStart}))`;
     // project_id 筛选与主 stats/scope_stats 口径一致（否则单项目下结论行风险个人与统计数字口径不一致）
     const riskMemberConds: string[] = [scopeFilter.clause, RISK_TRI_STATE];
@@ -1766,7 +1767,10 @@ export class AnalyticsRepository {
     }
     const [riskMemberRows] = await pool.execute<RowDataPacket[]>(
       `SELECT IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS name,
-              COUNT(*) AS risk_cnt
+              COUNT(*) AS risk_cnt,
+              SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_cnt,
+              SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN 1 ELSE 0 END) AS overdue_start_cnt,
+              SUM(CASE WHEN ${DELAY_CONDITIONS.delay_warning} THEN 1 ELSE 0 END) AS warning_cnt
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
@@ -1778,7 +1782,13 @@ export class AnalyticsRepository {
     );
     const riskMemberRow = (riskMemberRows as RowDataPacket[])[0];
     const risk_member: RiskMemberStat | null = riskMemberRow
-      ? { name: String(riskMemberRow.name), count: Number(riskMemberRow.risk_cnt) || 0 }
+      ? {
+          name: String(riskMemberRow.name),
+          count: Number(riskMemberRow.risk_cnt) || 0,
+          delayed_count: Number(riskMemberRow.delayed_cnt) || 0,
+          overdue_start_count: Number(riskMemberRow.overdue_start_cnt) || 0,
+          warning_count: Number(riskMemberRow.warning_cnt) || 0,
+        }
       : null;
 
     // 整体较上期趋势：仅时间段视角（sd/ed 存在）才有"上期"可比，当前视角返回 null（前端隐藏该行）

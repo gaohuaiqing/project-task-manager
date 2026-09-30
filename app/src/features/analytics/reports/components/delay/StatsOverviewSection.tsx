@@ -4,12 +4,14 @@
  * - 范围行：角色范围（admin=全部/dept_manager=本部门/tech_manager=本组）+ 项目/团队/任务数
  *           + FilterBar 生效筛选镜像（时间段/项目/延期类型——仅镜像后端真正消费的筛选；
  *           任务类型/负责人筛选本报表不消费，不镜像以免误导）
- * - 结论行（前端生成）：风险 = 已延期 + 逾期未开始 + 延期预警；占比 = 风险/任务总数；
- *           无风险显示 ✅；有风险突出最严重类别 + 细节（逾期未开始=涉及人数/最长天数，
- *           已延期=平均超期天数，延期预警=平均剩余天数）；占比>10% 用 ⚠，≤10% 用 🟡「少量」
+ * - 结论行（前端生成）：三态合计 = 已延期 + 逾期未开始 + 延期预警（直接用状态名表述，
+ *           不引入"风险任务"统称）；占比 = 合计/任务总数；无风险显示 ✅；有风险突出
+ *           最严重类别 + 细节（逾期未开始=涉及人数/最长天数，已延期=平均超期天数，
+ *           延期预警=平均剩余天数）；占比>10% 用 ⚠，≤10% 用 🟡「少量」
  * - 结论行增强（v3）：🔥 风险最高团队（teamComparison 三态合计 Top1，无组数据隐藏）/
  *           👤 风险最高个人（后端 riskMember，null 隐藏）/ 📈 较上期（后端 riskTrend，
- *           仅时间段视角非 null，当前视角隐藏）；无风险时整组不追加
+ *           仅时间段视角非 null，当前视角隐藏）；无风险时整组不追加；
+ *           行卡片结构（标签+名称+合计+三态徽章+行尾占比），徽章色与支撑行三色卡一致
  * - 支撑行：三状态数字卡（色与仪表板一致：红/深橙/黄）可点击 → 联动切明细区对应 Tab 并滚动；
  *           下行小字：累计延期次数 · 计划变更次数（statsOverview.team 提供）
  */
@@ -65,6 +67,22 @@ const ROLE_SCOPE_LABELS: Record<StatsOverviewSectionProps['role'], string> = {
   tech_manager: '本组',
   engineer: '个人',
 };
+
+/** 三态分项徽章项（色与支撑行三色卡一致：红=已延期/深橙=逾期未开始/琥珀=预警） */
+interface TriStateItem {
+  label: string;
+  count: number;
+  className: string;
+}
+
+/** 三态分项徽章数据：只列非零项；合计>0 保证至少一项非零 */
+function triStateItems(delayed: number, overdueStart: number, warning: number): TriStateItem[] {
+  return [
+    { label: '已延期', count: delayed, className: 'bg-red-500/10 text-red-600' },
+    { label: '逾期未开始', count: overdueStart, className: 'bg-orange-600/10 text-orange-600' },
+    { label: '预警', count: warning, className: 'bg-amber-400/20 text-amber-600' },
+  ].filter((i) => i.count > 0);
+}
 
 /** 时间段预设文案映射（范围行镜像显示用） */
 const TIME_RANGE_LABELS: Record<string, string> = {
@@ -133,11 +151,15 @@ export function StatsOverviewSection({
 
   // ========== 结论行增强（v3：风险最高团队 / 风险最高个人 / 较上期趋势） ==========
   // 风险最高团队：组对比每行三态合计（已延期 + 逾期未开始 + 延期预警）降序 Top1；
-  // teamComparison 为空（tech_manager/engineer 无组对比数据）时该行隐藏
+  // teamComparison 为空（tech_manager/engineer 无组对比数据）时该行隐藏；
+  // 保留三态分项计数供行内拆开展示
   const topRiskDept = teamComparison
     .map((d) => ({
       deptName: d.deptName,
       riskTotal: d.delayedCount + d.overdueStartCount + d.warningCount,
+      delayedCount: d.delayedCount,
+      overdueStartCount: d.overdueStartCount,
+      warningCount: d.warningCount,
       totalTasks: d.totalTasks,
     }))
     .filter((d) => d.riskTotal > 0)
@@ -146,13 +168,19 @@ export function StatsOverviewSection({
     topRiskDept && topRiskDept.totalTasks > 0
       ? `${Math.round((topRiskDept.riskTotal / topRiskDept.totalTasks) * 1000) / 10}%`
       : null;
-  // 较上期趋势文案：delta 正=恶化（N=delta），负=改善（N=|delta|），0=持平
+  // 较上期趋势文案：delta 正=恶化（N=delta），负=改善（N=|delta|），0=持平；色随方向
   const riskTrendText =
     riskTrend?.direction === 'worsening'
       ? `↑ 恶化 ${riskTrend.delta} 个`
       : riskTrend?.direction === 'improving'
         ? `↓ 改善 ${Math.abs(riskTrend.delta)} 个`
         : '→ 持平';
+  const riskTrendColor =
+    riskTrend?.direction === 'worsening'
+      ? 'text-red-600'
+      : riskTrend?.direction === 'improving'
+        ? 'text-emerald-600'
+        : 'text-muted-foreground';
 
   return (
     <ChartContainer title="统计总览" subtitle="范围 · 结论 · 支撑（点击数字卡查看对应明细）">
@@ -173,28 +201,70 @@ export function StatsOverviewSection({
         {/* 结论行：风险结论（前端生成） */}
         <div className={`text-sm leading-relaxed ${riskTotal > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
           {riskTotal === 0 ? (
-            <>✅ 当前无时间风险任务</>
+            <>✅ 当前无已延期/逾期未开始/预警任务</>
           ) : ratio > 10 ? (
             <>
-              ⚠ {riskTotal} 个任务存在时间风险（占 {ratioText}）——最突出「{topCat.label}」{topCat.count} 个，{topDetail}
+              ⚠ <span className="font-semibold">{riskTotal}</span> 个任务已延期/逾期未开始/处于预警（占{' '}
+              <span className="font-semibold">{ratioText}</span>）——最突出「{topCat.label}」
+              <span className="font-semibold">{topCat.count}</span> 个，{topDetail}
             </>
           ) : (
             <>
-              🟡 少量任务存在时间风险：{riskTotal} 个（占 {ratioText}）——最突出「{topCat.label}」{topCat.count} 个，{topDetail}
+              🟡 少量任务已延期/逾期未开始/处于预警：<span className="font-semibold">{riskTotal}</span> 个（占{' '}
+              <span className="font-semibold">{ratioText}</span>）——最突出「{topCat.label}」
+              <span className="font-semibold">{topCat.count}</span> 个，{topDetail}
             </>
           )}
         </div>
 
-        {/* 结论行增强（v3）：风险最高团队 / 风险最高个人 / 较上期趋势（无风险时不追加；各子行数据缺失时单独隐藏） */}
+        {/* 结论行增强（v3）：风险最高团队 / 风险最高个人 / 较上期趋势
+            （结构化行卡片：标签+名称+合计+三态徽章；无风险时不追加；各子行数据缺失时单独隐藏） */}
         {riskTotal > 0 && (topRiskDept || riskMember || riskTrend) && (
-          <div className="text-sm leading-relaxed text-muted-foreground space-y-0.5">
+          <div className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2.5 space-y-2.5">
             {topRiskDept && topRiskDeptRate && (
-              <div>
-                🔥 风险最高团队：{topRiskDept.deptName} —— {topRiskDept.riskTotal} 个风险任务（占该组任务数 {topRiskDeptRate}）
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                <span className="text-xs text-muted-foreground shrink-0">🔥 风险最高团队</span>
+                <span className="text-sm font-medium">{topRiskDept.deptName}</span>
+                <span className="text-sm">
+                  <span className="text-lg font-bold font-mono">{topRiskDept.riskTotal}</span> 个
+                </span>
+                {triStateItems(topRiskDept.delayedCount, topRiskDept.overdueStartCount, topRiskDept.warningCount).map(
+                  (b) => (
+                    <span
+                      key={b.label}
+                      className={`px-1.5 py-0.5 rounded text-xs font-medium ${b.className}`}
+                    >
+                      {b.label} {b.count}
+                    </span>
+                  ),
+                )}
+                <span className="text-xs text-muted-foreground ml-auto">占该组任务数 {topRiskDeptRate}</span>
               </div>
             )}
-            {riskMember && <div>👤 风险最高个人：{riskMember.name} —— {riskMember.count} 个风险任务</div>}
-            {riskTrend && <div>📈 较上期：{riskTrendText}</div>}
+            {riskMember && (
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                <span className="text-xs text-muted-foreground shrink-0">👤 风险最高个人</span>
+                <span className="text-sm font-medium">{riskMember.name}</span>
+                <span className="text-sm">
+                  <span className="text-lg font-bold font-mono">{riskMember.count}</span> 个
+                </span>
+                {triStateItems(
+                  riskMember.delayedCount ?? 0,
+                  riskMember.overdueStartCount ?? 0,
+                  riskMember.warningCount ?? 0,
+                ).map((b) => (
+                  <span key={b.label} className={`px-1.5 py-0.5 rounded text-xs font-medium ${b.className}`}>
+                    {b.label} {b.count}
+                  </span>
+                ))}
+              </div>
+            )}
+            {riskTrend && (
+              <div className="flex flex-wrap items-center gap-x-2.5">
+                <span className="text-xs text-muted-foreground shrink-0">📈 较上期</span>
+                <span className={`text-sm font-medium ${riskTrendColor}`}>{riskTrendText}</span>
+              </div>
+            )}
           </div>
         )}
 
