@@ -69,8 +69,6 @@ export interface ReportFilters {
   departmentId?: string;
   /** 技术组ID */
   techGroupId?: string;
-  /** 预估准确性范围筛选 */
-  estimationAccuracyRange?: '±20%' | '±50%' | '±100%';
 }
 
 // ==================== 统计卡片 ====================

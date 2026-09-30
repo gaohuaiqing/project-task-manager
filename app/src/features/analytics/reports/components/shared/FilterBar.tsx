@@ -25,13 +25,6 @@ import { TIME_RANGE_OPTIONS, DELAY_TYPE_OPTIONS, TASK_TYPE_OPTIONS as DEFAULT_TA
 
 // getPresetDateRange 已提取至 config/report-configs.ts（FilterBar 与 ReportsPage 共用单一源头）
 
-/** 预估准确性范围选项 */
-const ESTIMATION_ACCURACY_OPTIONS = [
-  { value: '±20%', label: '精准 (±20%)' },
-  { value: '±50%', label: '正常 (±50%)' },
-  { value: '±100%', label: '宽松 (±100%)' },
-];
-
 export interface FilterBarProps {
   activeTab: ReportType;
   filters: ReportFilters;
@@ -41,8 +34,6 @@ export interface FilterBarProps {
   isLoading?: boolean;
   projects?: Array<{ id: string; name: string }>;
   members?: Array<{ id: string; name: string }>;
-  departments?: Array<{ id: string; name: string }>;
-  techGroups?: Array<{ id: string; name: string }>;
 }
 
 export function FilterBar({
@@ -54,8 +45,6 @@ export function FilterBar({
   isLoading,
   projects = [],
   members = [],
-  departments = [],
-  techGroups = [],
 }: FilterBarProps) {
   const [datePickerOpen, setDatePickerOpen] = useState(false);
 
@@ -76,14 +65,12 @@ export function FilterBar({
     onFiltersChange({ ...filters, [key]: value });
   };
 
-  // 根据报表类型显示不同的筛选器
-  const showProjectFilter = ['project-progress', 'task-statistics', 'delay-analysis', 'activity-trend'].includes(activeTab);
+  // 根据报表类型显示不同的筛选器（与后端各报表 API 实际消费的参数对齐，无效筛选不提供）
+  const showProjectFilter = ['project-progress', 'task-statistics', 'delay-analysis', 'resource-efficiency', 'activity-trend'].includes(activeTab);
   const showAssigneeFilter = ['task-statistics', 'member-analysis', 'activity-trend'].includes(activeTab);
   // 任务类型筛选仅 task-statistics 消费；延期报表 API 不接收 taskType，提供下拉会"选了没反应"
   const showTaskTypeFilter = activeTab === 'task-statistics';
   const showDelayTypeFilter = activeTab === 'delay-analysis';
-  const showDepartmentFilter = activeTab === 'resource-efficiency';
-  const showEstimationAccuracyFilter = activeTab === 'member-analysis';
   // 项目进度是当前状态快照，不支持时间范围筛选
   const showTimeRangeFilter = activeTab !== 'project-progress';
 
@@ -227,26 +214,6 @@ export function FilterBar({
             <SelectContent>
               <SelectItem value="all">全部类型</SelectItem>
               {DELAY_TYPE_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-
-        {/* 预估准确性范围筛选 */}
-        {showEstimationAccuracyFilter && (
-          <Select
-            value={filters.estimationAccuracyRange || 'all'}
-            onValueChange={(v) => updateFilter('estimationAccuracyRange', v === 'all' ? undefined : v as ReportFilters['estimationAccuracyRange'])}
-          >
-            <SelectTrigger className="w-[160px]">
-              <SelectValue placeholder="预估准确性" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部范围</SelectItem>
-              {ESTIMATION_ACCURACY_OPTIONS.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>

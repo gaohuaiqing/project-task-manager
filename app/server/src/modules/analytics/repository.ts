@@ -2177,6 +2177,11 @@ export class AnalyticsRepository {
       conditions.push('t.actual_end_date <= ?');
       params.push(options.end_date);
     }
+    // 项目筛选（补齐：路由早已接收 project_id 但 SQL 此前未消费，前端项目下拉选了不生效）
+    if (options.project_id) {
+      conditions.push('t.project_id = ?');
+      params.push(options.project_id);
+    }
 
     // 只统计已完成的任务
     conditions.push(STATUS_CONDITIONS.completed);
@@ -2266,6 +2271,11 @@ export class AnalyticsRepository {
       conditions.push('t.actual_end_date <= ?');
       params.push(options.end_date);
     }
+    // 项目筛选（补齐：路由早已接收 project_id 但 SQL 此前未消费，前端项目下拉选了不生效）
+    if (options.project_id) {
+      conditions.push('t.project_id = ?');
+      params.push(options.project_id);
+    }
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
@@ -2313,6 +2323,11 @@ export class AnalyticsRepository {
     if (options.end_date) {
       conditions.push('t.actual_end_date <= ?');
       params.push(options.end_date);
+    }
+    // 项目筛选（补齐：路由早已接收 project_id 但 SQL 此前未消费，前端项目下拉选了不生效）
+    if (options.project_id) {
+      conditions.push('t.project_id = ?');
+      params.push(options.project_id);
     }
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
