@@ -7,20 +7,6 @@
 
 // ============ 趋势指标相关 ============
 
-export interface TrendIndicator {
-  value: number;
-  previousValue: number;
-  change: number;
-  changePercent: number;
-  direction: 'up' | 'down' | 'flat';
-  isPositive: boolean;
-}
-
-export interface StatsWithTrend {
-  current: number;
-  trend: TrendIndicator;
-}
-
 export interface TimeSeriesPoint {
   date: string;
   value: number;
@@ -423,18 +409,6 @@ export interface TrendDataPoint {
   delayed: number;
 }
 
-export interface MemberAnalysisReport {
-  memberId: number;
-  memberName: string;
-  currentTasks: number;
-  totalFullTimeRatio: number;
-  avgCompletionRate: number;
-  capabilityMatch?: number;
-  taskList: MemberTask[];
-  capabilities?: CapabilityDisplay[];
-  estimationAccuracy?: EstimationAccuracyStats;
-}
-
 export interface MemberTask {
   id: string;
   description: string;
@@ -448,20 +422,6 @@ export interface MemberTask {
   actualDuration?: number;
   estimationAccuracy?: number;
   updatedAt?: string | null;
-}
-
-export interface EstimationAccuracyStats {
-  accurateCount: number;
-  slightDeviationCount: number;
-  obviousDeviationCount: number;
-  seriousDeviationCount: number;
-  avgAccuracy: number;
-}
-
-export interface CapabilityDisplay {
-  modelName: string;
-  dimensionScores: string;
-  overallScore: number;
 }
 
 // ============ 成员分析扩展 ============
