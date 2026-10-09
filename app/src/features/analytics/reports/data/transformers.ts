@@ -598,6 +598,8 @@ export function transformDelayAnalysisReport(
       assigneeId: m.assigneeId ?? null,
       count: m.count,
       maxOverdueDays: m.maxOverdueDays,
+      // 部门 id（旧后端/缓存缺字段兜底 0）
+      deptId: m.deptId ?? 0,
     })),
   };
 

@@ -233,6 +233,8 @@ export interface OverdueStartMemberStat {
   count: number;
   /** 最长逾期未开始天数 */
   maxOverdueDays: number;
+  /** 责任人部门 id（未分配=0；旧后端/缓存缺字段兜底 0） */
+  deptId?: number;
 }
 
 /** v3: 范围统计（scopeFilter + 生效筛选同口径的项目/团队/任务数） */

@@ -1,6 +1,7 @@
 /**
- * v2 成员排名：4 专项柱图（延期次数 / 计划变更 / 改善之星 / 落后排行）
- * - 延期次数排行：by totalDelayCount DESC
+ * v2 成员排名：5 专项柱图（延期次数 / 逾期未开始 / 计划变更 / 改善之星 / 落后排行）
+ * - 延期次数排行：by totalDelayCount DESC（点击柱子下钻该成员延期任务明细）
+ * - 逾期未开始排行：by count DESC（实时口径，与下钻 API overdue_start:true 同口径；点击柱子下钻）
  * - 计划变更排行：by planChangeCount DESC
  * - 改善之星排行：by improvementDelta ASC（负值=本期比上期延期更少，置顶）
  * - 落后排行：by improvementDelta DESC（正值=本期比上期延期更多，置顶）
@@ -10,10 +11,12 @@
  */
 import { BarChart } from '../charts';
 import { ChartContainer, ChartGroup } from '../shared';
-import type { BarChartData, MemberRankingData, DelayDetailQuery } from '../../types';
+import type { BarChartData, MemberRankingData, OverdueStartMemberRankingItem, DelayDetailQuery } from '../../types';
 
 export interface MemberRankingSectionProps {
   data: MemberRankingData[];
+  /** 第 5 专项数据源：逾期未开始成员排行（实时口径，来自 overdueStartOverview.memberRanking） */
+  overdueStartRanking?: OverdueStartMemberRankingItem[];
   selectedDeptName?: string | null;
   /** 选中的部门 id（来自 TeamSection 点组下钻）；非空时只展示该部门成员 */
   selectedDeptId?: number | null;
@@ -38,6 +41,7 @@ function buildSingleMetricChart(
 
 export function MemberRankingSection({
   data,
+  overdueStartRanking,
   selectedDeptName,
   selectedDeptId,
   onDrillDown,
@@ -69,6 +73,15 @@ export function MemberRankingSection({
   const changeChart = buildSingleMetricChart(byChangeCount, '计划变更次数', (m) => m.planChangeCount, '#3b82f6');
   const starChart = buildSingleMetricChart(byImprovement, '本期vs上期改善', (m) => m.improvementDelta, '#10b981');
   const worseChart = buildSingleMetricChart(byWorsening, '本期vs上期恶化', (m) => m.improvementDelta, '#f97316');
+
+  // 第 5 专项：逾期未开始排行（实时口径；后端已按 count DESC 排序，前端只做部门过滤）
+  const osFiltered = overdueStartRanking
+    ? (selectedDeptId ? overdueStartRanking.filter((m) => m.deptId === selectedDeptId) : overdueStartRanking)
+    : [];
+  const osChart: BarChartData = {
+    labels: osFiltered.map((m) => m.name),
+    datasets: [{ label: '逾期未开始', values: osFiltered.map((m) => m.count), color: '#EA580C' }],
+  };
 
   // 高度按成员数动态调整（每成员 32px，最小 200）
   const heightFor = (rows: MemberRankingData[]) => Math.max(200, rows.length * 32);
@@ -108,6 +121,31 @@ export function MemberRankingSection({
               if (m?.assigneeId) onDrillDown({ assignee_id: m.assigneeId }, `${m.assigneeName} 的延期任务`);
             } : undefined}
           />
+        </ChartContainer>
+
+        <ChartContainer
+          title="逾期未开始排行"
+          subtitle={`${subtitle} · 当前逾期未开始任务数（实时口径，由高到低${onDrillDown ? '，点击柱子查看明细' : ''}）`}
+        >
+          {osFiltered.length === 0 ? (
+            <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
+              {selectedDeptName ? `${selectedDeptName} 暂无逾期未开始任务` : '暂无逾期未开始任务'}
+            </div>
+          ) : (
+            <BarChart
+              data={osChart}
+              layout="vertical"
+              showValues
+              showLegend={false}
+              height={Math.max(200, osFiltered.length * 32)}
+              yAxisLabel="成员"
+              onBarClick={onDrillDown ? ({ index }) => {
+                const m = osFiltered[index];
+                // "未分配"聚合行无 assigneeId，不可下钻
+                if (m?.assigneeId) onDrillDown({ assignee_id: m.assigneeId, overdue_start: true }, `${m.name} 的逾期未开始任务`);
+              } : undefined}
+            />
+          )}
         </ChartContainer>
 
         <ChartContainer

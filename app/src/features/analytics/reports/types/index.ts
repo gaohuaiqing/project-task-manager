@@ -432,6 +432,8 @@ export interface OverdueStartMemberRankingItem {
   count: number;
   /** 最长逾期未开始天数 */
   maxOverdueDays: number;
+  /** 责任人部门 id（未分配=0；部门下钻过滤用） */
+  deptId: number;
 }
 
 /** 逾期未开始总览（仅当前口径，实时状态；不参与时间段统计） */

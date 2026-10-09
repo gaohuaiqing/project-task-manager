@@ -118,6 +118,7 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
       <TeamSection data={data} role={role} onSelectDept={handleSelectDept} />
       <MemberRankingSection
         data={data.memberRanking}
+        overdueStartRanking={data.overdueStartOverview.memberRanking}
         selectedDeptName={selectedDeptName}
         selectedDeptId={selectedDeptId}
         onDrillDown={openDetail}
