@@ -396,6 +396,8 @@ export interface OverdueStartMemberStat {
   count: number;
   /** 最长逾期未开始天数（CURDATE - start_date） */
   max_overdue_days: number;
+  /** 责任人部门 id（未分配=0；前端成员榜部门下钻过滤用） */
+  dept_id: number;
 }
 
 /** 逾期未开始总览（仅当前口径） */

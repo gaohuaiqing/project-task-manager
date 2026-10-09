@@ -1725,11 +1725,12 @@ export class AnalyticsRepository {
       `SELECT t.assignee_id,
               IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS name,
               COUNT(*) AS count,
-              MAX(DATEDIFF(CURDATE(), t.start_date)) AS max_overdue_days
+              MAX(DATEDIFF(CURDATE(), t.start_date)) AS max_overdue_days,
+              u.department_id AS dept_id
        FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
        WHERE ${overdueStartConds.join(' AND ')}
-       GROUP BY t.assignee_id, u.real_name, u.username
+       GROUP BY t.assignee_id, u.real_name, u.username, u.department_id
        ORDER BY count DESC, max_overdue_days DESC
        LIMIT ${QUERY_LIMITS.TOP_DELAY_MEMBERS}`,
       overdueStartParams
@@ -1748,6 +1749,8 @@ export class AnalyticsRepository {
         assignee_id: r.assignee_id != null ? Number(r.assignee_id) : null,
         count: Number(r.count) || 0,
         max_overdue_days: Number(r.max_overdue_days) || 0,
+        // 未分配成员 u.department_id 为 NULL，||0 兜底（与 P1 member_ranking 同规则）
+        dept_id: Number(r.dept_id) || 0,
       })),
     };
 
