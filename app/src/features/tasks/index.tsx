@@ -3,7 +3,7 @@
  */
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,21 @@ import { invalidationBatcher } from '@/lib/utils/invalidationBatcher';
 import { useAuth } from '@/features/auth';
 import { PLAN_FIELDS } from './hooks/usePermissions';
 import type { WBSTaskListItem, CreateTaskRequest, UpdateTaskRequest, TaskQueryParams } from './types';
+import { TASK_STATUS_OPTIONS, type TaskStatus } from '@/shared/constants';
+
+/**
+ * 解析 ?status= 深链参数为合法状态数组
+ * - 逗号分隔多值（如 delayed,overdue_start）
+ * - 非法值一律忽略（不在 TASK_STATUS_OPTIONS 9 个合法值内）
+ */
+export function parseStatusParam(param: string | null): TaskStatus[] {
+  if (!param) return [];
+  const valid = new Set(TASK_STATUS_OPTIONS.map((o) => o.value));
+  return param
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s): s is TaskStatus => valid.has(s as TaskStatus));
+}
 
 /** 计划字段的中文标签 */
 const FIELD_LABELS: Record<string, string> = {
@@ -52,11 +67,16 @@ export default function TasksPage({ projectId }: TasksPageProps) {
   const { id: urlTaskId } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
+  const [searchParams] = useSearchParams();
+  // ?status= 深链：挂载时一次性读入合法状态初始化筛选（不做 URL→filters 持续联动）
+  const initialStatuses = parseStatusParam(searchParams.get('status'));
+
   // 筛选状态
-  const [filters, setFilters] = useState<TaskQueryParams>({
+  const [filters, setFilters] = useState<TaskQueryParams>(() => ({
     projectId,
     pageSize: 100, // 减小默认页面大小，提升性能
-  });
+    ...(initialStatuses.length > 0 ? { status: initialStatuses } : {}),
+  }));
 
   // 对话框状态
   const [formOpen, setFormOpen] = useState(false);
