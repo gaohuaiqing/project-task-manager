@@ -374,9 +374,9 @@ function transformEngineerData(
 
   return {
     alerts: [
-      { type: 'overdue' as const, count: stats.overdueTasks || 0, label: '逾期任务', color: 'danger' as const, actionLabel: '查看详情', actionPath: '/tasks' },
-      { type: 'overdue_start' as const, count: stats.overdueStartTasks || 0, label: '逾期未开始', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/tasks' },
-      { type: 'delay_warning' as const, count: stats.delayWarningTasks || 0, label: '即将到期', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/tasks' },
+      { type: 'overdue' as const, count: stats.overdueTasks || 0, label: '逾期任务', color: 'danger' as const, actionLabel: '查看详情', actionPath: '/tasks?status=delayed' },
+      { type: 'overdue_start' as const, count: stats.overdueStartTasks || 0, label: '逾期未开始', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/tasks?status=overdue_start' },
+      { type: 'delay_warning' as const, count: stats.delayWarningTasks || 0, label: '即将到期', color: 'warning' as const, actionLabel: '查看详情', actionPath: '/tasks?status=delay_warning' },
       { type: 'week_due' as const, count: stats.weekDueTasks || 0, label: '本周到期', color: 'info' as const, actionLabel: '查看详情', actionPath: '/tasks' },
     ],
     todoTasks: (detail?.todoTasks || []).map((t: any) => ({
