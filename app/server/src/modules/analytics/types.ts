@@ -196,7 +196,7 @@ export interface DelayedMemberStat {
   assignee_name: string;
   /** 当前延期任务数（基于日期实时判定，不依赖 status 字段） */
   delayed_task_count: number;
-  /** 历史延期次数 = 该责任人所有任务 delay_count 之和 */
+  /** 历史延期次数 = 时间范围内延期事件次数（按事件发生时负责人 dr.assignee_id 快照归属，未分配事件聚合到"未分配"行） */
   total_delay_count: number;
 }
 
@@ -222,7 +222,7 @@ export interface DepartmentDelayStat {
   overdue_start_rate: number;
   /** 平均逾期开始天数 = AVG(CURDATE - start_date)，仅统计逾期未开始任务 */
   avg_overdue_start_days: number;
-  total_delay_count: number;     // 累计延期次数（SUM delay_count）
+  total_delay_count: number;     // 累计延期次数 = 时间范围内延期事件次数（按事件发生时负责人 dr.assignee_id 快照归属，与任务当前归属解耦）
   plan_change_count: number;
   /** 计划变更率 = plan_change_count / total_tasks（保留2位小数，"次/任务"语义） */
   plan_change_rate: number;
@@ -478,6 +478,41 @@ export interface DelayDetailQueryOptions {
 /** 延期明细下钻返回 */
 export interface DelayDetailResult {
   items: DelayedTaskItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+/** 延期事件明细查询参数（双视角：按事件归属口径的延期事件分页列表） */
+export interface DelayEventQueryOptions {
+  project_id?: string;
+  /** 按事件发生时负责人筛选（dr.assignee_id 快照） */
+  assignee_id?: number;
+  /** 事件落期过滤（dr.created_at BETWEEN，需 start_date 与 end_date 成对出现） */
+  start_date?: string;
+  end_date?: string;
+  page?: number;
+  page_size?: number;
+}
+
+/** 延期事件明细行（一条 delay_records 记录 = 一次延期事件） */
+export interface DelayEventItem {
+  /** 延期事件记录 ID（delay_records.id，UUID 字符串） */
+  id: string;
+  task_id: string;
+  task_description: string;
+  /** 实时计算的 WBS 编码（与 WBS 表同源头，非表列） */
+  wbs_code: string | null;
+  /** 事件发生时负责人快照（NULL=事件时未分配/未知） */
+  assignee_id: number | null;
+  assignee_name: string;
+  delay_days: number;
+  created_at: string;
+}
+
+/** 延期事件明细返回（分页） */
+export interface DelayEventResult {
+  items: DelayEventItem[];
   total: number;
   page: number;
   page_size: number;

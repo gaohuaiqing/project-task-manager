@@ -17,6 +17,7 @@ import type {
   TechManagerDashboardDetailResponse, EngineerDashboardDetailResponse,
   ActivityTrendQueryOptions, ActivityTrendResponse,
   DelayDetailQueryOptions, DelayDetailResult,
+  DelayEventQueryOptions, DelayEventResult,
 } from './types';
 import { MetricsService, ScopeService, TrendService } from './services';
 import type { Workbook, Worksheet, Cell } from 'exceljs';
@@ -116,6 +117,15 @@ export class AnalyticsService {
       throw new ForbiddenError('无权限查看延期分析报表');
     }
     return this.repo.getDelayDetailTasks(options, currentUser);
+  }
+
+  /** 延期事件明细（双视角：按事件归属口径的延期事件分页列表，供明细表与 P3 下钻） */
+  async getDelayEvents(options: DelayEventQueryOptions, currentUser: User): Promise<DelayEventResult> {
+    // 权限检查：engineer 不可见报表分析模块（与相邻 reports 方法一致）
+    if (currentUser.role === 'engineer') {
+      throw new ForbiddenError('无权限查看延期分析报表');
+    }
+    return this.repo.getDelayEvents(options, currentUser);
   }
 
   async getMemberAnalysisReport(memberId: number, currentUser: User): Promise<MemberAnalysisReport | null> {

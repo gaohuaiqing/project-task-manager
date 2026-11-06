@@ -28,6 +28,7 @@ import type {
   StatsOverview,
   OverdueStartOverview, OverdueStartMemberStat,
   DelayDetailQueryOptions, DelayDetailResult,
+  DelayEventQueryOptions, DelayEventItem, DelayEventResult,
   ScopeStats, RiskMemberStat, RiskTrendStat,
 } from './types';
 import { buildTaskScopeFilter, buildProjectScopeFilter, buildUserDepartmentScopeFilter, ScopeFilter, getManagedDepartmentIds as getManagedDepartmentIdsSafe, getTechManagerGroupIds as getTechManagerGroupIdsSafe } from './query-builder';
@@ -2093,6 +2094,81 @@ export class AnalyticsRepository {
       delay_days: Number(r.delay_days) || 0,
       reason: String(r.reason ?? '未填写'),
       status: String(r.status ?? ''),
+    }));
+
+    return { items, total, page, page_size: pageSize };
+  }
+
+  /**
+   * 延期事件明细分页查询（双视角：一条 delay_records 记录 = 一次延期事件）
+   * 口径与 countDelayEventsByAssignee 一致：
+   * - 归属/筛选：按事件发生时负责人 dr.assignee_id 快照（与任务当前 assignee 解耦）
+   * - 时间段：事件落期 dr.created_at BETWEEN
+   * - 权限：scopeFilter 作用在任务/项目别名 t./p. 上（dr JOIN wbs_tasks t 后沿用），
+   *   与图表①/P3 排行同款 scope，保证明细 total 与排行数字对账一致
+   * - wbs_code 非表列，走 getWbsCodeMap 实时计算（与任务列表/WBS 表同源头）
+   */
+  async getDelayEvents(options: DelayEventQueryOptions, user: User): Promise<DelayEventResult> {
+    const pool = getPool();
+    const scopeFilter = await buildTaskScopeFilter(user, 't', true);
+
+    const conds: string[] = [scopeFilter.clause];
+    const params: (string | number)[] = [...scopeFilter.params];
+    if (options.project_id) {
+      conds.push('t.project_id = ?');
+      params.push(options.project_id);
+    }
+    if (options.assignee_id != null) {
+      conds.push('dr.assignee_id = ?');
+      params.push(options.assignee_id);
+    }
+    if (options.start_date && options.end_date) {
+      conds.push('dr.created_at BETWEEN ? AND ?');
+      params.push(options.start_date, options.end_date);
+    }
+    const whereClause = `WHERE ${conds.join(' AND ')}`;
+
+    // 总数
+    const [countRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS cnt FROM delay_records dr
+       JOIN wbs_tasks t ON dr.task_id = t.id
+       JOIN projects p ON t.project_id = p.id
+       ${whereClause}`,
+      params
+    );
+    const total = Number((countRows as RowDataPacket[])[0]?.cnt) || 0;
+
+    // 分页（数字 clamp 后安全拼接，避免 mysql2 prepared LIMIT ? 限制）
+    const page = Math.max(1, Number(options.page) || 1);
+    const pageSize = Math.max(1, Math.min(100, Number(options.page_size) || 20));
+    const offset = (page - 1) * pageSize;
+
+    // 明细列表（id 为 UUID 字符串；created_at 加 id 做 tiebreaker 保证翻页稳定）
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT dr.id, dr.task_id, t.description AS task_description,
+              dr.assignee_id,
+              IF(dr.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS assignee_name,
+              dr.delay_days, dr.created_at
+       FROM delay_records dr
+       JOIN wbs_tasks t ON dr.task_id = t.id
+       JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON dr.assignee_id = u.id
+       ${whereClause}
+       ORDER BY dr.created_at DESC, dr.id DESC
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params
+    );
+
+    const wbsMap = await this.getWbsCodeMap(user);
+    const items: DelayEventItem[] = (rows as RowDataPacket[]).map(r => ({
+      id: String(r.id),
+      task_id: String(r.task_id),
+      task_description: sanitizeString(String(r.task_description ?? '')),
+      wbs_code: wbsMap.get(String(r.task_id)) ?? null,
+      assignee_id: r.assignee_id != null ? Number(r.assignee_id) : null,
+      assignee_name: String(r.assignee_name ?? '未知'),
+      delay_days: Number(r.delay_days) || 0,
+      created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     }));
 
     return { items, total, page, page_size: pageSize };
