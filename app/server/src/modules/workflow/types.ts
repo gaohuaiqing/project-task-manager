@@ -61,6 +61,8 @@ export interface DelayRecord {
   // 关联信息
   task_description?: string;
   recorder_name?: string;
+  /** 延期发生时的负责人姓名（快照）；null=当时未分配或历史无快照 */
+  assignee_name?: string | null;
 }
 
 export interface CreateDelayRecordRequest {

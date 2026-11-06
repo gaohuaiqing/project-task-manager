@@ -3,7 +3,7 @@
  * 显示任务的延期记录
  */
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, Calendar, User } from 'lucide-react';
+import { AlertTriangle, Calendar, User, UserCog } from 'lucide-react';
 import { format } from 'date-fns';
 import type { DelayRecord } from '@/lib/api/workflow.api';
 
@@ -49,6 +49,11 @@ export function DelayHistoryPanel({ records }: DelayHistoryPanelProps) {
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <User className="h-3 w-3" />
             记录人：{record.recorderName || '未知'}
+          </div>
+
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <UserCog className="h-3 w-3" />
+            当时负责人：{record.assigneeName ?? '未分配'}
           </div>
         </div>
       ))}
