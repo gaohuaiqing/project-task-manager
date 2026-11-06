@@ -145,9 +145,19 @@ router.get('/reports/delay-analysis/detail-tasks', requirePermission('REPORT_VIE
 router.get('/reports/delay-events', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentUser = getCurrentUser(req)!;
+    // assignee_id 非数字时 fail fast 返回 400，避免 NaN 进入 SQL 导致 500（fixed25 同类教训）
+    let assignee_id: number | undefined;
+    if (req.query.assignee_id) {
+      const parsed = parseInt(req.query.assignee_id as string, 10);
+      if (Number.isNaN(parsed)) {
+        res.status(400).json({ success: false, error: 'assignee_id 参数无效' });
+        return;
+      }
+      assignee_id = parsed;
+    }
     const options: DelayEventQueryOptions = {
       project_id: req.query.project_id as string,
-      assignee_id: req.query.assignee_id ? parseInt(req.query.assignee_id as string) : undefined,
+      assignee_id,
       start_date: req.query.start_date as string,
       end_date: req.query.end_date as string,
       page: req.query.page ? parseInt(req.query.page as string) : undefined,
