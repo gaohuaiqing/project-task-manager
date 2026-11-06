@@ -546,6 +546,33 @@ export interface DelayDetailResult {
   pageSize: number;
 }
 
+/**
+ * 延期事件明细项（双视角 · 任务视角明细）
+ * 逐条对应后端 delay_events 记录：延期发生时点 + 当时负责人快照；
+ * 响应经全局拦截器 snake_case → camelCase（与后端 delay-events API 字段对齐）
+ */
+export interface DelayEventItem {
+  id: string;
+  taskId: string;
+  taskDescription: string;
+  /** WBS 编码（历史事件可能无编码，为 null） */
+  wbsCode: string | null;
+  /** 当时负责人 ID（未分配为 null） */
+  assigneeId: number | null;
+  /** 当时负责人姓名（未分配聚合为「未分配」） */
+  assigneeName: string;
+  delayDays: number;
+  createdAt: string;
+}
+
+/** 延期事件明细分页结果（服务端分页） */
+export interface DelayEventResult {
+  items: DelayEventItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface MemberDelayItem {
   memberName: string;
   teamName?: string;

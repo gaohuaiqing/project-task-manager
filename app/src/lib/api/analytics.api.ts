@@ -10,6 +10,7 @@ import type {
   TaskDistribution,
   DashboardQueryParams,
 } from '@/features/analytics/shared/types';
+import type { DelayEventResult } from '@/features/analytics/reports/types';
 
 const BASE_PATH = '/analytics';
 
@@ -128,6 +129,27 @@ export async function getPriorityCompletionTrend(params: {
   return response.data ?? [];
 }
 
+/**
+ * 获取延期事件明细（双视角 · 任务视角明细）
+ * 逐条延期事件：发生时点 + 当时负责人快照；服务端分页
+ * 注：params 键为 snake_case（请求拦截器 toBackend 对其无变化），undefined 键不会序列化进 query
+ */
+export async function getDelayEvents(params: {
+  project_id?: string;
+  assignee_id?: number;
+  start_date?: string;
+  end_date?: string;
+  page?: number;
+  page_size?: number;
+} = {}, signal?: AbortSignal): Promise<DelayEventResult> {
+  const response = await apiClient.get<ApiResponse<DelayEventResult>>(
+    `${BASE_PATH}/reports/delay-events`,
+    { params, signal }
+  );
+  // 拦截器已解包 envelope 并转 camelCase，response.data 即 DelayEventResult
+  return response.data ?? { items: [], total: 0, page: 1, pageSize: 20 };
+}
+
 // ============ 仪表板 Detail API（按角色聚合） ============
 
 export interface AdminDashboardDetail {
@@ -231,6 +253,7 @@ export const analyticsApi = {
   getDashboardTrends,
   getReportTrend,
   getPriorityCompletionTrend,
+  getDelayEvents,
   getAdminDashboardDetail,
   getDeptManagerDashboardDetail,
   getTechManagerDashboardDetail,

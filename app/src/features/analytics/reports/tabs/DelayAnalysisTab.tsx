@@ -29,6 +29,7 @@ import { EstimationDeviationView } from '../components/delay/EstimationDeviation
 import { ReasonSection } from '../components/delay/ReasonSection';
 import { TrendSection } from '../components/delay/TrendSection';
 import { DelayDetailSection } from '../components/delay/DelayDetailSection';
+import { DelayEventSection } from '../components/delay/DelayEventSection';
 import { DelayTaskDetailDialog } from '../components/delay/DelayTaskDetailDialog';
 
 /** 明细区 anchor id（统计总览支撑卡点击后滚动定位） */
@@ -156,7 +157,7 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
       />
 
       {/* L3·明细（anchor 供统计总览支撑卡点击滚动定位；三状态 Tab + 成员统计，支持下钻筛选） */}
-      <div id={DETAIL_ANCHOR_ID} className="scroll-mt-4">
+      <div id={DETAIL_ANCHOR_ID} className="scroll-mt-4 space-y-6">
         <DelayDetailSection
           delayTasks={data.delayTasks}
           memberRanking={data.memberRanking}
@@ -166,6 +167,9 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
           activeTab={detailTab}
           onChangeTab={setDetailTab}
         />
+
+        {/* 双视角 · 任务视角明细：延期事件逐条记录（当时负责人快照），FilterBar 联动 + 服务端分页 */}
+        <DelayEventSection filters={filters} />
       </div>
 
       {/* 当前下钻上下文展示（用户可见当前筛选状态） */}
