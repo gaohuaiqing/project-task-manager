@@ -6,7 +6,8 @@
  * 2. 历史回填按 task_delayed 通知直连（spec 4.2 v2 算法，审计锚已证伪）：
  *    cron 写 delay_records 的同一循环发 task_delayed 通知给当时负责人
  *    （task_id 正确 UUID + user_id=当时 assignee + 同秒时间戳）→ 事件级 1:1 直连
- *    无匹配通知（2026-05-05 通知功能上线前的早期事件）→ 当前 assignee 兜底
+ *    无匹配通知且事件时任务已有指派（存在 task_assigned 通知 ≤ 事件时间）
+ *    → 当前 assignee 兜底；事件时任务未分配 → 保持 NULL（前端展示「未分配」）
  *
  * 幂等性：
  * - run-migration.ts migrations 表保证只执行一次
@@ -73,14 +74,20 @@ export async function up(): Promise<void> {
   );
   console.log(`[Migration ${MIGRATION_VERSION}] 回填①通知直连: ${r1.affectedRows} 行`);
 
-  // 4. 回填②：兜底当前 assignee（通知功能 2026-05-05 上线前的早期事件等无匹配行）
+  // 4. 回填②：兜底当前 assignee（仅限事件时任务已指派——存在 task_assigned 通知 ≤ 事件时间；
+  //    事件时未分配的任务保持 NULL，避免把延期旧账错记给事件后才上任的负责人）
   const [r2] = await pool.execute<ResultSetHeader>(
     `UPDATE delay_records dr
      JOIN wbs_tasks t ON dr.task_id = t.id
      SET dr.assignee_id = t.assignee_id
-     WHERE dr.assignee_id IS NULL`
+     WHERE dr.assignee_id IS NULL
+       AND EXISTS (
+         SELECT 1 FROM notifications n
+         WHERE n.type = 'task_assigned' AND n.task_id = dr.task_id
+           AND n.created_at <= dr.created_at
+       )`
   );
-  console.log(`[Migration ${MIGRATION_VERSION}] 回填②当前值兜底: ${r2.affectedRows} 行`);
+  console.log(`[Migration ${MIGRATION_VERSION}] 回填②当前值兜底(仅已指派): ${r2.affectedRows} 行`);
 
   // 4. dry-run 统计（回填后）
   const [after] = await pool.execute<RowDataPacket[]>(
