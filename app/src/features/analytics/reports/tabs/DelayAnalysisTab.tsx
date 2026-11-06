@@ -31,6 +31,8 @@ import { TrendSection } from '../components/delay/TrendSection';
 import { DelayDetailSection } from '../components/delay/DelayDetailSection';
 import { DelayEventSection } from '../components/delay/DelayEventSection';
 import { DelayTaskDetailDialog } from '../components/delay/DelayTaskDetailDialog';
+import { DelayEventDetailDialog } from '../components/delay/DelayEventDetailDialog';
+import type { DelayEventDialogFilters } from '../components/delay/DelayEventDetailDialog';
 
 /** 明细区 anchor id（统计总览支撑卡点击后滚动定位） */
 const DETAIL_ANCHOR_ID = 'delay-detail';
@@ -73,6 +75,27 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
       filters: detailFilters.overdue_start
         ? { ...detailFilters }
         : { ...detailFilters, start_date: filters.startDate, end_date: filters.endDate },
+    });
+  };
+
+  // 双视角：P3 延期次数排行下钻弹窗（成员延期事件，事件归属口径）
+  const [eventDialog, setEventDialog] = useState<{ open: boolean; title: string; filters: DelayEventDialogFilters }>({
+    open: false,
+    title: '',
+    filters: { assignee_id: 0 }, // assignee_id 占位：open=false 时 useQuery enabled 不发请求
+  });
+  const openEventDetail = (member: { assigneeId: number; name: string }) => {
+    setEventDialog({
+      open: true,
+      title: `${member.name} 的延期事件`,
+      // 事件口径必须合并当前时间段 + 项目筛选（P3 榜单 totalDelayCount 同参数，
+      // 后端 countDelayEventsByAssignee 与 delay-events API 均含此二者），保证弹窗 total = P3 柱值
+      filters: {
+        assignee_id: member.assigneeId,
+        project_id: filters.projectId || undefined,
+        start_date: filters.startDate || undefined,
+        end_date: filters.endDate || undefined,
+      },
     });
   };
 
@@ -122,6 +145,7 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
         overdueStartRanking={data.overdueStartOverview.memberRanking}
         selectedDeptName={selectedDeptName}
         selectedDeptId={selectedDeptId}
+        onEventDrillDown={openEventDetail}
         onDrillDown={openDetail}
         onClearDept={() => handleSelectDept(null)}
       />
@@ -207,6 +231,14 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
         onOpenChange={(open) => setDetailDialog((s) => ({ ...s, open }))}
         title={detailDialog.title}
         filters={detailDialog.filters}
+      />
+
+      {/* 双视角：P3 成员延期事件下钻弹窗（点击延期次数排行柱子触发，事件口径=时间段+项目筛选） */}
+      <DelayEventDetailDialog
+        open={eventDialog.open}
+        onOpenChange={(open) => setEventDialog((s) => ({ ...s, open }))}
+        title={eventDialog.title}
+        filters={eventDialog.filters}
       />
     </div>
   );

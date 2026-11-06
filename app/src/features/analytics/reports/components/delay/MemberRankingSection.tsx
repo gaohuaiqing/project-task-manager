@@ -1,6 +1,6 @@
 /**
  * v2 成员排名：5 专项柱图（延期次数 / 逾期未开始 / 计划变更 / 改善之星 / 落后排行）
- * - 延期次数排行：by totalDelayCount DESC（点击柱子下钻该成员延期任务明细）
+ * - 延期次数排行：by totalDelayCount DESC（事件归属口径；双视角：点击柱子下钻该成员延期事件明细）
  * - 逾期未开始排行：by count DESC（实时口径，与下钻 API overdue_start:true 同口径；点击柱子下钻）
  * - 计划变更排行：by planChangeCount DESC
  * - 改善之星排行：by improvementDelta ASC（负值=本期比上期延期更少，置顶）
@@ -20,7 +20,9 @@ export interface MemberRankingSectionProps {
   selectedDeptName?: string | null;
   /** 选中的部门 id（来自 TeamSection 点组下钻）；非空时只展示该部门成员 */
   selectedDeptId?: number | null;
-  /** v2 交互增强：点击"延期次数排行"柱子下钻该成员延期任务明细 */
+  /** 双视角：点击"延期次数排行"柱子下钻该成员延期事件明细（事件归属口径，与柱值同口径） */
+  onEventDrillDown?: (member: { assigneeId: number; name: string }) => void;
+  /** v2 交互增强：点击"逾期未开始排行"柱子下钻该成员逾期未开始任务明细 */
   onDrillDown?: (filters: DelayDetailQuery, title: string) => void;
   /** v2 修复：返回全部人员（清除组筛选） */
   onClearDept?: () => void;
@@ -44,6 +46,7 @@ export function MemberRankingSection({
   overdueStartRanking,
   selectedDeptName,
   selectedDeptId,
+  onEventDrillDown,
   onDrillDown,
   onClearDept,
 }: MemberRankingSectionProps) {
@@ -107,7 +110,7 @@ export function MemberRankingSection({
       <ChartGroup className="grid-cols-1 md:grid-cols-2">
         <ChartContainer
           title="延期次数排行"
-          subtitle={`${subtitle} · 延期次数（时间段内，由高到低${onDrillDown ? '，点击柱子查看明细' : ''}）`}
+          subtitle={`${subtitle} · 延期次数（时间段内，由高到低${onEventDrillDown ? '，点击柱子查看延期事件' : ''}）`}
         >
           <BarChart
             data={delayChart}
@@ -116,9 +119,10 @@ export function MemberRankingSection({
             showLegend={false}
             height={heightFor(byDelayCount)}
             yAxisLabel="成员"
-            onBarClick={onDrillDown ? ({ index }) => {
+            onBarClick={onEventDrillDown ? ({ index }) => {
               const m = byDelayCount[index];
-              if (m?.assigneeId) onDrillDown({ assignee_id: m.assigneeId }, `${m.assigneeName} 的延期任务`);
+              // 「未分配」聚合行 assigneeId=0（后端 assignee_id NULL 数字化），不可下钻（与逾期未开始排行同规则）
+              if (m && m.assigneeId > 0) onEventDrillDown({ assigneeId: m.assigneeId, name: m.assigneeName });
             } : undefined}
           />
         </ChartContainer>

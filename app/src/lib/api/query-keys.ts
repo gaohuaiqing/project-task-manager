@@ -115,6 +115,8 @@ export const queryKeys = {
     delayAnalysisReport: (filters: object) => ['analytics', 'reports', 'delay-analysis', filters] as const,
     delayDetailTasks: (filters: object) => ['analytics', 'reports', 'delay-detail-tasks', filters] as const,
     delayEvents: (filters: object) => ['analytics', 'reports', 'delay-events', filters] as const,
+    // 双视角 · P3 成员榜延期事件下钻弹窗（assignee_id 维度 + 时间段/项目筛选；区别于 delay-events 的服务端分页明细表）
+    delayEventDialog: (filters: object) => ['analytics', 'reports', 'delay-event-dialog', filters] as const,
     memberAnalysisReport: (memberId?: number) => ['analytics', 'reports', 'member-analysis', memberId] as const,
     resourceEfficiencyReport: (filters: object) => ['analytics', 'reports', 'resource-efficiency', filters] as const,
     reportTrend: (params: object) => ['analytics', 'reports', 'trend', params] as const,
