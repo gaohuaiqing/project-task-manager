@@ -447,8 +447,8 @@ export class WorkflowRepository {
   async createDelayRecord(data: CreateDelayRecordRequest & { id: string; task_id: string; recorded_by: number }): Promise<string> {
     const pool = getPool();
     await pool.execute(
-      'INSERT INTO delay_records (id, task_id, delay_days, reason, recorded_by) VALUES (?, ?, ?, ?, ?)',
-      [data.id, data.task_id, data.delay_days, data.reason, data.recorded_by]
+      'INSERT INTO delay_records (id, task_id, delay_days, reason, recorded_by, assignee_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [data.id, data.task_id, data.delay_days, data.reason, data.recorded_by, data.assignee_id ?? null]
     );
     return data.id;
   }

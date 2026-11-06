@@ -66,6 +66,8 @@ export interface DelayRecord {
 export interface CreateDelayRecordRequest {
   delay_days: number;
   reason: string;
+  /** 延期发生时的负责人快照（未分配为 null） */
+  assignee_id?: number | null;
 }
 
 // ============ 通知相关 ============

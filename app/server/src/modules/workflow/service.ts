@@ -744,6 +744,7 @@ export class WorkflowService {
         delay_days: delayDays,
         reason: '系统自动记录：任务超过截止日期',
         recorded_by: 1, // admin（系统自动记录，用户可在任务详情补充原因）
+        assignee_id: task.assignee_id ?? null,
       });
 
       // 发送延期通知
