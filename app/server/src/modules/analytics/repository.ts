@@ -950,6 +950,50 @@ export class AnalyticsRepository {
     return Number((rows as RowDataPacket[])[0]?.cnt) || 0;
   }
 
+  /**
+   * 事件归属口径：按 dr.assignee_id 聚合延期事件次数（双视角核心查询）
+   * 分组键是延期发生时的负责人（assignee_id 快照），与任务当前 assignee 分组键不同，
+   * 故不能在原 SQL 内改列，各调用点独立查询后在 TS 侧 merge。
+   * @param scopeFilter 权限范围（作用在任务/项目别名 t./p. 上，dr JOIN 后沿用）
+   * @param startDate/endDate 时间段（可选，过滤 dr.created_at 事件落期）
+   * @param projectId 项目筛选（可选）
+   * @returns Map<assigneeId(未分配=0), { name, deptId, count }>
+   */
+  private async countDelayEventsByAssignee(
+    scopeFilter: ScopeFilter,
+    startDate: string | null,
+    endDate: string | null,
+    projectId?: string
+  ): Promise<Map<number, { name: string; deptId: number; count: number }>> {
+    const pool = getPool();
+    const conds = [scopeFilter.clause];
+    const params: (string | number)[] = [...scopeFilter.params];
+    if (startDate && endDate) { conds.push('dr.created_at BETWEEN ? AND ?'); params.push(startDate, endDate); }
+    if (projectId) { conds.push('t.project_id = ?'); params.push(projectId); }
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT dr.assignee_id,
+              IF(dr.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS assignee_name,
+              COALESCE(u.department_id, 0) AS dept_id,
+              COUNT(*) AS event_count
+       FROM delay_records dr
+       JOIN wbs_tasks t ON dr.task_id = t.id
+       JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON dr.assignee_id = u.id
+       WHERE ${conds.join(' AND ')}
+       GROUP BY dr.assignee_id, u.real_name, u.username, u.department_id`,
+      params
+    );
+    const m = new Map<number, { name: string; deptId: number; count: number }>();
+    for (const r of rows as RowDataPacket[]) {
+      m.set(Number(r.assignee_id), {
+        name: String(r.assignee_name ?? '未知'),
+        deptId: Number(r.dept_id) || 0,
+        count: Number(r.event_count) || 0,
+      });
+    }
+    return m;
+  }
+
   /** v2: 改善方向：本期 vs 上期（前一同等长度） */
   private async computeImprovement(
     scopeFilter: ScopeFilter,
@@ -1100,13 +1144,20 @@ export class AnalyticsRepository {
 
     const [teamAggRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
-         SUM(COALESCE(t.delay_count, 0)) AS total_delay_count,
          SUM(COALESCE(t.plan_change_count, 0)) AS plan_change_count
        FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
        WHERE ${scopeFilter.clause} AND ${DELAY_OR_OVERDUE}`,
       scopeFilter.params
     );
     const teamAgg = (teamAggRows as RowDataPacket[])[0] || {};
+    // 事件归属口径：团队累计延期次数 = 全量事件数（current）/ 时间段内事件数（period），
+    // 按 dr.assignee_id 快照分组，v2 的 current/period 槽位从此真实区分
+    const teamDelayEventsAll = await this.countDelayEventsByAssignee(scopeFilter, null, null);
+    const teamDelayTotalAll = [...teamDelayEventsAll.values()].reduce((s, v) => s + v.count, 0);
+    const teamDelayEventsPeriod = hasPeriod
+      ? await this.countDelayEventsByAssignee(scopeFilter, sd, ed)
+      : teamDelayEventsAll;
+    const teamDelayTotalPeriod = [...teamDelayEventsPeriod.values()].reduce((s, v) => s + v.count, 0);
 
     // 个人层（人均 + 重灾区）—— v2 需求1(b)：与 member_ranking 同口径（时间段内 end_date 任务）
     const memberAggConds: string[] = [scopeFilter.clause, `(${DELAY_OR_OVERDUE})`];
@@ -1114,24 +1165,33 @@ export class AnalyticsRepository {
     if (sd && ed) { memberAggConds.push('t.end_date BETWEEN ? AND ?'); memberAggParams.push(sd, ed); }
     const [memberAggRows] = await pool.execute<RowDataPacket[]>(
       `SELECT t.assignee_id,
-              IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS name,
-              SUM(COALESCE(t.delay_count, 0)) AS delay_count
+              IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS name
        FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
        WHERE ${memberAggConds.join(' AND ')}
-       GROUP BY t.assignee_id, u.real_name, u.username
-       ORDER BY delay_count DESC`,
+       GROUP BY t.assignee_id, u.real_name, u.username`,
       memberAggParams
     );
     const memberAgg = memberAggRows as RowDataPacket[];
-    const memberCount = Math.max(1, memberAgg.length);
-    const totalDelaySum = memberAgg.reduce((s, r) => s + (Number(r.delay_count) || 0), 0);
-    const worstCur = memberAgg[0];
+    // 事件归属口径：dr.assignee_id 分组，与任务当前 assignee 分组键不同，独立查询后 merge；
+    // 当前有延期任务的人占位 0，只有历史事件、当前无延期任务的人也计入（人均与重灾区不漏人）
+    const evMap = await this.countDelayEventsByAssignee(scopeFilter, sd, ed, options.project_id);
+    const merged = new Map<number, { name: string; count: number }>();
+    for (const r of memberAgg) {
+      merged.set(Number(r.assignee_id), { name: String(r.name ?? '未知'), count: 0 });
+    }
+    for (const [id, v] of evMap) {
+      const cur = merged.get(id);
+      merged.set(id, { name: cur?.name ?? v.name, count: (cur?.count ?? 0) + v.count });
+    }
+    const memberCount = Math.max(1, merged.size);
+    const totalDelaySum = [...merged.values()].reduce((s, c) => s + c.count, 0);
+    const worstEntry = [...merged.values()].sort((a, b) => b.count - a.count)[0];
 
     const stats_overview: StatsOverview = {
       team: {
         delayed_task_count: { current: teamCurrentDelayed, period: teamPeriodDelayed },
-        total_delay_count: { current: Number(teamAgg.total_delay_count) || 0, period: Number(teamAgg.total_delay_count) || 0 },
+        total_delay_count: { current: teamDelayTotalAll, period: teamDelayTotalPeriod },
         plan_change_count: { current: Number(teamAgg.plan_change_count) || 0, period: Number(teamAgg.plan_change_count) || 0 },
       },
       individual: {
@@ -1139,8 +1199,8 @@ export class AnalyticsRepository {
           current: Math.round((totalDelaySum / memberCount) * 10) / 10,
           period: Math.round((totalDelaySum / memberCount) * 10) / 10,
         },
-        worst_member_name: { current: worstCur ? String(worstCur.name) : null, period: worstCur ? String(worstCur.name) : null },
-        worst_member_count: { current: worstCur ? Number(worstCur.delay_count) || 0 : 0, period: worstCur ? Number(worstCur.delay_count) || 0 : 0 },
+        worst_member_name: { current: worstEntry ? worstEntry.name : null, period: worstEntry ? worstEntry.name : null },
+        worst_member_count: { current: worstEntry ? worstEntry.count : 0, period: worstEntry ? worstEntry.count : 0 },
       },
     };
     // stats_overview 已在下方 return 消费
@@ -1267,9 +1327,9 @@ export class AnalyticsRepository {
 
     // ========== 责任人维度横条排行（v1.x 新增）==========
 
-    // 图表①：当前已延期的责任人（当前延期任务数 + 历史延期次数）
-    // ⚠️ 关键：total_delay_count 必须累加该责任人【所有任务】的 delay_count，
-    //    故 WHERE 不加 delayed 条件，改用 SUM(CASE) + HAVING 过滤出当前有延期任务的人
+    // 图表①：当前已延期的责任人（当前延期任务数 + 历史延期事件次数）
+    // total_delay_count 为事件归属口径：按 dr.assignee_id 快照独立查询后 merge，
+    // 时间段语义与 memberConds1 的 end_date 过滤不同：事件按 created_at 落期
     const memberConds1: string[] = [scopeFilter.clause];  // 不排除未分配：未分配任务聚成"未分配"行，保证求和=全量
     const memberParams1: (string | number)[] = [...scopeFilter.params];
     if (options.project_id) {
@@ -1285,24 +1345,28 @@ export class AnalyticsRepository {
     const [delayedMemberRows] = await pool.execute<RowDataPacket[]>(
       `SELECT t.assignee_id,
               IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS assignee_name,
-              SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_task_count,
-              SUM(COALESCE(t.delay_count, 0)) AS total_delay_count
+              SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_task_count
        FROM wbs_tasks t
        JOIN projects p ON t.project_id = p.id
        LEFT JOIN users u ON t.assignee_id = u.id
        WHERE ${memberConds1.join(' AND ')}
        GROUP BY t.assignee_id, u.real_name, u.username
        HAVING delayed_task_count > 0
-       ORDER BY delayed_task_count DESC, total_delay_count DESC
+       ORDER BY delayed_task_count DESC
        LIMIT ${QUERY_LIMITS.DELAY_MEMBERS}`,
       memberParams1
     );
-    const delayed_member_stats: DelayedMemberStat[] = (delayedMemberRows as RowDataPacket[]).map((r) => ({
-      assignee_id: Number(r.assignee_id),
-      assignee_name: String(r.assignee_name ?? '未知'),
-      delayed_task_count: Number(r.delayed_task_count) || 0,
-      total_delay_count: Number(r.total_delay_count) || 0,
-    }));
+    const chart1EvMap = await this.countDelayEventsByAssignee(scopeFilter, sd, ed, options.project_id);
+    const delayed_member_stats: DelayedMemberStat[] = (delayedMemberRows as RowDataPacket[]).map((r) => {
+      const id = Number(r.assignee_id);
+      const ev = chart1EvMap.get(id);
+      return {
+        assignee_id: id,
+        assignee_name: String(r.assignee_name ?? '未知'),
+        delayed_task_count: Number(r.delayed_task_count) || 0,
+        total_delay_count: ev?.count ?? 0,
+      };
+    });
 
     // 图表②：延期预警责任人（预警任务数）
     // WHERE 直接限定 delayWarning，GROUP BY 后每行 COUNT(*) 自然 > 0
@@ -1346,7 +1410,6 @@ export class AnalyticsRepository {
           `SELECT d.id AS dept_id, d.name AS dept_name,
                   COUNT(t.id) AS total_tasks,
                   SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_count,
-                  SUM(COALESCE(t.delay_count, 0)) AS total_delay_count,
                   SUM(COALESCE(t.plan_change_count, 0)) AS plan_change_count,
                   ROUND(AVG(CASE WHEN ${DELAY_CONDITIONS.delayed} AND t.end_date IS NOT NULL
                       THEN DATEDIFF(CURDATE(), t.end_date) END), 1) AS avg_delay_days,
@@ -1360,18 +1423,45 @@ export class AnalyticsRepository {
            JOIN projects p ON t.project_id = p.id
            WHERE d.id IN (SELECT sub_u.department_id FROM users sub_u WHERE ${deptScope.clause.replace(/u\./g, 'sub_u.')})
            GROUP BY d.id, d.name
-           ORDER BY delayed_count DESC, total_delay_count DESC
+           ORDER BY delayed_count DESC
            LIMIT ${QUERY_LIMITS.TEAM_COMPARISON}`,
           deptScope.params
         );
+        // 事件归属口径：各组延期次数 = 按事件 assignee（延期时负责人快照）的 department_id 聚合事件数，
+        // 与上面任务口径查询分组键不同，独立查询后 merge；未分配事件（dr.assignee_id NULL）不计入任何组。
+        // 参数顺序与占位符出现顺序一致：deptScope 子查询参数在前，时间段参数在后
+        const deptEvParams: (string | number)[] = [...deptScope.params];
+        let deptEvTimeCond = '';
+        if (sd && ed) {
+          deptEvTimeCond = 'AND dr.created_at BETWEEN ? AND ?';
+          deptEvParams.push(sd, ed);
+        }
+        const [deptEvRows] = await pool.execute<RowDataPacket[]>(
+          `SELECT COALESCE(u.department_id, 0) AS dept_id, COUNT(*) AS event_count
+           FROM delay_records dr
+           JOIN wbs_tasks t ON dr.task_id = t.id
+           JOIN projects p ON t.project_id = p.id
+           LEFT JOIN users u ON dr.assignee_id = u.id
+           WHERE u.department_id IN (
+             SELECT sub_u.department_id FROM users sub_u WHERE ${deptScope.clause.replace(/u\./g, 'sub_u.')}
+           )
+           ${deptEvTimeCond}
+           GROUP BY u.department_id`,
+          deptEvParams
+        );
+        const deptEvMap = new Map<number, number>();
+        for (const r of deptEvRows as RowDataPacket[]) {
+          deptEvMap.set(Number(r.dept_id) || 0, Number(r.event_count) || 0);
+        }
         for (const r of deptRows as RowDataPacket[]) {
           const total = Number(r.total_tasks) || 0;
           const delayed = Number(r.delayed_count) || 0;
           const overdueStartCount = Number(r.overdue_start_count) || 0;
           const planChangeCount = Number(r.plan_change_count) || 0;
-          const totalDelayCount = Number(r.total_delay_count) || 0;
           // v2 Task 3：该组改善方向（按 dept_id 构造 dept scope，复用 computeImprovement）
           const deptId = Number(r.dept_id);
+          // 事件归属口径：本组延期次数 = 该组事件数（merge，0 兜底）
+          const totalDelayCount = deptEvMap.get(deptId) ?? 0;
           const deptScope: ScopeFilter = {
             clause: `EXISTS (SELECT 1 FROM users du WHERE du.id = t.assignee_id AND du.department_id = ?)`,
             params: [deptId],
@@ -1518,12 +1608,13 @@ export class AnalyticsRepository {
 
     // P1：成员延期排名（增强：当前延期数 + 累计 + 计划变更 + 平均天数 + 部门 id）
     // dept_id 用于前端 dept_manager 选组下钻时按部门筛选成员
+    // 事件归属口径：任务口径列（delayed_task_count/plan_change_count/avg_delay_days）由任务查询提供，
+    // total_delay_count 改为按 dr.assignee_id 聚合的延期事件数（独立查询后 merge，排序随之切换）
     const [rankRows] = await pool.execute<RowDataPacket[]>(
       `SELECT t.assignee_id,
               IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS assignee_name,
               u.department_id AS dept_id,
               SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_task_count,
-              SUM(COALESCE(t.delay_count, 0)) AS total_delay_count,
               SUM(COALESCE(t.plan_change_count, 0)) AS plan_change_count,
               ROUND(AVG(CASE WHEN ${DELAY_CONDITIONS.delayed} AND t.end_date IS NOT NULL
                   THEN DATEDIFF(CURDATE(), t.end_date) END), 1) AS avg_delay_days
@@ -1532,32 +1623,61 @@ export class AnalyticsRepository {
        LEFT JOIN users u ON t.assignee_id = u.id
        WHERE ${memberConds1.join(' AND ')}
        GROUP BY t.assignee_id, u.real_name, u.username, u.department_id
-       HAVING delayed_task_count > 0 OR total_delay_count > 0 OR plan_change_count > 0
-       ORDER BY total_delay_count DESC, delayed_task_count DESC
+       HAVING delayed_task_count > 0 OR plan_change_count > 0
+       ORDER BY delayed_task_count DESC
        LIMIT ${QUERY_LIMITS.DELAY_MEMBERS}`,
       memberParams1
     );
-    const member_ranking: MemberDelayStat[] = [];
+    // 事件归属口径（P3）：独立查询 + merge（分组键不同；只有历史事件、当前无任务的人也要出现）
+    const p3EvMap = await this.countDelayEventsByAssignee(scopeFilter, sd, ed, options.project_id);
+    const rankingAll: MemberDelayStat[] = [];
+    const seen = new Set<number>();
     for (const r of rankRows as RowDataPacket[]) {
       const assigneeId = Number(r.assignee_id);
-      // v2 改善方向：assignee_id>0 时按人算（改善之星排行），未分配 delta=0
-      const memberScope: ScopeFilter = assigneeId > 0
-        ? { clause: 't.assignee_id = ?', params: [assigneeId] }
-        : { clause: '1=0', params: [] };
-      const imp = assigneeId > 0
-        ? await this.computeImprovement(memberScope, sd, ed)
-        : { current: 0, previous: 0, delta: 0, direction: 'flat' as const };
-      member_ranking.push({
+      seen.add(assigneeId);
+      rankingAll.push({
         assignee_id: assigneeId,
         assignee_name: String(r.assignee_name ?? '未分配'),
         delayed_task_count: Number(r.delayed_task_count) || 0,
-        total_delay_count: Number(r.total_delay_count) || 0,
+        total_delay_count: p3EvMap.get(assigneeId)?.count ?? 0,
         plan_change_count: Number(r.plan_change_count) || 0,
         avg_delay_days: Number(r.avg_delay_days) || 0,
         // 未分配成员 assignee_id IS NULL → u.department_id 也 NULL，||0 兜底
         dept_id: Number(r.dept_id) || 0,
-        improvement_delta: imp.delta,
+        improvement_delta: 0,
       });
+    }
+    // 补「只有历史事件、当前无任务」的人（任务口径各列为 0，事件数为其实际次数）
+    for (const [id, v] of p3EvMap) {
+      if (!seen.has(id)) {
+        rankingAll.push({
+          assignee_id: id,
+          assignee_name: v.name,
+          delayed_task_count: 0,
+          total_delay_count: v.count,
+          plan_change_count: 0,
+          avg_delay_days: 0,
+          dept_id: v.deptId,
+          improvement_delta: 0,
+        });
+      }
+    }
+    // 事件口径排序（替代原 SQL ORDER BY total_delay_count）；filter 等价保留原 HAVING 语义
+    // （有事件/有延期任务/有计划变更），slice 保持原 SQL LIMIT 榜单长度
+    rankingAll.sort((a, b) =>
+      b.total_delay_count - a.total_delay_count || b.delayed_task_count - a.delayed_task_count);
+    const member_ranking: MemberDelayStat[] = rankingAll
+      .filter((m) => m.total_delay_count > 0 || m.delayed_task_count > 0 || m.plan_change_count > 0)
+      .slice(0, QUERY_LIMITS.DELAY_MEMBERS);
+    // v2 改善方向：assignee_id>0 时按人算（改善之星排行），未分配 delta=0（对最终榜单统一计算）
+    for (const m of member_ranking) {
+      const memberScope: ScopeFilter = m.assignee_id > 0
+        ? { clause: 't.assignee_id = ?', params: [m.assignee_id] }
+        : { clause: '1=0', params: [] };
+      const imp = m.assignee_id > 0
+        ? await this.computeImprovement(memberScope, sd, ed)
+        : { current: 0, previous: 0, delta: 0, direction: 'flat' as const };
+      m.improvement_delta = imp.delta;
     }
 
     // P2：原因×责任人交叉（Top N 单元）
