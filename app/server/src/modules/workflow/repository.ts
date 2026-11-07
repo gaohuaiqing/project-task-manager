@@ -434,8 +434,8 @@ export class WorkflowRepository {
     const pool = getPool();
     const [rows] = await pool.execute<DelayRecordRow[]>(
       `SELECT dr.*, t.description as task_description,
-              u.real_name as recorder_name,
-              au.real_name as assignee_name
+              COALESCE(u.real_name, u.username) as recorder_name,
+              COALESCE(au.real_name, au.username) as assignee_name
        FROM delay_records dr
        LEFT JOIN wbs_tasks t ON dr.task_id = t.id
        LEFT JOIN users u ON dr.recorded_by = u.id

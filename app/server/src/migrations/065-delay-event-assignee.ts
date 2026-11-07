@@ -2,7 +2,7 @@
  * 数据库迁移 065: delay_records 加 assignee_id 列 + 历史回填
  *
  * 目标：
- * 1. delay_records 加 assignee_id INT NULL + 索引（「当时负责人」快照，NULL=未知/未分配）
+ * 1. delay_records 加 assignee_id INT NULL + 索引（「当时负责人」快照，NULL=当时未分配）
  * 2. 历史回填按 task_delayed 通知直连（spec 4.2 v2 算法，审计锚已证伪）：
  *    cron 写 delay_records 的同一循环发 task_delayed 通知给当时负责人
  *    （task_id 正确 UUID + user_id=当时 assignee + 同秒时间戳）→ 事件级 1:1 直连

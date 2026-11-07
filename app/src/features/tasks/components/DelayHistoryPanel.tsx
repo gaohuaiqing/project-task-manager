@@ -53,7 +53,7 @@ export function DelayHistoryPanel({ records }: DelayHistoryPanelProps) {
 
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <UserCog className="h-3 w-3" />
-            当时负责人：{record.assigneeName ?? '未分配'}
+            当时负责人：{record.assigneeId == null ? '未分配' : (record.assigneeName || '未知')}
           </div>
         </div>
       ))}
