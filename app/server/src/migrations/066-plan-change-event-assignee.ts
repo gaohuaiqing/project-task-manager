@@ -10,8 +10,13 @@
  *    归属 = 该任务最后一条 created_at <= eff_time 的 task_assigned 通知的 user_id
  *    无匹配（生效时点早于全部指派通知）→ 保持 NULL = 当时未分配
  *
- *    无「当前值兜底」：区间法自洽（有匹配即归属，无匹配即未分配；
- *    与 065 兜底②的 EXISTS 语义等价，见 spec 11.2.1）
+ * 4. 兜底③（无通知任务当前值，精确推理，v2 修订）：
+ *    task_assigned 通知只在 assignee 变更路径发出（task/service.ts assignee 变更分支，
+ *    含 null→B 首指派；创建时带 assignee 不发）。
+ *    故「任务无任何 task_assigned 通知」⇔「创建后 assignee 从未被设置或变更」
+ *    ⇒ 当前 assignee 即全部历史时点的 assignee——兜底为精确推理而非近似
+ *    （唯一误差 = 通知功能上线前的转派史丢失，dry-run 抽查覆盖）。
+ *    「有通知但变更早于首条」的行保持 NULL（保守）。
  *
  * 幂等性：
  * - run-migration.ts migrations 表保证只执行一次
@@ -80,11 +85,27 @@ export async function up(): Promise<void> {
   );
   console.log(`[Migration ${MIGRATION_VERSION}] 回填指派通知区间法: ${r1.affectedRows} 行`);
 
+  // 3b. 兜底③：无通知任务当前值（精确推理）——任务无任何 task_assigned 通知
+  //     ⇒ 创建后 assignee 从未被设置或变更 ⇒ 当前 assignee 即全部历史时点的 assignee；
+  //     仅当当前 assignee 非空时回填，当前也未指派的任务保持 NULL
+  const [r3] = await pool.execute<ResultSetHeader>(
+    `UPDATE plan_changes pc
+     JOIN wbs_tasks t ON pc.task_id = t.id
+     SET pc.assignee_id = t.assignee_id
+     WHERE pc.assignee_id IS NULL
+       AND t.assignee_id IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM notifications n
+         WHERE n.type = 'task_assigned' AND n.task_id = pc.task_id
+       )`
+  );
+  console.log(`[Migration ${MIGRATION_VERSION}] 兜底③(无通知任务当前值,精确推理): ${r3.affectedRows} 行`);
+
   // 4. dry-run 统计（回填后）
   const [after] = await pool.execute<RowDataPacket[]>(
     `SELECT COUNT(*) AS total,
             SUM(CASE WHEN assignee_id IS NULL THEN 1 ELSE 0 END) AS unfilled
      FROM plan_changes`
   );
-  console.log(`[Migration ${MIGRATION_VERSION}] 回填后: 总变更 ${after[0].total}, 未填 ${after[0].unfilled}（预期=生效时点早于全部指派通知的行，语义=当时未分配）`);
+  console.log(`[Migration ${MIGRATION_VERSION}] 回填后: 总变更 ${after[0].total}, 未填 ${after[0].unfilled}（预期=无通知且当前未指派 + 生效时点早于全部指派通知的行，语义=当时未分配）`);
 }
