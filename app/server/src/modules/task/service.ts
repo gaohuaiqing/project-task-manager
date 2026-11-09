@@ -1065,6 +1065,9 @@ export class TaskService {
                 old_value: change.oldValue != null ? String(change.oldValue) : null,
                 new_value: newValue,
                 reason,
+                // 负责人快照取生效值：updateTask 已先落库，同请求含转派时 data.assignee_id 即新值；
+                // 未动负责人（undefined）时取库中现值 task.assignee_id
+                assignee_id: data.assignee_id !== undefined ? data.assignee_id : task.assignee_id,
               });
               recordedCount++;
             } catch (err) {

@@ -106,7 +106,7 @@ export class WorkflowRepository {
     return rows[0] || null;
   }
 
-  async createPlanChange(data: CreatePlanChangeRequest & { id: string; user_id: number }): Promise<string> {
+  async createPlanChange(data: CreatePlanChangeRequest & { id: string; user_id: number; assignee_id: number | null }): Promise<string> {
     const pool = getPool();
 
     // 去重检查：同一任务、同一字段、同一新值、pending 状态的记录已存在则跳过
@@ -123,10 +123,11 @@ export class WorkflowRepository {
     // 使用传入的 submission_id，如果没有则使用 id 作为默认值（向后兼容）
     const submissionId = data.submission_id || data.id;
 
+    // assignee_id = 提交时任务负责人快照（NULL=当时未分配；审批通过时会覆盖为生效时值）
     await pool.execute(
-      `INSERT INTO plan_changes (id, submission_id, task_id, user_id, change_type, old_value, new_value, reason, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-      [data.id, submissionId, data.task_id, data.user_id, data.change_type, data.old_value || null, data.new_value, data.reason]
+      `INSERT INTO plan_changes (id, submission_id, task_id, user_id, change_type, old_value, new_value, reason, status, assignee_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      [data.id, submissionId, data.task_id, data.user_id, data.change_type, data.old_value || null, data.new_value, data.reason, data.assignee_id]
     );
     return data.id;
   }
@@ -148,25 +149,36 @@ export class WorkflowRepository {
     old_value: string | null;
     new_value: string;
     reason: string;
+    assignee_id: number | null;
   }): Promise<string> {
     const pool = getPool();
+    // assignee_id = 变更生效时任务负责人快照（调用方传生效后的值，含同请求转派场景）
     await pool.execute(
       `INSERT INTO plan_changes
          (id, submission_id, task_id, user_id, change_type,
-          old_value, new_value, reason, status, approver_id, approved_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, NOW())`,
+          old_value, new_value, reason, status, approver_id, approved_at, assignee_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, NOW(), ?)`,
       [data.id, data.submission_id, data.task_id, data.user_id, data.change_type,
-       data.old_value, data.new_value, data.reason, data.user_id]
+       data.old_value, data.new_value, data.reason, data.user_id, data.assignee_id]
     );
     return data.id;
   }
 
-  async approvePlanChange(id: string, approverId: number, rejectionReason?: string): Promise<boolean> {
+  /**
+   * @param assigneeId 审批通过时覆盖负责人快照为生效时任务 assignee（审批通过时点最准）；
+   *                   仅 approved 分支写入；驳回（rejectionReason 非空）或未传（undefined）不动快照
+   */
+  async approvePlanChange(id: string, approverId: number, rejectionReason?: string, assigneeId?: number | null): Promise<boolean> {
     const pool = getPool();
     const status: ApprovalStatus = rejectionReason ? 'rejected' : 'approved';
+    const setAssignee = !rejectionReason && assigneeId !== undefined;
     const [result] = await pool.execute<ResultSetHeader>(
-      `UPDATE plan_changes SET status = ?, approver_id = ?, approved_at = NOW(), rejection_reason = ? WHERE id = ?`,
-      [status, approverId, rejectionReason || null, id]
+      `UPDATE plan_changes
+       SET status = ?, approver_id = ?, approved_at = NOW(), rejection_reason = ?${setAssignee ? ', assignee_id = ?' : ''}
+       WHERE id = ?`,
+      setAssignee
+        ? [status, approverId, rejectionReason || null, assigneeId, id]
+        : [status, approverId, rejectionReason || null, id]
     );
     return result.affectedRows > 0;
   }
@@ -302,12 +314,15 @@ export class WorkflowRepository {
 
   /**
    * 批量审批提交（更新 submission_id 下的所有变更）
+   * @param assigneeId 审批通过时覆盖负责人快照为生效时任务 assignee；
+   *                   仅 approved 分支写入；驳回或未传（undefined）不动快照
    */
   async approveSubmission(
     submissionId: string,
     approverId: number,
     approved: boolean,
-    rejectionReason?: string
+    rejectionReason?: string,
+    assigneeId?: number | null
   ): Promise<{ taskId: string; changes: Array<{ changeType: string; newValue: string | null }> }> {
     const pool = getPool();
 
@@ -321,12 +336,15 @@ export class WorkflowRepository {
     }
 
     const status: ApprovalStatus = approved ? 'approved' : 'rejected';
+    const setAssignee = approved && assigneeId !== undefined;
 
     await pool.execute(
       `UPDATE plan_changes
-       SET status = ?, approver_id = ?, approved_at = NOW(), rejection_reason = ?
+       SET status = ?, approver_id = ?, approved_at = NOW(), rejection_reason = ?${setAssignee ? ', assignee_id = ?' : ''}
        WHERE submission_id = ?`,
-      [status, approverId, rejectionReason || null, submissionId]
+      setAssignee
+        ? [status, approverId, rejectionReason || null, assigneeId, submissionId]
+        : [status, approverId, rejectionReason || null, submissionId]
     );
 
     return {
@@ -875,6 +893,18 @@ export class WorkflowRepository {
       [taskId]
     );
     return rows.length > 0 ? (rows[0] as { id: string; project_id: string; version: number; last_plan_refresh_at: Date | null; delay_count: number; actual_start_date: Date | null }) : null;
+  }
+
+  /**
+   * 获取任务当前负责人（计划变更负责人快照用；任务不存在返回 null）
+   */
+  async getTaskAssignee(taskId: string): Promise<number | null> {
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT assignee_id FROM wbs_tasks WHERE id = ?',
+      [taskId]
+    );
+    return rows.length > 0 ? (rows[0].assignee_id ?? null) : null;
   }
 
   /**

@@ -77,6 +77,9 @@ export class WorkflowService {
       return;
     }
 
+    // 提交时任务负责人快照（getTaskWithDates 不含 assignee_id，单独查询）
+    const taskAssigneeId = await this.repo.getTaskAssignee(event.taskId);
+
     // XSS 防护：消毒变更原因
     const sanitizedReason = sanitizeString(event.reason, 1000);
 
@@ -150,6 +153,7 @@ export class WorkflowService {
           old_value: change.oldValue != null ? String(change.oldValue) : null,
           new_value: newValue,
           reason: sanitizedReason,
+          assignee_id: taskAssigneeId,
         });
       } catch (createError) {
         failedFields.push(change.field);
@@ -240,7 +244,9 @@ export class WorkflowService {
     data.reason = sanitizeString(data.reason, 1000);
 
     const id = uuidv4();
-    await this.repo.createPlanChange({ ...data, id, user_id: currentUser.id });
+    // 提交时任务负责人快照（getTaskById 不含 assignee_id，单独查询）
+    const taskAssigneeId = await this.repo.getTaskAssignee(data.task_id);
+    await this.repo.createPlanChange({ ...data, id, user_id: currentUser.id, assignee_id: taskAssigneeId });
 
     return id;
   }
@@ -290,7 +296,9 @@ export class WorkflowService {
     if (data.rejection_reason) {
       data.rejection_reason = sanitizeString(data.rejection_reason, 1000);
     }
-    await this.repo.approvePlanChange(id, currentUser.id, data.rejection_reason);
+    // 审批通过时覆盖负责人快照为生效时任务 assignee（驳回传 undefined 不动快照）
+    const assigneeId = data.approved ? await this.repo.getTaskAssignee(change.task_id) : undefined;
+    await this.repo.approvePlanChange(id, currentUser.id, data.rejection_reason, assigneeId);
 
     if (data.approved) {
       // ========== 审批通过 ==========
@@ -379,12 +387,14 @@ export class WorkflowService {
       data.rejection_reason = sanitizeString(data.rejection_reason, 1000);
     }
 
-    // 批量更新状态
+    // 批量更新状态（审批通过时覆盖负责人快照为生效时任务 assignee；驳回传 undefined 不动快照）
+    const assigneeId = data.approved ? await this.repo.getTaskAssignee(item.taskId) : undefined;
     await this.repo.approveSubmission(
       submissionId,
       currentUser.id,
       data.approved,
-      data.rejection_reason
+      data.rejection_reason,
+      assigneeId
     );
 
     if (data.approved) {
