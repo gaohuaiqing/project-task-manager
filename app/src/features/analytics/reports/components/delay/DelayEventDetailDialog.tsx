@@ -1,6 +1,6 @@
 /**
  * 双视角 · P3 成员榜下钻弹窗：成员延期事件明细
- * 点「延期次数排行」柱子弹出，逐条展示该成员的延期事件（发生时间 / WBS / 任务描述 / 延期天数）。
+ * 点「延期次数排行」柱子弹出，逐条展示该成员的延期事件（发生时间 / 项目 / 根任务 / WBS / 任务描述 / 延期天数）。
  * - filters 由 DelayAnalysisTab 合并当前 FilterBar 时间段 + 项目筛选后传入，
  *   与 P3 榜单 totalDelayCount（后端 countDelayEventsByAssignee 同参数）同口径，弹窗 total = 柱值。
  * - 服务端按 created_at DESC 返回（时间倒序），一次拉 page_size=100 + DataTable 本地分页
@@ -34,9 +34,12 @@ export interface DelayEventDetailDialogProps {
   filters: DelayEventDialogFilters;
 }
 
-/** 列定义：发生时间 / WBS编码 / 任务描述 / 延期天数（省略当时负责人列——弹窗本身按成员筛选） */
+/** 列定义：发生时间 / 项目 / 根任务 / WBS编码 / 任务描述 / 延期天数
+ *  （v3 加项目+根任务两列；省略当时负责人列——弹窗本身按成员筛选） */
 const DELAY_EVENT_DIALOG_COLUMNS: TableColumn[] = [
   { key: 'createdAt', label: '发生时间', width: 140 },
+  { key: 'projectName', label: '项目', width: 130 },
+  { key: 'rootTaskName', label: '根任务', width: 150 },
   { key: 'wbsCode', label: 'WBS编码', width: 120 },
   { key: 'taskDescription', label: '任务描述' },
   { key: 'delayDays', label: '延期天数', width: 90 },
@@ -91,6 +94,12 @@ export function DelayEventDetailDialog({ open, onOpenChange, title, filters }: D
                   }
                   if (column.key === 'wbsCode') {
                     return item.wbsCode ?? <span className="text-muted-foreground">-</span>;
+                  }
+                  if (column.key === 'projectName') {
+                    return item.projectName ?? <span className="text-muted-foreground">-</span>;
+                  }
+                  if (column.key === 'rootTaskName') {
+                    return item.rootTaskName ?? <span className="text-muted-foreground">-</span>;
                   }
                   if (column.key === 'delayDays') {
                     return <span className="font-mono">{item.delayDays}</span>;

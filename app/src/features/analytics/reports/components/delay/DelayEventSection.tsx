@@ -1,6 +1,6 @@
 /**
  * 延期事件明细表（双视角 · 任务视角明细）
- * 逐条展示延期事件：何时发生、当时谁负责、延期几天；受 FilterBar 时间段/项目筛选联动。
+ * 逐条展示延期事件：何时发生、当时谁负责、所属项目与根任务、延期几天；受 FilterBar 时间段/项目筛选联动。
  * 服务端分页（page_size=20，翻页调 API）——区别于 DelayDetailSection 的整包拉取 + DataTable 本地切片分页，
  * 故不传 DataTable 的 pagination（其内置分页会二次切片服务端已分页的 items），分页条自绘。
  */
@@ -16,12 +16,14 @@ import type { ReportFilters, TableColumn } from '../../types';
 /** 每页条数（服务端分页） */
 const DELAY_EVENT_PAGE_SIZE = 20;
 
-/** 列定义：发生时间 / WBS编码 / 任务描述 / 当时负责人 / 延期天数 */
+/** 列定义：发生时间 / 当时负责人 / 项目 / 根任务 / WBS编码 / 任务描述 / 延期天数（v3 加项目+根任务两列） */
 const DELAY_EVENT_COLUMNS: TableColumn[] = [
   { key: 'createdAt', label: '发生时间', width: 130 },
+  { key: 'assigneeName', label: '当时负责人', width: 110 },
+  { key: 'projectName', label: '项目', width: 140 },
+  { key: 'rootTaskName', label: '根任务', width: 160 },
   { key: 'wbsCode', label: 'WBS编码', width: 130 },
   { key: 'taskDescription', label: '任务描述' },
-  { key: 'assigneeName', label: '当时负责人', width: 110 },
   { key: 'delayDays', label: '延期天数', width: 90 },
 ];
 
@@ -95,6 +97,12 @@ export function DelayEventSection({ filters }: DelayEventSectionProps) {
               }
               if (column.key === 'wbsCode') {
                 return item.wbsCode ?? <span className="text-muted-foreground">-</span>;
+              }
+              if (column.key === 'projectName') {
+                return item.projectName ?? <span className="text-muted-foreground">-</span>;
+              }
+              if (column.key === 'rootTaskName') {
+                return item.rootTaskName ?? <span className="text-muted-foreground">-</span>;
               }
               if (column.key === 'assigneeName') {
                 return item.assigneeName || '未分配';

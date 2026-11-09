@@ -557,6 +557,10 @@ export interface DelayEventItem {
   taskDescription: string;
   /** WBS 编码（历史事件可能无编码，为 null） */
   wbsCode: string | null;
+  /** 所属项目名称（v3：JOIN projects 取 p.name；可选兼容旧缓存，null 显示 '-'） */
+  projectName?: string | null;
+  /** 根任务名（v3：parent_id 链最顶层祖先的 description，根=自身时=任务自身描述；链断为 null；可选兼容旧缓存） */
+  rootTaskName?: string | null;
   /** 当时负责人 ID（未分配为 null） */
   assigneeId: number | null;
   /** 当时负责人姓名（未分配聚合为「未分配」） */
@@ -568,6 +572,54 @@ export interface DelayEventItem {
 /** 延期事件明细分页结果（服务端分页） */
 export interface DelayEventResult {
   items: DelayEventItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** 计划变更事件单字段明细（批次内一行 plan_changes = 一个字段变更；camelCase 镜像后端 PlanChangeFieldChange） */
+export interface PlanChangeFieldChange {
+  /** 变更字段类型（duration / start_date / predecessor_id） */
+  changeType: string;
+  /** 旧值（可空） */
+  oldValue: string | null;
+  /** 新值 */
+  newValue: string;
+}
+
+/**
+ * 计划变更事件明细项（v3 双视角 · 计划变更视角明细，行粒度=批次）
+ * 一个批次 = 一次提交的多字段变更 = 一行；仅 approved（直接变更 + 审批通过，不含 rejected/timeout/pending）；
+ * 响应经全局拦截器 snake_case → camelCase（与后端 plan-change-events API 字段对齐）
+ */
+export interface PlanChangeEventItem {
+  /** 批次键（COALESCE(submission_id, id)，UUID 字符串；submission_id 为空的旧行按 id 自成一批） */
+  id: string;
+  taskId: string;
+  taskDescription: string;
+  /** WBS 编码（实时计算，与 WBS 表同源头，可能为 null） */
+  wbsCode: string | null;
+  /** 所属项目名称 */
+  projectName: string | null;
+  /** 根任务名（parent_id 链最顶层祖先的 description；链断为 null） */
+  rootTaskName: string | null;
+  /** 变更生效时负责人 ID 快照（NULL=当时未分配） */
+  assigneeId: number | null;
+  /** 变更生效时负责人姓名（未分配聚合为「未分配」） */
+  assigneeName: string;
+  /** 生效时间 = COALESCE(approved_at, created_at)（approved 行 approved_at 恒非空） */
+  effectiveAt: string;
+  /** 直接变更（approver=提交人自审）vs 审批通过（approver≠提交人） */
+  changeKind: 'direct' | 'approval';
+  /** 变更字段类型列表（批次内去重） */
+  changeTypes: string[];
+  /** 各字段旧值→新值明细 */
+  changes: PlanChangeFieldChange[];
+}
+
+/** 计划变更事件明细分页结果（total = 批次数，与 P3 第 3 专项柱值同口径） */
+export interface PlanChangeEventResult {
+  items: PlanChangeEventItem[];
   total: number;
   page: number;
   pageSize: number;

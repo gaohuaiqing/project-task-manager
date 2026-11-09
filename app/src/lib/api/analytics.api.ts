@@ -10,7 +10,7 @@ import type {
   TaskDistribution,
   DashboardQueryParams,
 } from '@/features/analytics/shared/types';
-import type { DelayEventResult } from '@/features/analytics/reports/types';
+import type { DelayEventResult, PlanChangeEventResult } from '@/features/analytics/reports/types';
 
 const BASE_PATH = '/analytics';
 
@@ -150,6 +150,27 @@ export async function getDelayEvents(params: {
   return response.data ?? { items: [], total: 0, page: 1, pageSize: 20 };
 }
 
+/**
+ * 获取计划变更事件明细（双视角 · 计划变更视角明细，v3）
+ * 行粒度=批次（一次提交的多字段变更一行）；仅 approved（直接变更+审批通过）；
+ * total = 批次数（与 P3 第 3 专项柱值同口径）；服务端分页
+ */
+export async function getPlanChangeEvents(params: {
+  project_id?: string;
+  assignee_id?: number;
+  start_date?: string;
+  end_date?: string;
+  page?: number;
+  page_size?: number;
+} = {}, signal?: AbortSignal): Promise<PlanChangeEventResult> {
+  const response = await apiClient.get<ApiResponse<PlanChangeEventResult>>(
+    `${BASE_PATH}/reports/plan-change-events`,
+    { params, signal }
+  );
+  // 拦截器已解包 envelope 并转 camelCase，response.data 即 PlanChangeEventResult
+  return response.data ?? { items: [], total: 0, page: 1, pageSize: 20 };
+}
+
 // ============ 仪表板 Detail API（按角色聚合） ============
 
 export interface AdminDashboardDetail {
@@ -254,6 +275,7 @@ export const analyticsApi = {
   getReportTrend,
   getPriorityCompletionTrend,
   getDelayEvents,
+  getPlanChangeEvents,
   getAdminDashboardDetail,
   getDeptManagerDashboardDetail,
   getTechManagerDashboardDetail,
