@@ -46,6 +46,7 @@ import { runMigration062 } from './062-fix-null-sort-order';
 import { up as runMigration063 } from './063-add-device-fingerprint';
 import { up as runMigration064 } from './064-add-overdue-start-status';
 import { up as runMigration065 } from './065-delay-event-assignee';
+import { up as runMigration066 } from './066-plan-change-event-assignee';
 
 /**
  * 检查迁移是否已执行
@@ -647,6 +648,19 @@ export async function runPendingMigrations(): Promise<void> {
     console.log('🎉 迁移 065 完成！');
     return true;
   });  // delay_records 加 assignee_id + 历史回填
+
+  await safeRunMigration('066', async () => {
+    const version = '066';
+    const name = 'plan_change_event_assignee';
+    if (await isMigrationExecuted(version)) {
+      console.log('📋 迁移 066 已执行，跳过');
+      return true;
+    }
+    await runMigration066();
+    await recordMigration(version, name);
+    console.log(`🎉 迁移 066 完成！`);
+    return true;
+  });  // plan_changes 加 assignee_id + 指派通知区间法回填
 
   console.log('✅ 数据库迁移检查完成');
 }
