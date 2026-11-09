@@ -24,6 +24,10 @@ export interface PlanChange {
   project_name?: string;
   user_name?: string;
   approver_name?: string;
+  /** 变更时任务负责人ID快照；null=当时未分配 */
+  assignee_id?: number | null;
+  /** 变更时负责人姓名（快照）；null=当时未分配或历史无快照 */
+  assignee_name?: string | null;
 }
 
 export interface CreatePlanChangeRequest {

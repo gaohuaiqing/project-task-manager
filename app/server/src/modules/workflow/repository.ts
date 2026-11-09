@@ -863,12 +863,14 @@ export class WorkflowRepository {
                         t.description as task_description,
                         p.name as project_name,
                         u.real_name as user_name,
-                        a.real_name as approver_name
+                        a.real_name as approver_name,
+                        COALESCE(au.real_name, au.username) as assignee_name
                  FROM plan_changes pc
                  LEFT JOIN wbs_tasks t ON pc.task_id = t.id
                  LEFT JOIN projects p ON t.project_id = p.id
                  LEFT JOIN users u ON pc.user_id = u.id
                  LEFT JOIN users a ON pc.approver_id = a.id
+                 LEFT JOIN users au ON pc.assignee_id = au.id
                  WHERE pc.task_id = ?`;
     const params: (string | number)[] = [taskId];
 

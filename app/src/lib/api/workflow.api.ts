@@ -29,6 +29,9 @@ export interface PlanChange {
   projectName?: string;
   userName?: string;
   approverName?: string;
+  /** 变更时任务负责人（快照）；null=当时未分配或历史无快照 */
+  assigneeId?: number | null;
+  assigneeName?: string | null;
 }
 
 export interface DelayRecord {
