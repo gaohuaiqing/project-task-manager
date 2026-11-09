@@ -4,7 +4,7 @@ import { AnalyticsService } from './service';
 import { ValidationError } from '../../core/errors';
 import { requirePermission, requireRole } from '../../core/middleware/permission-middleware';
 import type { User } from '../../core/types';
-import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig, ResourceEfficiencyQueryOptions, MemberAnalysisQueryOptions, ActivityTrendQueryOptions, DelayDetailQueryOptions, DelayEventQueryOptions } from './types';
+import type { ReportQueryOptions, ProjectTypeConfig, TaskTypeConfig, HolidayConfig, ResourceEfficiencyQueryOptions, MemberAnalysisQueryOptions, ActivityTrendQueryOptions, DelayDetailQueryOptions, DelayEventQueryOptions, PlanChangeEventQueryOptions } from './types';
 import { auditService } from '../../core/audit';
 import type { AuditCategory } from '../../core/types';
 
@@ -164,6 +164,35 @@ router.get('/reports/delay-events', requirePermission('REPORT_VIEW'), async (req
       page_size: req.query.page_size ? parseInt(req.query.page_size as string) : undefined,
     };
     const result = await analyticsService.getDelayEvents(options, currentUser);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 计划变更事件明细（v3 双视角：approved 批次事件分页列表，一行=一次提交多字段变更，供 P3 第 3 专项下钻）
+router.get('/reports/plan-change-events', requirePermission('REPORT_VIEW'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentUser = getCurrentUser(req)!;
+    // assignee_id 非数字时 fail fast 返回 400，避免 NaN 进入 SQL 导致 500（镜像 delay-events，fixed25 同类教训）
+    let assignee_id: number | undefined;
+    if (req.query.assignee_id) {
+      const parsed = parseInt(req.query.assignee_id as string, 10);
+      if (Number.isNaN(parsed)) {
+        res.status(400).json({ success: false, error: 'assignee_id 参数无效' });
+        return;
+      }
+      assignee_id = parsed;
+    }
+    const options: PlanChangeEventQueryOptions = {
+      project_id: req.query.project_id as string,
+      assignee_id,
+      start_date: req.query.start_date as string,
+      end_date: req.query.end_date as string,
+      page: req.query.page ? parseInt(req.query.page as string, 10) : undefined,
+      page_size: req.query.page_size ? parseInt(req.query.page_size as string, 10) : undefined,
+    };
+    const result = await analyticsService.getPlanChangeEvents(options, currentUser);
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);

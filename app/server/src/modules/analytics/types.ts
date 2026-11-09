@@ -503,6 +503,10 @@ export interface DelayEventItem {
   task_description: string;
   /** 实时计算的 WBS 编码（与 WBS 表同源头，非表列） */
   wbs_code: string | null;
+  /** v3: 所属项目名称（t.project_id → projects.name） */
+  project_name: string | null;
+  /** v3: 根任务名（parent_id 链最顶层祖先的 description；顶层任务=自身；链断=null 前端显示 -） */
+  root_task_name: string | null;
   /** 事件发生时负责人快照（NULL=事件时未分配/未知） */
   assignee_id: number | null;
   assignee_name: string;
@@ -513,6 +517,58 @@ export interface DelayEventItem {
 /** 延期事件明细返回（分页） */
 export interface DelayEventResult {
   items: DelayEventItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+/** 计划变更事件明细查询参数（v3：行粒度=批次，镜像 DelayEventQueryOptions） */
+export interface PlanChangeEventQueryOptions {
+  project_id?: string;
+  /** 按变更生效时负责人筛选（pc.assignee_id 快照，NULL=未分配，由前端专用值传递） */
+  assignee_id?: number;
+  /** 生效落期过滤（COALESCE(pc.approved_at, pc.created_at) BETWEEN，需成对出现） */
+  start_date?: string;
+  end_date?: string;
+  page?: number;
+  page_size?: number;
+}
+
+/** 计划变更事件单字段明细（批次内一行 plan_changes = 一个字段变更） */
+export interface PlanChangeFieldChange {
+  change_type: string;
+  old_value: string | null;
+  new_value: string;
+}
+
+/** 计划变更事件明细行（v3：一个批次 = 一次变更事件 = 一行） */
+export interface PlanChangeEventItem {
+  /** 批次键（COALESCE(pc.submission_id, pc.id)，UUID 字符串） */
+  id: string;
+  task_id: string;
+  task_description: string;
+  /** 实时计算的 WBS 编码（与 WBS 表同源头，非表列） */
+  wbs_code: string | null;
+  /** 所属项目名称 */
+  project_name: string | null;
+  /** 根任务名（parent_id 链最顶层祖先的 description；链断=null） */
+  root_task_name: string | null;
+  /** 变更生效时负责人快照（NULL=当时未分配） */
+  assignee_id: number | null;
+  assignee_name: string;
+  /** 生效时间 = COALESCE(approved_at, created_at)（approved 行 approved_at 恒非空） */
+  effective_at: string;
+  /** 直接变更（approver=提交人自审）vs 审批通过（approver≠提交人） */
+  change_kind: 'direct' | 'approval';
+  /** 变更字段类型列表（批次内去重） */
+  change_types: string[];
+  /** 各字段旧值→新值明细 */
+  changes: PlanChangeFieldChange[];
+}
+
+/** 计划变更事件明细返回（分页；total = 批次数，与 P3 第 3 专项柱值同口径） */
+export interface PlanChangeEventResult {
+  items: PlanChangeEventItem[];
   total: number;
   page: number;
   page_size: number;

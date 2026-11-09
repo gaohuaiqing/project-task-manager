@@ -29,6 +29,7 @@ import type {
   OverdueStartOverview, OverdueStartMemberStat,
   DelayDetailQueryOptions, DelayDetailResult,
   DelayEventQueryOptions, DelayEventItem, DelayEventResult,
+  PlanChangeEventQueryOptions, PlanChangeEventItem, PlanChangeEventResult, PlanChangeFieldChange,
   ScopeStats, RiskMemberStat, RiskTrendStat,
 } from './types';
 import { buildTaskScopeFilter, buildProjectScopeFilter, buildUserDepartmentScopeFilter, ScopeFilter, getManagedDepartmentIds as getManagedDepartmentIdsSafe, getTechManagerGroupIds as getTechManagerGroupIdsSafe } from './query-builder';
@@ -995,6 +996,52 @@ export class AnalyticsRepository {
     return m;
   }
 
+  /**
+   * v3 事件归属口径：按 pc.assignee_id 聚合计划变更事件批次数（双视角核心查询）
+   * 「变更事件」= 仅已生效变更（approved），批次级计数：一次提交多字段 = 1 个事件
+   * （COUNT(DISTINCT COALESCE(submission_id, id))，submission_id NULL 的旧行按 id 自成一批）。
+   * 分组键是变更生效时的负责人（assignee_id 快照），与任务当前 assignee 分组键不同，
+   * 故不能在原 SQL 内改列，各调用点独立查询后在 TS 侧 merge（与 countDelayEventsByAssignee 同模式）。
+   * @param scopeFilter 权限范围（作用在任务/项目别名 t./p. 上，pc JOIN 后沿用）
+   * @param startDate/endDate 时间段（可选，过滤 COALESCE(pc.approved_at, pc.created_at) 生效落期）
+   * @param projectId 项目筛选（可选）
+   * @returns Map<assigneeId(未分配=0), { name, deptId, count }>
+   */
+  private async countPlanChangeEventsByAssignee(
+    scopeFilter: ScopeFilter,
+    startDate: string | null,
+    endDate: string | null,
+    projectId?: string
+  ): Promise<Map<number, { name: string; deptId: number; count: number }>> {
+    const pool = getPool();
+    const conds = [scopeFilter.clause, `pc.status = 'approved'`];
+    const params: (string | number)[] = [...scopeFilter.params];
+    if (startDate && endDate) { conds.push('COALESCE(pc.approved_at, pc.created_at) BETWEEN ? AND ?'); params.push(startDate, endDate); }
+    if (projectId) { conds.push('t.project_id = ?'); params.push(projectId); }
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT pc.assignee_id,
+              IF(pc.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS assignee_name,
+              COALESCE(u.department_id, 0) AS dept_id,
+              COUNT(DISTINCT COALESCE(pc.submission_id, pc.id)) AS event_count
+       FROM plan_changes pc
+       JOIN wbs_tasks t ON pc.task_id = t.id
+       JOIN projects p ON t.project_id = p.id
+       LEFT JOIN users u ON pc.assignee_id = u.id
+       WHERE ${conds.join(' AND ')}
+       GROUP BY pc.assignee_id, u.real_name, u.username, u.department_id`,
+      params
+    );
+    const m = new Map<number, { name: string; deptId: number; count: number }>();
+    for (const r of rows as RowDataPacket[]) {
+      m.set(Number(r.assignee_id), {
+        name: String(r.assignee_name ?? '未知'),
+        deptId: Number(r.dept_id) || 0,
+        count: Number(r.event_count) || 0,
+      });
+    }
+    return m;
+  }
+
   /** v2: 改善方向：本期 vs 上期（前一同等长度） */
   private async computeImprovement(
     scopeFilter: ScopeFilter,
@@ -1143,14 +1190,16 @@ export class AnalyticsRepository {
     const teamCurrentDelayed = await this.countDelayOrOverdue(scopeFilter, null, null);
     const teamPeriodDelayed = hasPeriod ? await this.countDelayOrOverdue(scopeFilter, sd!, ed!) : teamCurrentDelayed;
 
-    const [teamAggRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT
-         SUM(COALESCE(t.plan_change_count, 0)) AS plan_change_count
-       FROM wbs_tasks t JOIN projects p ON t.project_id = p.id
-       WHERE ${scopeFilter.clause} AND ${DELAY_OR_OVERDUE}`,
-      scopeFilter.params
-    );
-    const teamAgg = (teamAggRows as RowDataPacket[])[0] || {};
+    // v3 事件口径：团队累计计划变更次数 = approved 批次事件数（按 pc.assignee_id 快照分组，
+    // 含被驳回/超时的旧 SUM(plan_change_count) 提交批次数口径废弃）；
+    // current=全量事件数，period=时间段内生效事件数（COALESCE(approved_at, created_at) 落期），
+    // 与上方延期事件 current/period 槽位同模式；项目筛选不参与（与统计卡其余指标一致）
+    const teamPcEventsAll = await this.countPlanChangeEventsByAssignee(scopeFilter, null, null);
+    const teamPcTotalAll = [...teamPcEventsAll.values()].reduce((s, v) => s + v.count, 0);
+    const teamPcEventsPeriod = hasPeriod
+      ? await this.countPlanChangeEventsByAssignee(scopeFilter, sd, ed)
+      : teamPcEventsAll;
+    const teamPcTotalPeriod = [...teamPcEventsPeriod.values()].reduce((s, v) => s + v.count, 0);
     // 事件归属口径：团队累计延期次数 = 全量事件数（current）/ 时间段内事件数（period），
     // 按 dr.assignee_id 快照分组，v2 的 current/period 槽位从此真实区分
     const teamDelayEventsAll = await this.countDelayEventsByAssignee(scopeFilter, null, null);
@@ -1193,7 +1242,7 @@ export class AnalyticsRepository {
       team: {
         delayed_task_count: { current: teamCurrentDelayed, period: teamPeriodDelayed },
         total_delay_count: { current: teamDelayTotalAll, period: teamDelayTotalPeriod },
-        plan_change_count: { current: Number(teamAgg.plan_change_count) || 0, period: Number(teamAgg.plan_change_count) || 0 },
+        plan_change_count: { current: teamPcTotalAll, period: teamPcTotalPeriod },
       },
       individual: {
         avg_delay_count_per_member: {
@@ -1411,7 +1460,6 @@ export class AnalyticsRepository {
           `SELECT d.id AS dept_id, d.name AS dept_name,
                   COUNT(t.id) AS total_tasks,
                   SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_count,
-                  SUM(COALESCE(t.plan_change_count, 0)) AS plan_change_count,
                   ROUND(AVG(CASE WHEN ${DELAY_CONDITIONS.delayed} AND t.end_date IS NOT NULL
                       THEN DATEDIFF(CURDATE(), t.end_date) END), 1) AS avg_delay_days,
                   SUM(CASE WHEN ${MUTEX_STATUS_CONDITIONS.overdueStart} THEN 1 ELSE 0 END) AS overdue_start_count,
@@ -1454,13 +1502,42 @@ export class AnalyticsRepository {
         for (const r of deptEvRows as RowDataPacket[]) {
           deptEvMap.set(Number(r.dept_id) || 0, Number(r.event_count) || 0);
         }
+        // v3 事件口径：各组计划变更次数 = approved 批次事件数，按事件负责人快照（pc.assignee_id）
+        // 的 department_id 聚合，独立查询后 merge（未分配事件不计入任何组，与 deptEvMap 同语义）；
+        // 参数顺序与占位符出现顺序一致：deptScope 子查询参数在前，时间段参数在后
+        const deptPcEvParams: (string | number)[] = [...deptScope.params];
+        let deptPcEvTimeCond = '';
+        if (sd && ed) {
+          deptPcEvTimeCond = 'AND COALESCE(pc.approved_at, pc.created_at) BETWEEN ? AND ?';
+          deptPcEvParams.push(sd, ed);
+        }
+        const [deptPcEvRows] = await pool.execute<RowDataPacket[]>(
+          `SELECT COALESCE(u.department_id, 0) AS dept_id,
+                  COUNT(DISTINCT COALESCE(pc.submission_id, pc.id)) AS event_count
+           FROM plan_changes pc
+           JOIN wbs_tasks t ON pc.task_id = t.id
+           JOIN projects p ON t.project_id = p.id
+           LEFT JOIN users u ON pc.assignee_id = u.id
+           WHERE pc.status = 'approved'
+             AND u.department_id IN (
+               SELECT sub_u.department_id FROM users sub_u WHERE ${deptScope.clause.replace(/u\./g, 'sub_u.')}
+             )
+             ${deptPcEvTimeCond}
+           GROUP BY u.department_id`,
+          deptPcEvParams
+        );
+        const deptPcEvMap = new Map<number, number>();
+        for (const r of deptPcEvRows as RowDataPacket[]) {
+          deptPcEvMap.set(Number(r.dept_id) || 0, Number(r.event_count) || 0);
+        }
         for (const r of deptRows as RowDataPacket[]) {
           const total = Number(r.total_tasks) || 0;
           const delayed = Number(r.delayed_count) || 0;
           const overdueStartCount = Number(r.overdue_start_count) || 0;
-          const planChangeCount = Number(r.plan_change_count) || 0;
           // v2 Task 3：该组改善方向（按 dept_id 构造 dept scope，复用 computeImprovement）
           const deptId = Number(r.dept_id);
+          // v3 事件口径：本组计划变更次数 = 该组 approved 批次事件数（merge，0 兜底）
+          const planChangeCount = deptPcEvMap.get(deptId) ?? 0;
           // 事件归属口径：本组延期次数 = 该组事件数（merge，0 兜底）
           const totalDelayCount = deptEvMap.get(deptId) ?? 0;
           const deptScope: ScopeFilter = {
@@ -1609,14 +1686,15 @@ export class AnalyticsRepository {
 
     // P1：成员延期排名（增强：当前延期数 + 累计 + 计划变更 + 平均天数 + 部门 id）
     // dept_id 用于前端 dept_manager 选组下钻时按部门筛选成员
-    // 事件归属口径：任务口径列（delayed_task_count/plan_change_count/avg_delay_days）由任务查询提供，
-    // total_delay_count 改为按 dr.assignee_id 聚合的延期事件数（独立查询后 merge，排序随之切换）
+    // 事件归属口径：任务口径列（delayed_task_count/avg_delay_days）由任务查询提供，
+    // total_delay_count 改为按 dr.assignee_id 聚合的延期事件数（独立查询后 merge，排序随之切换）；
+    // v3: plan_change_count 同步切事件口径（approved 批次数，按 pc.assignee_id 快照分组独立查询后 merge），
+    // SQL 内旧 SUM(t.plan_change_count) 列与 HAVING 分支删除（「只有计划变更事件、当前无延期任务」的人由补人循环补齐）
     const [rankRows] = await pool.execute<RowDataPacket[]>(
       `SELECT t.assignee_id,
               IF(t.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS assignee_name,
               u.department_id AS dept_id,
               SUM(CASE WHEN ${DELAY_CONDITIONS.delayed} THEN 1 ELSE 0 END) AS delayed_task_count,
-              SUM(COALESCE(t.plan_change_count, 0)) AS plan_change_count,
               ROUND(AVG(CASE WHEN ${DELAY_CONDITIONS.delayed} AND t.end_date IS NOT NULL
                   THEN DATEDIFF(CURDATE(), t.end_date) END), 1) AS avg_delay_days
        FROM wbs_tasks t
@@ -1624,13 +1702,15 @@ export class AnalyticsRepository {
        LEFT JOIN users u ON t.assignee_id = u.id
        WHERE ${memberConds1.join(' AND ')}
        GROUP BY t.assignee_id, u.real_name, u.username, u.department_id
-       HAVING delayed_task_count > 0 OR plan_change_count > 0
+       HAVING delayed_task_count > 0
        ORDER BY delayed_task_count DESC
        LIMIT ${QUERY_LIMITS.DELAY_MEMBERS}`,
       memberParams1
     );
     // 事件归属口径（P3）：独立查询 + merge（分组键不同；只有历史事件、当前无任务的人也要出现）
     const p3EvMap = await this.countDelayEventsByAssignee(scopeFilter, sd, ed, options.project_id);
+    // v3 事件口径（P3 第 3 专项榜数据源）：approved 计划变更批次数，按生效时负责人快照分组
+    const pcEvMap = await this.countPlanChangeEventsByAssignee(scopeFilter, sd, ed, options.project_id);
     const rankingAll: MemberDelayStat[] = [];
     const seen = new Set<number>();
     for (const r of rankRows as RowDataPacket[]) {
@@ -1641,24 +1721,27 @@ export class AnalyticsRepository {
         assignee_name: String(r.assignee_name ?? '未分配'),
         delayed_task_count: Number(r.delayed_task_count) || 0,
         total_delay_count: p3EvMap.get(assigneeId)?.count ?? 0,
-        plan_change_count: Number(r.plan_change_count) || 0,
+        plan_change_count: pcEvMap.get(assigneeId)?.count ?? 0,
         avg_delay_days: Number(r.avg_delay_days) || 0,
         // 未分配成员 assignee_id IS NULL → u.department_id 也 NULL，||0 兜底
         dept_id: Number(r.dept_id) || 0,
         improvement_delta: 0,
       });
     }
-    // 补「只有历史事件、当前无任务」的人（任务口径各列为 0，事件数为其实际次数）
-    for (const [id, v] of p3EvMap) {
+    // 补「只有历史事件、当前无延期任务」的人（延期/计划变更事件 map 键并集；任务口径各列为 0，事件数为其实际次数）
+    const extraIds = new Set<number>([...p3EvMap.keys(), ...pcEvMap.keys()]);
+    for (const id of extraIds) {
       if (!seen.has(id)) {
+        const ev = p3EvMap.get(id);
+        const pc = pcEvMap.get(id);
         rankingAll.push({
           assignee_id: id,
-          assignee_name: v.name,
+          assignee_name: pc?.name ?? ev?.name ?? '未知',
           delayed_task_count: 0,
-          total_delay_count: v.count,
-          plan_change_count: 0,
+          total_delay_count: ev?.count ?? 0,
+          plan_change_count: pc?.count ?? 0,
           avg_delay_days: 0,
-          dept_id: v.deptId,
+          dept_id: pc?.deptId ?? ev?.deptId ?? 0,
           improvement_delta: 0,
         });
       }
@@ -2144,14 +2227,26 @@ export class AnalyticsRepository {
     const offset = (page - 1) * pageSize;
 
     // 明细列表（id 为 UUID 字符串；created_at 加 id 做 tiebreaker 保证翻页稳定）
+    // v3: 补项目名（p.name）与根任务名（root_map 递归 CTE 上溯 parent_id 链，顶层根=自身，
+    // 与 getDelayDetailTasks 同款；链断/无根 → NULL，前端显示 -）
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT dr.id, dr.task_id, t.description AS task_description,
+      `WITH RECURSIVE root_map AS (
+        SELECT id AS task_id, description AS root_task_name
+        FROM wbs_tasks WHERE parent_id IS NULL
+        UNION ALL
+        SELECT t.id, rm.root_task_name
+        FROM wbs_tasks t INNER JOIN root_map rm ON t.parent_id = rm.task_id
+      )
+      SELECT dr.id, dr.task_id, t.description AS task_description,
+              p.name AS project_name,
+              rm.root_task_name,
               dr.assignee_id,
               IF(dr.assignee_id IS NULL, '未分配', COALESCE(u.real_name, u.username, '未知')) AS assignee_name,
               dr.delay_days, dr.created_at
        FROM delay_records dr
        JOIN wbs_tasks t ON dr.task_id = t.id
        JOIN projects p ON t.project_id = p.id
+       LEFT JOIN root_map rm ON t.id = rm.task_id
        LEFT JOIN users u ON dr.assignee_id = u.id
        ${whereClause}
        ORDER BY dr.created_at DESC, dr.id DESC
@@ -2165,11 +2260,145 @@ export class AnalyticsRepository {
       task_id: String(r.task_id),
       task_description: sanitizeString(String(r.task_description ?? '')),
       wbs_code: wbsMap.get(String(r.task_id)) ?? null,
+      project_name: r.project_name != null ? String(r.project_name) : null,
+      root_task_name: r.root_task_name != null ? String(r.root_task_name) : null,
       assignee_id: r.assignee_id != null ? Number(r.assignee_id) : null,
       assignee_name: String(r.assignee_name ?? '未知'),
       delay_days: Number(r.delay_days) || 0,
       created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     }));
+
+    return { items, total, page, page_size: pageSize };
+  }
+
+  /**
+   * 计划变更事件明细分页查询（v3 双视角：一个批次 = 一次变更事件 = 一行）
+   * 口径与 countPlanChangeEventsByAssignee 一致：
+   * - 行粒度=批次：按 COALESCE(pc.submission_id, pc.id) 分组（一次提交多字段=1 事件），
+   *   仅 approved（直接变更+审批通过，不含 rejected/timeout/pending）
+   * - 归属/筛选：按变更生效时负责人 pc.assignee_id 快照（与任务当前 assignee 解耦）
+   * - 时间段：生效落期 COALESCE(pc.approved_at, pc.created_at) BETWEEN
+   * - 权限：scopeFilter 作用在任务/项目别名 t./p. 上，与 P3 第 3 专项榜同款 scope，
+   *   保证明细 total 与排行柱值对账一致（total = 批次数）
+   * - change_kind：approver=提交人（自审）= 直接变更，否则=审批通过
+   * - 字段明细走二次查询（batch IN，每页 ≤20 批次 × 每批少量字段行，GROUP_CONCAT 解析有逗号/冒号歧义风险故不用）
+   * - wbs_code 非表列，走 getWbsCodeMap；根任务名走 root_map 递归 CTE（与 delay-events 同款）
+   */
+  async getPlanChangeEvents(options: PlanChangeEventQueryOptions, user: User): Promise<PlanChangeEventResult> {
+    const pool = getPool();
+    const scopeFilter = await buildTaskScopeFilter(user, 't', true);
+
+    const conds: string[] = [scopeFilter.clause, `pc.status = 'approved'`];
+    const params: (string | number)[] = [...scopeFilter.params];
+    if (options.project_id) {
+      conds.push('t.project_id = ?');
+      params.push(options.project_id);
+    }
+    if (options.assignee_id != null) {
+      conds.push('pc.assignee_id = ?');
+      params.push(options.assignee_id);
+    }
+    if (options.start_date && options.end_date) {
+      conds.push('COALESCE(pc.approved_at, pc.created_at) BETWEEN ? AND ?');
+      params.push(options.start_date, options.end_date);
+    }
+    const whereClause = `WHERE ${conds.join(' AND ')}`;
+
+    // 总数 = 批次数（与 P3 第 3 专项柱值同口径）
+    const [countRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS cnt FROM (
+         SELECT 1 FROM plan_changes pc
+         JOIN wbs_tasks t ON pc.task_id = t.id
+         JOIN projects p ON t.project_id = p.id
+         ${whereClause}
+         GROUP BY COALESCE(pc.submission_id, pc.id)
+       ) x`,
+      params
+    );
+    const total = Number((countRows as RowDataPacket[])[0]?.cnt) || 0;
+
+    // 分页（数字 clamp 后安全拼接，避免 mysql2 prepared LIMIT ? 限制）
+    const page = Math.max(1, Number(options.page) || 1);
+    const pageSize = Math.max(1, Math.min(100, Number(options.page_size) || 20));
+    const offset = (page - 1) * pageSize;
+
+    // 批次行列表（生效时间加批次键做 tiebreaker 保证翻页稳定；
+    // assignee_name 用聚合表达式兼容 ONLY_FULL_GROUP_BY：MAX(pc.assignee_id) 与分组键等值）
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `WITH RECURSIVE root_map AS (
+        SELECT id AS task_id, description AS root_task_name
+        FROM wbs_tasks WHERE parent_id IS NULL
+        UNION ALL
+        SELECT t.id, rm.root_task_name
+        FROM wbs_tasks t INNER JOIN root_map rm ON t.parent_id = rm.task_id
+      )
+      SELECT COALESCE(pc.submission_id, pc.id) AS batch_id,
+              pc.task_id,
+              MAX(t.description) AS task_description,
+              MAX(p.name) AS project_name,
+              MAX(rm.root_task_name) AS root_task_name,
+              MAX(pc.assignee_id) AS assignee_id,
+              IF(MAX(pc.assignee_id) IS NULL, '未分配',
+                 COALESCE(MAX(u.real_name), MAX(u.username), '未知')) AS assignee_name,
+              MIN(COALESCE(pc.approved_at, pc.created_at)) AS effective_at,
+              MAX(pc.approver_id = pc.user_id) AS is_direct
+       FROM plan_changes pc
+       JOIN wbs_tasks t ON pc.task_id = t.id
+       JOIN projects p ON t.project_id = p.id
+       LEFT JOIN root_map rm ON t.id = rm.task_id
+       LEFT JOIN users u ON pc.assignee_id = u.id
+       ${whereClause}
+       GROUP BY COALESCE(pc.submission_id, pc.id), pc.task_id
+       ORDER BY effective_at DESC, batch_id DESC
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params
+    );
+
+    // 字段明细二次查询：当前页各批次的 plan_changes 行（旧值→新值逐字段）
+    const batchRows = rows as RowDataPacket[];
+    const batchIds = [...new Set(batchRows.map(r => String(r.batch_id)))];
+    const changesByBatch = new Map<string, PlanChangeFieldChange[]>();
+    if (batchIds.length > 0) {
+      const placeholders = batchIds.map(() => '?').join(',');
+      const [detailRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT COALESCE(pc.submission_id, pc.id) AS batch_id,
+                pc.change_type, pc.old_value, pc.new_value
+         FROM plan_changes pc
+         WHERE COALESCE(pc.submission_id, pc.id) IN (${placeholders})
+         ORDER BY pc.created_at ASC, pc.id ASC`,
+        batchIds
+      );
+      for (const r of detailRows as RowDataPacket[]) {
+        const key = String(r.batch_id);
+        const list = changesByBatch.get(key) ?? [];
+        list.push({
+          change_type: String(r.change_type ?? ''),
+          old_value: r.old_value != null ? String(r.old_value) : null,
+          new_value: String(r.new_value ?? ''),
+        });
+        changesByBatch.set(key, list);
+      }
+    }
+
+    const wbsMap = await this.getWbsCodeMap(user);
+    const items: PlanChangeEventItem[] = batchRows.map(r => {
+      const batchId = String(r.batch_id);
+      const changes = changesByBatch.get(batchId) ?? [];
+      return {
+        id: batchId,
+        task_id: String(r.task_id),
+        task_description: sanitizeString(String(r.task_description ?? '')),
+        wbs_code: wbsMap.get(String(r.task_id)) ?? null,
+        project_name: r.project_name != null ? String(r.project_name) : null,
+        root_task_name: r.root_task_name != null ? String(r.root_task_name) : null,
+        assignee_id: r.assignee_id != null ? Number(r.assignee_id) : null,
+        assignee_name: String(r.assignee_name ?? '未知'),
+        effective_at: r.effective_at instanceof Date ? r.effective_at.toISOString() : String(r.effective_at),
+        change_kind: Number(r.is_direct) === 1 ? 'direct' : 'approval',
+        change_types: [...new Set(changes.map(c => c.change_type))],
+        changes,
+      };
+    });
 
     return { items, total, page, page_size: pageSize };
   }

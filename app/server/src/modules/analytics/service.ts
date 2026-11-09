@@ -18,6 +18,7 @@ import type {
   ActivityTrendQueryOptions, ActivityTrendResponse,
   DelayDetailQueryOptions, DelayDetailResult,
   DelayEventQueryOptions, DelayEventResult,
+  PlanChangeEventQueryOptions, PlanChangeEventResult,
 } from './types';
 import { MetricsService, ScopeService, TrendService } from './services';
 import type { Workbook, Worksheet, Cell } from 'exceljs';
@@ -126,6 +127,15 @@ export class AnalyticsService {
       throw new ForbiddenError('无权限查看延期分析报表');
     }
     return this.repo.getDelayEvents(options, currentUser);
+  }
+
+  /** 计划变更事件明细（v3：行粒度=批次，approved 事件口径，供 P3 第 3 专项下钻弹窗） */
+  async getPlanChangeEvents(options: PlanChangeEventQueryOptions, currentUser: User): Promise<PlanChangeEventResult> {
+    // 权限检查：engineer 不可见报表分析模块（与相邻 reports 方法一致）
+    if (currentUser.role === 'engineer') {
+      throw new ForbiddenError('无权限查看延期分析报表');
+    }
+    return this.repo.getPlanChangeEvents(options, currentUser);
   }
 
   async getMemberAnalysisReport(memberId: number, currentUser: User): Promise<MemberAnalysisReport | null> {
