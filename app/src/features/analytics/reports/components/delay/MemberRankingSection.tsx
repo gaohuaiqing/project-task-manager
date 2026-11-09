@@ -22,6 +22,8 @@ export interface MemberRankingSectionProps {
   selectedDeptId?: number | null;
   /** 双视角：点击"延期次数排行"柱子下钻该成员延期事件明细（事件归属口径，与柱值同口径） */
   onEventDrillDown?: (member: { assigneeId: number; name: string }) => void;
+  /** v3 双视角：点击"计划变更排行"柱子下钻该成员计划变更事件明细（approved 批次事件口径，与柱值同口径） */
+  onChangeEventDrillDown?: (member: { assigneeId: number; name: string }) => void;
   /** v2 交互增强：点击"逾期未开始排行"柱子下钻该成员逾期未开始任务明细 */
   onDrillDown?: (filters: DelayDetailQuery, title: string) => void;
   /** v2 修复：返回全部人员（清除组筛选） */
@@ -47,6 +49,7 @@ export function MemberRankingSection({
   selectedDeptName,
   selectedDeptId,
   onEventDrillDown,
+  onChangeEventDrillDown,
   onDrillDown,
   onClearDept,
 }: MemberRankingSectionProps) {
@@ -154,7 +157,7 @@ export function MemberRankingSection({
 
         <ChartContainer
           title="计划变更排行"
-          subtitle={`${subtitle} · 计划变更次数（时间段内，由高到低）`}
+          subtitle={`${subtitle} · 计划变更次数（时间段内，已生效口径，由高到低${onChangeEventDrillDown ? '，点击柱子查看变更事件' : ''}）`}
         >
           <BarChart
             data={changeChart}
@@ -163,6 +166,11 @@ export function MemberRankingSection({
             showLegend={false}
             height={heightFor(byChangeCount)}
             yAxisLabel="成员"
+            onBarClick={onChangeEventDrillDown ? ({ index }) => {
+              const m = byChangeCount[index];
+              // 「未分配」聚合行 assigneeId=0（后端 assignee_id NULL 数字化），不可下钻（与延期次数排行同规则）
+              if (m && m.assigneeId > 0) onChangeEventDrillDown({ assigneeId: m.assigneeId, name: m.assigneeName });
+            } : undefined}
           />
         </ChartContainer>
 

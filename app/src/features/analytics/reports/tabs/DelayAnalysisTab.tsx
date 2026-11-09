@@ -33,6 +33,8 @@ import { DelayEventSection } from '../components/delay/DelayEventSection';
 import { DelayTaskDetailDialog } from '../components/delay/DelayTaskDetailDialog';
 import { DelayEventDetailDialog } from '../components/delay/DelayEventDetailDialog';
 import type { DelayEventDialogFilters } from '../components/delay/DelayEventDetailDialog';
+import { PlanChangeEventDialog } from '../components/delay/PlanChangeEventDialog';
+import type { PlanChangeEventDialogFilters } from '../components/delay/PlanChangeEventDialog';
 
 /** 明细区 anchor id（统计总览支撑卡点击后滚动定位） */
 const DETAIL_ANCHOR_ID = 'delay-detail';
@@ -99,6 +101,27 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
     });
   };
 
+  // v3 双视角：P3 计划变更排行下钻弹窗（成员计划变更事件，approved 批次事件口径）
+  const [changeEventDialog, setChangeEventDialog] = useState<{ open: boolean; title: string; filters: PlanChangeEventDialogFilters }>({
+    open: false,
+    title: '',
+    filters: { assignee_id: 0 }, // assignee_id 占位：open=false 时 useQuery enabled 不发请求
+  });
+  const openChangeEventDetail = (member: { assigneeId: number; name: string }) => {
+    setChangeEventDialog({
+      open: true,
+      title: `${member.name} 的计划变更`,
+      // 事件口径必须合并当前时间段 + 项目筛选（P3 榜单 planChangeCount 同参数，
+      // 后端 countPlanChangeEventsByAssignee 与 plan-change-events API 均含此二者），保证弹窗 total = P3 柱值
+      filters: {
+        assignee_id: member.assigneeId,
+        project_id: filters.projectId || undefined,
+        start_date: filters.startDate || undefined,
+        end_date: filters.endDate || undefined,
+      },
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">加载中...</div>
@@ -146,6 +169,7 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
         selectedDeptName={selectedDeptName}
         selectedDeptId={selectedDeptId}
         onEventDrillDown={openEventDetail}
+        onChangeEventDrillDown={openChangeEventDetail}
         onDrillDown={openDetail}
         onClearDept={() => handleSelectDept(null)}
       />
@@ -239,6 +263,14 @@ export function DelayAnalysisTab({ filters }: DelayAnalysisTabProps) {
         onOpenChange={(open) => setEventDialog((s) => ({ ...s, open }))}
         title={eventDialog.title}
         filters={eventDialog.filters}
+      />
+
+      {/* v3 双视角：P3 计划变更排行下钻弹窗（点击计划变更排行柱子触发，approved 批次事件口径=时间段+项目筛选） */}
+      <PlanChangeEventDialog
+        open={changeEventDialog.open}
+        onOpenChange={(open) => setChangeEventDialog((s) => ({ ...s, open }))}
+        title={changeEventDialog.title}
+        filters={changeEventDialog.filters}
       />
     </div>
   );

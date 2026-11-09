@@ -143,6 +143,12 @@ export function PlanChangesPanel({ changes }: PlanChangesPanelProps) {
               <User className="h-3 w-3" />
               申请人：{change.userName || '未知'}
             </div>
+
+            {/* 当时负责人（v3 双视角：变更时点的任务负责人快照；NULL=当时未分配，悬空 ID 显示未知） */}
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <User className="h-3 w-3" />
+              当时负责人：{change.assigneeId == null ? '未分配' : (change.assigneeName || '未知')}
+            </div>
           </div>
         );
       })}
