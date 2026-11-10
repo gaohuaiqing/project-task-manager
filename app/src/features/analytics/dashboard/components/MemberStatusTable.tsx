@@ -215,15 +215,17 @@ export function MemberStatusTable({
                   )}
                   onClick={() => onMemberClick?.(member)}
                 >
-                  {/* 成员信息 */}
+                  {/* 成员信息：仅在存在真实头像 URL 时渲染头像圈，避免姓名字重复显示两遍 */}
                   <TableCell className="py-2">
                     <div className="flex items-center gap-2">
-                      <Avatar className="w-6 h-6">
-                        <AvatarImage src={member.avatar} />
-                        <AvatarFallback className="text-xs">
-                          {displayName.slice(0, 2)}
-                        </AvatarFallback>
-                      </Avatar>
+                      {member.avatar && (
+                        <Avatar className="w-6 h-6">
+                          <AvatarImage src={member.avatar} />
+                          <AvatarFallback className="text-xs">
+                            {displayName.slice(-1)}
+                          </AvatarFallback>
+                        </Avatar>
+                      )}
                       <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                         {displayName}
                       </span>

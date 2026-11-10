@@ -3,8 +3,8 @@
  * - 延期次数排行：by totalDelayCount DESC（事件归属口径；双视角：点击柱子下钻该成员延期事件明细）
  * - 逾期未开始排行：by count DESC（实时口径，与下钻 API overdue_start:true 同口径；点击柱子下钻）
  * - 计划变更排行：by planChangeCount DESC
- * - 改善之星排行：by improvementDelta ASC（负值=本期比上期延期更少，置顶）
- * - 落后排行：by improvementDelta DESC（正值=本期比上期延期更多，置顶）
+ * - 改善之星排行：仅收录 improvementDelta<0 成员，ASC 置顶（本期比上期延期减少最多）
+ * - 落后排行：仅收录 improvementDelta>0 成员，DESC 置顶（本期比上期延期增加最多；反向柱会误导「增加最多」读数，故不混入改善者）
  * - 改善/落后标准：delta = 本期延期任务数 − 上期（需选定时间段；无时间段走近30天vs前30天兜底）
  * - 各柱图独立、showValues 标柱数值
  * - 保留部门下钻：dept_manager 点组后只显示该组成员；提供显眼"返回全部"按钮
@@ -72,8 +72,10 @@ export function MemberRankingSection({
   const byDelayCount = [...filtered].sort((a, b) => b.totalDelayCount - a.totalDelayCount);
   const byChangeCount = [...filtered].sort((a, b) => b.planChangeCount - a.planChangeCount);
   // improvementDelta = 本期延期数 − 上期延期数
-  const byImprovement = [...filtered].sort((a, b) => a.improvementDelta - b.improvementDelta); // ASC 改善置顶
-  const byWorsening = [...filtered].sort((a, b) => b.improvementDelta - a.improvementDelta);    // DESC 恶化置顶
+  // 按符号过滤入榜成员：改善榜只收 delta<0、落后榜只收 delta>0（delta=0 两榜均不进），
+  // 避免榜内出现与榜单语义相反的反向柱（如落后榜里大幅改善者的超长负柱误导「增加最多」读数）
+  const byImprovement = filtered.filter((m) => m.improvementDelta < 0).sort((a, b) => a.improvementDelta - b.improvementDelta); // ASC 改善最多置顶
+  const byWorsening = filtered.filter((m) => m.improvementDelta > 0).sort((a, b) => b.improvementDelta - a.improvementDelta);    // DESC 恶化最多置顶
 
   const delayChart = buildSingleMetricChart(byDelayCount, '延期次数', (m) => m.totalDelayCount, '#ef4444');
   const changeChart = buildSingleMetricChart(byChangeCount, '计划变更次数', (m) => m.planChangeCount, '#3b82f6');
@@ -97,7 +99,7 @@ export function MemberRankingSection({
       {/* 顶部：改善/落后标准说明 + 组筛选时的返回全部按钮 */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <div className="text-muted-foreground">
-          改善之星/落后排行基于「本期 vs 上期」延期任务数变化（delta = 本期 − 上期，<span className="text-green-600 font-medium">负=改善</span>、<span className="text-red-600 font-medium">正=恶化</span>），需选定时间段
+          改善之星/落后排行基于「本期 vs 上期」延期任务数变化（delta = 本期 − 上期，<span className="text-green-600 font-medium">负=改善</span>、<span className="text-red-600 font-medium">正=恶化</span>），改善榜仅收录 delta&lt;0、落后榜仅收录 delta&gt;0 的成员，需选定时间段
         </div>
         {selectedDeptName && onClearDept && (
           <button
@@ -176,30 +178,42 @@ export function MemberRankingSection({
 
         <ChartContainer
           title="改善之星排行"
-          subtitle={`${subtitle} · 本期比上期延期减少最多（delta 最负置顶）`}
+          subtitle={`${subtitle} · 本期比上期延期减少最多（仅收录改善成员 delta<0）`}
         >
-          <BarChart
-            data={starChart}
-            layout="vertical"
-            showValues
-            showLegend={false}
-            height={heightFor(byImprovement)}
-            yAxisLabel="成员"
-          />
+          {byImprovement.length === 0 ? (
+            <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
+              {selectedDeptName ? `${selectedDeptName} 本期无人延期减少` : '本期无人延期减少（delta 均 ≥ 0）'}
+            </div>
+          ) : (
+            <BarChart
+              data={starChart}
+              layout="vertical"
+              showValues
+              showLegend={false}
+              height={heightFor(byImprovement)}
+              yAxisLabel="成员"
+            />
+          )}
         </ChartContainer>
 
         <ChartContainer
           title="落后排行"
-          subtitle={`${subtitle} · 本期比上期延期增加最多（delta 最正置顶）`}
+          subtitle={`${subtitle} · 本期比上期延期增加最多（仅收录恶化成员 delta>0）`}
         >
-          <BarChart
-            data={worseChart}
-            layout="vertical"
-            showValues
-            showLegend={false}
-            height={heightFor(byWorsening)}
-            yAxisLabel="成员"
-          />
+          {byWorsening.length === 0 ? (
+            <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
+              {selectedDeptName ? `${selectedDeptName} 本期无人延期增加` : '本期无人延期增加（delta 均 ≤ 0）'}
+            </div>
+          ) : (
+            <BarChart
+              data={worseChart}
+              layout="vertical"
+              showValues
+              showLegend={false}
+              height={heightFor(byWorsening)}
+              yAxisLabel="成员"
+            />
+          )}
         </ChartContainer>
       </ChartGroup>
     </div>
